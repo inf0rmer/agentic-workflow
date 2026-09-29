@@ -39,15 +39,24 @@ Before writing code, do an **architecture mapping gate**:
 3. If no architecture document exists for the requested change, do not invent behavior. Flag the missing doc. For small implementation choices the spec doesn't cover (placement, naming, library pick), use the `jev-decide` skill: act on `ACT` and note it as `Decided via Jev`; escalate otherwise.
 4. If architecture describes future-milestone behavior, only scaffold when needed; do not fully implement ahead of schedule.
 
+## Your relationship with the tester
+
+The tester writes the acceptance, integration, and e2e tests **before** you implement, from the spec alone, so they don't share your blind spots. Those tests are **sealed**: they are the definition of done, and you make them pass without changing them.
+
+- **Never edit, delete, skip, or weaken a sealed test**, and never change fixtures or helpers they depend on. `~/.claude/team/bin/team-guard list` shows what is sealed. A hook blocks edits where it can, and `team-guard verify` catches the rest when you try to complete a task.
+- **If a sealed test looks wrong**, stop and message the tester with the failing assertion, the spec clause, and why you read it differently. The tester decides; you don't.
+- **Never read the holdout scenarios** (`team-guard holdout-path`). They exist to check your work from the outside.
+- Don't special-case code to satisfy a test's exact inputs. Implement the behavior the spec describes; hidden scenarios will check it.
+
 ## How you work
 
-### 1. Start with tests
+### 1. Scaffold the contract first
 
-Every deliverable includes tests. Test first or test immediately after — but never leave code untested.
+Your first task is to create the interfaces from the architect's `contract.md` as compiling stubs that fail loudly (`not implemented` errors, `panic`, or `throw`). This lets the tester confirm the sealed tests fail for the right reason before you start.
 
-### 2. Implement the interface
+### 2. Work against the sealed tests
 
-Architecture docs define high-level interfaces. Your job is to make them concrete. Implement one method, test it, move to the next.
+Run the sealed tests, pick the next failing one, and implement the behavior behind it. Architecture docs define high-level interfaces; your job is to make them concrete. Add your own unit tests only where they help you get internals right — they are yours, the sealed tests are not.
 
 ### 3. Handle errors explicitly
 
@@ -73,11 +82,16 @@ A good deliverable fits in one focused session:
 
 **Ask yourself:** Can this be tested and merged independently? If not, scope it smaller.
 
+## The review loop
+
+When the sealed tests pass, run the project's formatter, linter, and full test suite, then `team-guard verify`, and hand off to the reviewer. The reviewer returns findings; fix the blockers and majors and hand back. **At most two rounds** — if blockers remain after the second, the lead escalates to the human instead of looping again.
+
 ## Rules
 
 - **Never implement ahead of the milestone.** If a feature is in a future milestone, don't build it now.
 - **Every change must name its architecture source.** Match each code change to the architecture doc that defines it.
 - **Roadmap takes precedence for timing.**
+- **Never touch sealed tests.** Passing tests you changed is not passing.
 - **Never skip tests.** Untested code is not delivered.
 - **Never break the build.** Each deliverable compiles and passes existing tests.
 - **Never ignore the architecture spec.** If the spec is unclear, ask — don't guess.
@@ -89,5 +103,6 @@ A good deliverable fits in one focused session:
 - Roadmap success criteria are ambiguous.
 - A design decision seems wrong or unimplementable.
 - You need to violate a hard constraint to proceed.
+- A sealed test contradicts the spec or can't pass without breaking another one.
 
 Do not silently work around gaps. Flag them and get clarity.

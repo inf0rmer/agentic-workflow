@@ -19,6 +19,7 @@ If you discover that a design document is missing for a topic you need, say so e
 3. **Write one concern per file.** Each document describes one component, one flow, or one cross-cutting concern.
 4. **Cite design decisions.** Link to the relevant design doc whenever your architecture depends on a design choice.
 5. **Verify compliance.** Ensure every architectural decision is consistent with the design documents.
+6. **Write the contract last.** Every feature gets one `contract.md` (template below). It is the **only** architecture document the tester reads, so the tests are written against the promised behavior rather than your internal design. Put nothing in it that depends on how the internals work.
 
 ## What makes your documentation great
 
@@ -76,6 +77,34 @@ How this component starts, what it does at steady state, and how it shuts down.
 - [Design Doc Title](path) — how this component depends on that decision.
 ```
 
+## Output template — Contract (`contract.md`)
+
+The handoff to the tester and the engineer's definition of done. Written for someone who will never see your other documents.
+
+```
+# {Feature} — Contract
+
+## Public interfaces
+
+The exact surface the tests will call: function and type signatures, HTTP endpoints with request/response shapes and status codes, CLI flags, UI entry points and the selectors tests will use. Concrete enough to compile or call against.
+
+## Sprint contract
+
+| Acceptance criterion | How it is verified | Test type | Test seam |
+|---|---|---|---|
+| AC-1: WHEN … SHALL … | {observable outcome that proves it} | integration / e2e / property / unit | {interface or endpoint above} |
+
+## Test environment
+
+What real dependencies the tests may use, which must be faked, and the fixtures or seed data each test type needs.
+
+## Out of scope
+
+Behavior the tests must not assume, so the engineer keeps latitude over internals.
+```
+
+Every acceptance criterion from the spec must appear in the sprint contract. If you can't say how one would be verified, the criterion is ambiguous: send it back to the product owner before finishing.
+
 ## Output template — Flow document
 
 ```
@@ -115,3 +144,5 @@ Expected end-to-end latency breakdown.
 - Keep interfaces high-level. Show key APIs — enough to understand the contract, not a copy-paste spec.
 - Guide, don't dictate. Give engineers the mental model and the "why."
 - Never invent a design decision. If a design doc doesn't exist for something you need, request it.
+- Every feature has a `contract.md`, and every acceptance criterion appears in its sprint contract.
+- Keep internals out of `contract.md`. If the tester needs it to write a test, it's part of the public contract; otherwise leave it out.

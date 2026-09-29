@@ -29,11 +29,11 @@ Scale the team to the task — a small bug fix might only need an engineer + tes
 
 | Agent | Role | Owns | Definition |
 |-------|------|------|------------|
-| **product-owner** | Product vision, roadmap & issues | Roadmap, issues | `~/.claude/agents/product-owner.md` |
+| **product-owner** | Product vision, roadmap, EARS acceptance criteria | Roadmap, issues, spec | `~/.claude/agents/product-owner.md` |
 | **researcher** | Research & design decisions | Design docs | `~/.claude/agents/researcher.md` |
-| **architect** | Architecture specs | Architecture docs | `~/.claude/agents/architect.md` |
+| **architect** | Architecture specs & test contract | Architecture docs, `contract.md` | `~/.claude/agents/architect.md` |
 | **software-engineer** | Implementation | Source code | `~/.claude/agents/software-engineer.md` |
-| **tester** | Tests & coverage | Test files | `~/.claude/agents/tester.md` |
+| **tester** | Spec tests, holdout scenarios, hardening | Test files, holdout scenarios | `~/.claude/agents/tester.md` |
 | **reviewer** | Code review & gap analysis | Nothing (read-only) | `~/.claude/agents/reviewer.md` |
 | **doc-writer** | User-facing docs | Documentation | `~/.claude/agents/doc-writer.md` |
 
@@ -47,11 +47,35 @@ Projects can override these by placing project-specific versions in `.claude/age
 
 Use task dependencies to enforce phase ordering. Teammates within a phase can work in parallel; cross-phase work is blocked until dependencies complete.
 
-- **Phase 1 — Scope & Design** (parallel): product-owner, researcher
-- **Phase 2 — Architecture:** architect (depends on Phase 1 tasks)
-- **Phase 3 — Implementation & Test** (parallel): software-engineer, tester
-- **Phase 4 — Review:** reviewer (depends on Phase 3 tasks)
+- **Phase 1 — Scope & Design** (parallel): product-owner (spec with numbered EARS acceptance criteria), researcher
+- **Phase 2 — Architecture & Spec Tests:**
+  - architect: design docs, then `contract.md` (public interfaces + sprint contract)
+  - software-engineer: scaffold the contract as failing stubs (depends on `contract.md`)
+  - tester, **isolated**: acceptance/integration/e2e/property tests from the spec and `contract.md` only; prove they fail against the stubs; commit and seal; write holdout scenarios (depends on `contract.md`)
+- **Phase 3 — Build & Review loop** (depends on sealed tests):
+  1. software-engineer makes the sealed tests pass without changing them.
+  2. tester runs `mutation-check` and kills or justifies surviving mutants (Phase B hardening).
+  3. A **fresh** reviewer reviews the diff against the spec. Fix and repeat — **at most two rounds**; blockers after round 2 go to the human.
+  4. The final round's reviewer also runs the holdout scenarios and reports satisfaction.
+- **Phase 4 — Human gate:** summary, review report, holdout satisfaction, and decision log to the human before any push.
 - **Phase 5 — Docs & Close-out** (parallel): doc-writer, product-owner
+
+### Context isolation
+
+Separation between agents only helps if their contexts stay separate. Shared context means shared blind spots.
+
+- **Tester spawn prompt:** only the paths to the spec and `contract.md`, and the task. Never paste design notes, implementation plans, or engineer output into it.
+- **Reviewer spawn prompt:** the spec, `contract.md`, and the base branch. Spawn a **new** reviewer each round, passing the previous round's report, not the engineer's explanations.
+- **Holdout scenarios** live outside the repo (`~/.claude/team/bin/team-guard holdout-path`). Never mention their content to the engineer.
+
+### Guard rails
+
+Tooling lives in `~/.claude/team/bin/`:
+
+- `team-guard seal|unseal|verify|list` — the tester seals committed tests; `verify` fails if any sealed file changed since its sealed commit. A `PreToolUse` hook blocks the engineer's edits to sealed files and holdout reads where the agent is identifiable, and a `TaskCompleted` hook blocks completing any task while a sealed test is modified.
+- `mutation-check --base <branch>` — mutation-tests only changed code (Go via gremlins, TypeScript via Stryker) and lists surviving mutants on changed lines.
+
+Deterministic checks (tests, `team-guard verify`, mutation results, lint) come before any LLM judgment, including Jev's and the reviewer's.
 
 ### File ownership
 
@@ -68,8 +92,9 @@ Small decisions shouldn't wait on a full research pass or block a phase. Any tea
 - **`ACT`** → take the choice, record it as `Decided via Jev: <choice> — <one-line reason>` in the task notes, and continue.
 - **`ESCALATE`** → follow the normal path (researcher, architect, or human), passing along Jev's leading choice and reasons.
 - **`DEFER`** → a risk (public contract, persisted data, security, cross-team) is clearly present. Hand it to the researcher or human with the reasons; Jev's choice is withheld so it doesn't anchor them.
-- **Blocked on a missing doc?** Instead of stopping, ask Jev; on `ACT` or `ESCALATE`, proceed with its choice marked `PROVISIONAL` in your output and keep going. Never on `DEFER`. The reviewer must confirm or reject every `PROVISIONAL` decision in Phase 4.
+- **Blocked on a missing doc?** Instead of stopping, ask Jev; on `ACT` or `ESCALATE`, proceed with its choice marked `PROVISIONAL` in your output and keep going. Never on `DEFER`. The reviewer must confirm or reject every `PROVISIONAL` decision in the review loop.
 - **Never use Jev** for open-ended design, security fixes, or anything that can't be described without PII, customer or tenant data, secrets, or source code. Jev is a third-party service.
+- **Jev never judges work.** Not code, tests, diffs, or whether a task is done. It gates small decisions and escalates; it is never the final arbiter, and no agent iterates until Jev approves.
 
 The reviewer reads the decision log (`jev-decisions.md` in the git directory) as part of every review.
 
