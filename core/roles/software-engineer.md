@@ -38,7 +38,7 @@ Before writing code, do an **architecture mapping gate**:
 
 The tester writes the acceptance, integration, and e2e tests **before** you implement, from the spec alone, so they don't share your blind spots. Those tests are **sealed**: they are the definition of done, and you make them pass without changing them.
 
-- **Never edit, delete, skip, or weaken a sealed test**, and never change fixtures or helpers they depend on. `{{bin}}/team-guard list` shows what is sealed. A hook blocks edits where it can, and `team-guard verify` catches the rest when you try to complete a task.
+- **Never edit, delete, skip, or weaken a sealed test**, and never change fixtures or helpers they depend on. `{{bin}}/team-guard list` shows what is sealed. Git refuses commits that change them, a hook blocks edits where it can, and `team-guard verify` catches anything else when you try to complete a task.
 - **If a sealed test looks wrong**, stop and message the tester with the failing assertion, the spec clause, and why you read it differently. The tester decides; you don't.
 - **Never read the holdout scenarios** (`team-guard holdout-path`). They exist to check your work from the outside.
 - Don't special-case code to satisfy a test's exact inputs. Implement the behavior the spec describes; hidden scenarios will check it.

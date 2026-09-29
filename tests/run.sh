@@ -49,7 +49,12 @@ check "verify passes when untouched" "unchanged" "$("$GUARD" verify)"
 echo 'func A() {}' >> pkg/a.go && git commit -qam impl
 check "production changes don't trip verify" "unchanged" "$("$GUARD" verify)"
 
-echo '// weakened' >> pkg/a_test.go && git commit -qam tweak
+check "sealing installs the pre-commit hook" "installed" "$("$GUARD" git-hook status)"
+echo '// weakened' >> pkg/a_test.go
+out=$(git commit -qam tweak 2>&1) && code=0 || code=$?
+check "pre-commit refuses a commit changing a sealed test" "changes sealed tests" "$out"
+check "pre-commit exits non-zero" "1" "$code"
+git commit -q --no-verify -am tweak   # simulate bypassing the hook
 out=$("$GUARD" verify 2>&1) && code=0 || code=$?
 check "verify catches committed tampering" "changed since" "$out"
 check "verify exits 2 on tampering" "2" "$code"
@@ -57,7 +62,10 @@ out=$(printf '{"cwd":"%s"}' "$PWD" | "$GUARD" hook-task 2>&1) && code=0 || code=
 check "TaskCompleted hook blocks with feedback" "can't complete" "$out"
 check "TaskCompleted hook exits 2" "2" "$code"
 
-git revert -q --no-edit HEAD >/dev/null 2>&1 || git revert --no-edit HEAD >/dev/null
+sealed=$("$GUARD" list | python3 -c 'import json,sys; print(json.load(sys.stdin)["files"]["pkg/a_test.go"])')
+git checkout -q "$sealed" -- pkg/a_test.go
+out=$(git commit -qm "restore sealed test" 2>&1) && code=0 || code=$?
+check "pre-commit allows restoring the sealed version" "0" "$code"
 check "verify passes after restoring" "unchanged" "$("$GUARD" verify)"
 
 rm pkg/a_test.go
@@ -77,6 +85,35 @@ check "engineer can't read holdout" '"deny"' "$(pretool software-engineer Read "
 [[ -z "$(pretool reviewer Read "$H/scenario-1.md")" ]] && echo "ok   reviewer may read holdout" || { echo "FAIL reviewer holdout"; fails=$((fails + 1)); }
 
 check "unseal is logged" '"action": "unseal"' "$("$GUARD" unseal pkg/a_test.go >/dev/null && "$GUARD" list)"
+echo '// sanctioned fix' >> pkg/a_test.go
+out=$(git commit -qam "tester fix" 2>&1) && code=0 || code=$?
+check "unsealed test can be committed" "0" "$code"
+
+echo "== git hook chaining"
+new_repo
+printf '#!/bin/sh\necho foreign-hook-ran\n' > .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+check "status sees a foreign hook" "foreign" "$("$GUARD" git-hook status)"
+check "install chains the existing hook" "chaining" "$("$GUARD" git-hook install)"
+echo x >> pkg/a.go
+check "chained hook still runs" "foreign-hook-ran" "$(git commit -am chained 2>&1)"
+check "uninstall restores the previous hook" "restored" "$("$GUARD" git-hook uninstall)"
+check "previous hook is back in place" "foreign-hook-ran" "$(cat .git/hooks/pre-commit)"
+"$GUARD" seal pkg/a_test.go >/dev/null
+check "verify warns when the hook is gone" "not installed" "$(rm .git/hooks/pre-commit && "$GUARD" verify 2>&1)"
+
+echo "== linked worktree"
+new_repo
+git worktree add -q "$WORK/wt" -b feat/wt
+cd "$WORK/wt"
+"$GUARD" seal pkg/a_test.go >/dev/null
+echo '// weakened' >> pkg/a_test.go
+check "pre-commit guards commits in a linked worktree" "changes sealed tests" "$(git commit -qam tweak 2>&1 || true)"
+git checkout -q pkg/a_test.go
+cd "$WORK/repo"
+echo '// main checkout edit' >> pkg/a_test.go
+out=$(git commit -qam "unrelated checkout" 2>&1) && code=0 || code=$?
+check "seals in one worktree don't block another" "0" "$code"
+cd "$WORK"
 
 if [[ "${1:-}" == "--slow" ]]; then
   echo "== mutation-check"

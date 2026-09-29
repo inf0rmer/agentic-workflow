@@ -67,7 +67,8 @@ The installer overwrites `~/.claude/CLAUDE.md` and the agent files (after backin
 
 ## Known limits
 
-- **Teammate identity.** Claude Code passes `agent_type` to tool hooks inside subagents, but documents no equivalent for agent-team teammates, and teammates don't apply a definition's frontmatter `hooks`. So the `PreToolUse` block only fires when the agent is identifiable; `team-guard verify` in the `TaskCompleted` hook catches tampering by anyone, because sealed files are compared with the commit they were sealed at.
+- **Three layers, from strongest to weakest.** (1) `team-guard verify` compares sealed files with the commit they were sealed at, so tampering is always *detected*, by any tool, at `TaskCompleted` and in review. (2) A git `pre-commit` hook, installed on first seal, *refuses* commits that change sealed tests in any harness; `--no-verify` bypasses it, which layer 1 still catches. (3) Harness hooks block edits *before* they happen, but only where the harness identifies the agent: Claude Code passes `agent_type` inside subagents, but documents no equivalent for agent-team teammates, and teammates don't apply a definition's frontmatter `hooks`.
+- **Other tools can replace the git hook.** Running `lefthook install` (as Grafana's `make lefthook-install` does) overwrites it; `team-guard verify` warns when that happens, and `team-guard git-hook install` re-chains it.
 - **An engineer can still run `team-guard unseal`.** It's logged, and the reviewer treats any unseal without a matching tester note as a blocker.
 - **Holdout isolation is by path.** Engineers are denied reads of the holdout directory where identifiable and told not to look; a `Bash` `cat` isn't intercepted.
 - **gremlins v0.5.1's `--diff` mode** skips every mutant when given a package path, so `mutation-check` runs gremlins per changed package and filters survivors to changed lines itself. Cost scales with package size.

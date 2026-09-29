@@ -72,7 +72,7 @@ Separation between agents only helps if their contexts stay separate. Shared con
 
 Tooling lives in `~/.claude/team/bin/`:
 
-- `team-guard seal|unseal|verify|list` — the tester seals committed tests; `verify` fails if any sealed file changed since its sealed commit. A `PreToolUse` hook blocks the engineer's edits to sealed files and holdout reads where the agent is identifiable, and a `TaskCompleted` hook blocks completing any task while a sealed test is modified.
+- `team-guard seal|unseal|verify|list` — the tester seals committed tests; `verify` fails if any sealed file changed since its sealed commit. Sealing installs a git `pre-commit` hook (chaining any existing one) that refuses commits changing sealed tests, whatever tool makes them. A `PreToolUse` hook blocks the engineer's edits to sealed files and holdout reads where the agent is identifiable, and a `TaskCompleted` hook blocks completing any task while a sealed test is modified.
 - `mutation-check --base <branch>` — mutation-tests only changed code (Go via gremlins, TypeScript via Stryker) and lists surviving mutants on changed lines.
 
 Deterministic checks (tests, `team-guard verify`, mutation results, lint) come before any LLM judgment, including Jev's and the reviewer's.
