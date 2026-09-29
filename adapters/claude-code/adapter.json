@@ -1,0 +1,19 @@
+{
+  "harness": "claude-code",
+  "models": {
+    "strong": "claude-opus-5-5",
+    "standard": "claude-sonnet-5",
+    "fast": "claude-haiku-4-5-20251001"
+  },
+  "vars": {
+    "team_intro": "For significant features or changes that are more than a few lines of code, use [Claude Code agent teams](https://code.claude.com/docs/en/agent-teams) with a structured multi-agent approach.",
+    "worktree_cmd": "use `/enter-worktree` or `git worktree add`",
+    "guard_hooks": "A `PreToolUse` hook blocks the engineer's edits to sealed files and holdout reads where the agent is identifiable, and a `TaskCompleted` hook blocks completing any task while a sealed test is modified.",
+    "bin": "~/.claude/team/bin",
+    "agents_dir": "~/.claude/agents",
+    "project_agents_dir": ".claude/agents",
+    "instructions_file": "CLAUDE.md",
+    "jev_skill": "`jev-decide` skill"
+  },
+  "instructions_footer": "@RTK.md\n"
+}

@@ -2,7 +2,11 @@
 
 A Claude Code agent-team workflow: product-owner, researcher, architect, software-engineer, tester, reviewer, and doc-writer, coordinated through `CLAUDE.md` and backed by a few guard-rail scripts.
 
-The first commit is a snapshot of the previous workflow, so `git diff <first commit>` shows the whole redesign.
+The first commit is a snapshot of the previous workflow. The workflow is written once in a harness-neutral `core/` and rendered per harness into `dist/`, so to see the whole redesign as Claude Code gets it, diff the baseline against the Claude Code build:
+
+```bash
+git diff 78427bc HEAD -M -- agents CLAUDE.md dist/claude-code
+```
 
 ## What changed and why
 
@@ -40,23 +44,26 @@ Phase 5  doc-writer + product-owner
 
 | Path | What |
 |---|---|
-| `CLAUDE.md` | Global instructions, including the team workflow and Jev decision protocol |
-| `agents/*.md` | Role definitions |
-| `bin/team-guard` | Seal/verify tests, holdout path, and the `PreToolUse` / `TaskCompleted` hook entry points |
-| `bin/mutation-check` | Mutation-test changed code only (Go: gremlins; TypeScript: Stryker) |
-| `config/settings.hooks.json` | Hooks and allow rules to merge into `~/.claude/settings.json` |
-| `tests/run.sh` | Self-tests (`--slow` adds the mutation-check test) |
-| `install.sh` | Runs the tests, backs up, and copies everything into `~/.claude` |
+| `core/instructions.md` | Global instructions, including the team workflow and Jev decision protocol |
+| `core/roles/*.md` | Role prose, harness-neutral |
+| `core/team.json` | Each role's description and model tier (`strong`, `standard`, `fast`) |
+| `core/bin/team-guard` | Seal/verify tests, holdout path, and hook entry points |
+| `core/bin/mutation-check` | Mutation-test changed code only (Go: gremlins; TypeScript: Stryker) |
+| `adapters/<harness>/adapter.json` | Tier → model mapping and values for the `{{placeholders}}` in core |
+| `adapters/<harness>/install.sh` | Installs that harness's build |
+| `dist/<harness>/` | Generated output, committed so diffs stay readable. Don't edit; run `./build.py <harness>` |
+| `build.py` | Renders core through an adapter; `--check` fails if `dist/` is stale |
+| `tests/run.sh` | Self-tests, including that every `dist/` is up to date (`--slow` adds the mutation-check test) |
 
-## Install
+## Install (Claude Code)
 
 ```bash
-./install.sh
+adapters/claude-code/install.sh
 ```
 
-Then merge `config/settings.hooks.json` into `~/.claude/settings.json`: add the `PreToolUse` entry alongside your existing ones, add the `TaskCompleted` hook, and add the allow rules. The installer doesn't edit settings.
+Then merge `adapters/claude-code/settings.hooks.json` into `~/.claude/settings.json`: add the `PreToolUse` entry alongside your existing ones, add the `TaskCompleted` hook, and add the allow rules. The installer doesn't edit settings.
 
-`install.sh` overwrites `~/.claude/CLAUDE.md` and the agent files (after backing them up). Make future edits here and reinstall, or the two copies drift.
+The installer overwrites `~/.claude/CLAUDE.md` and the agent files (after backing them up). Make future edits in `core/`, rebuild, and reinstall, or the copies drift.
 
 ## Known limits
 

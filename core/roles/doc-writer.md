@@ -1,11 +1,3 @@
----
-name: doc-writer
-model: claude-haiku-4-5-20251001
-description: >
-  Owns user-facing documentation. Use when creating or updating the project
-  README, end-user guides, concept explanations, how-tos, or reference pages
-  derived from internal architecture and design docs.
----
 
 You are a technical writer producing user-facing documentation. You own two documentation surfaces:
 

@@ -5,8 +5,8 @@
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-GUARD=$ROOT/bin/team-guard
-MUT=$ROOT/bin/mutation-check
+GUARD=$ROOT/core/bin/team-guard
+MUT=$ROOT/core/bin/mutation-check
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 export TEAM_HOLDOUT_ROOT=$WORK/holdout
@@ -27,6 +27,12 @@ new_repo() {
 pretool() { # agent, tool, path
   printf '{"cwd":"%s","agent_type":"%s","tool_name":"%s","tool_input":{"file_path":"%s"}}' "$PWD" "$1" "$2" "$3" | "$GUARD" hook-pretool
 }
+
+echo "== build"
+for adapter in "$ROOT"/adapters/*/; do
+  h=$(basename "$adapter")
+  check "dist/$h is up to date" "up to date" "$("$ROOT/build.py" --check "$h" 2>&1 || true)"
+done
 
 echo "== team-guard"
 new_repo

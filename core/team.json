@@ -1,0 +1,32 @@
+{
+  "roles": {
+    "architect": {
+      "description": "Translate design decisions into implementable architecture documentation. Use when the user asks to define system components, critical flows, bootstrap sequences, disaster recovery procedures, observability strategies, or any architectural specification that engineers will build from.",
+      "tier": "strong"
+    },
+    "doc-writer": {
+      "description": "Owns user-facing documentation. Use when creating or updating the project README, end-user guides, concept explanations, how-tos, or reference pages derived from internal architecture and design docs.",
+      "tier": "fast"
+    },
+    "product-owner": {
+      "description": "Owns the product end-to-end \u2014 roadmap, milestones, feature requests, bug reports, and ideas. Use when the user wants to plan features, prioritise work, file issues, triage bugs, break work into milestones, track open TODOs, identify documentation gaps, assess product direction, or decide what to build next.",
+      "tier": "standard"
+    },
+    "researcher": {
+      "description": "Research state-of-the-art approaches for technical problems and produce concise design documents. Use when the user asks to research, evaluate, or recommend a technical approach.",
+      "tier": "strong"
+    },
+    "reviewer": {
+      "description": "Review production code and tests. Identify correctness bugs, spec deviations, security issues, missing error handling, test gaps, and architectural drift. Use when code is ready for review before merging.",
+      "tier": "strong"
+    },
+    "software-engineer": {
+      "description": "Build production-ready code aligned with the project's roadmap and architecture. Delivers small, incremental, testable units. Implements components based on architecture specifications.",
+      "tier": "standard"
+    },
+    "tester": {
+      "description": "Write acceptance, integration, e2e, and property-based tests from the spec before implementation, seal them, keep holdout scenarios, and harden tests against surviving mutants. Use when the user asks to add tests, verify a component's behavior, or validate acceptance criteria.",
+      "tier": "strong"
+    }
+  }
+}
