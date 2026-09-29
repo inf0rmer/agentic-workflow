@@ -17,7 +17,8 @@
     "phase_intro": "### Phased execution with task dependencies\n\nUse task dependencies to enforce phase ordering. Teammates within a phase can work in parallel; cross-phase work is blocked until dependencies complete.",
     "agent_ext": ".md",
     "ask_tester": "stop and message the tester",
-    "skills_dir": "~/.claude/skills"
+    "skills_dir": "~/.claude/skills",
+    "goal_mechanics": "Claude Code checks the condition after every turn with a small fast model and keeps working until it's met, judged impossible, or cleared by an error you have to fix. Evaluation waits while subagents or teammates are still running. Run it in auto mode so goal turns don't stop for permission prompts; `/goal` shows status and `/goal clear` stops it."
   },
   "instructions_footer": "@RTK.md\n"
 }

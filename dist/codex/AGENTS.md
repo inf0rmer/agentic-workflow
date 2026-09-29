@@ -60,6 +60,18 @@ Codex has no task dependencies, so you enforce phase ordering as the lead. Agent
 - **Phase 4 — Human gate:** summary, review report, holdout satisfaction, and decision log to the human before any push.
 - **Phase 5 — Docs & Close-out** (parallel): doc-writer, product-owner
 
+### Keep the loop running with `/goal`
+
+Run the lead session under a goal so it keeps driving the phases without a prompt each step. Codex attaches the goal to the active chat as a persistent objective (`/goal` shows it; `/goal pause`, `resume`, `edit`, and `clear` manage it), and `max_goal_token_budget` in `config.toml` caps its spend. Codex's docs don't say whether it starts new turns on its own; if it waits after a turn, send `continue` or resume the goal.
+
+The goal ends at the **human gate**, never at a push, and it keeps every stop the workflow already has. Paste this condition, filling in the feature name, and adjust the turn cap:
+
+```text
+/goal The {feature} team has reached the human gate: the sealed tests pass, `team-guard verify` exits 0, every surviving mutant on changed code is killed or justified, and the final reviewer report shows no blockers and a holdout satisfaction score. After each turn, print the latest output of the sealed test run and `team-guard verify`, and the phase you are in. No sealed test may change except through the tester's logged unseal and reseal. Stop and hand to the human instead if blockers remain after review round 2, any Jev verdict is DEFER, a security question comes up, a phase is blocked on a human decision, or 60 turns have passed. Never push.
+```
+
+Keep the condition built on evidence the session prints — test results, exit codes, the review report — not on an agent's claim that it's done. The evaluator can only judge what appears in the conversation. The goal doesn't raise the two-round review cap: after round 2, the goal is met only by handing to the human.
+
 ### Context isolation
 
 Separation between agents only helps if their contexts stay separate. Shared context means shared blind spots.

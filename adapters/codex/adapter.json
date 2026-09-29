@@ -22,7 +22,8 @@
     "phase_intro": "### Phased execution\n\nCodex has no task dependencies, so you enforce phase ordering as the lead. Agents within a phase can run in parallel; don't spawn the next phase until every agent in the current one has finished and you've checked its output.",
     "agent_ext": ".toml",
     "ask_tester": "stop and report to the lead, who relays it to the tester,",
-    "skills_dir": "~/.agents/skills"
+    "skills_dir": "~/.agents/skills",
+    "goal_mechanics": "Codex attaches the goal to the active chat as a persistent objective (`/goal` shows it; `/goal pause`, `resume`, `edit`, and `clear` manage it), and `max_goal_token_budget` in `config.toml` caps its spend. Codex's docs don't say whether it starts new turns on its own; if it waits after a turn, send `continue` or resume the goal."
   },
   "instructions_footer": ""
 }
