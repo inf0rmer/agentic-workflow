@@ -101,6 +101,25 @@ check "previous hook is back in place" "foreign-hook-ran" "$(cat .git/hooks/pre-
 "$GUARD" seal pkg/a_test.go >/dev/null
 check "verify warns when the hook is gone" "not installed" "$(rm .git/hooks/pre-commit && "$GUARD" verify 2>&1)"
 
+echo "== codex hooks"
+new_repo
+"$GUARD" seal pkg/a_test.go >/dev/null
+patch() { # agent, patch text
+  python3 -c 'import json,sys; print(json.dumps({"cwd":sys.argv[1],"agent_type":sys.argv[2],"tool_name":"apply_patch","tool_input":{"command":sys.argv[3]}}))' "$PWD" "$1" "$2" | "$GUARD" hook-pretool
+}
+P_PROD=$'*** Begin Patch\n*** Update File: pkg/a.go\n@@\n+// y\n*** End Patch'
+P_MIXED=$'*** Begin Patch\n*** Update File: pkg/a.go\n@@\n+// y\n*** Update File: pkg/a_test.go\n@@\n+// z\n*** End Patch'
+P_DELETE=$'*** Begin Patch\n*** Delete File: pkg/a_test.go\n*** End Patch'
+[[ -z "$(patch software-engineer "$P_PROD")" ]] && echo "ok   apply_patch on production code is allowed" || { echo "FAIL codex prod patch"; fails=$((fails + 1)); }
+check "apply_patch touching a sealed test is denied" '"deny"' "$(patch software-engineer "$P_MIXED")"
+check "apply_patch deleting a sealed test is denied" '"deny"' "$(patch software-engineer "$P_DELETE")"
+[[ -z "$(patch tester "$P_MIXED")" ]] && echo "ok   tester's apply_patch is allowed" || { echo "FAIL codex tester patch"; fails=$((fails + 1)); }
+echo '// weakened' >> pkg/a_test.go
+check "SubagentStop sends the subagent back" '"decision": "block"' "$(printf '{"cwd":"%s","stop_hook_active":false}' "$PWD" | "$GUARD" hook-stop)"
+check "SubagentStop only warns on the second stop" '"systemMessage"' "$(printf '{"cwd":"%s","stop_hook_active":true}' "$PWD" | "$GUARD" hook-stop)"
+git checkout -q pkg/a_test.go
+[[ -z "$(printf '{"cwd":"%s"}' "$PWD" | "$GUARD" hook-stop)" ]] && echo "ok   SubagentStop is silent when clean" || { echo "FAIL stop clean"; fails=$((fails + 1)); }
+
 echo "== linked worktree"
 new_repo
 git worktree add -q "$WORK/wt" -b feat/wt

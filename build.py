@@ -17,6 +17,7 @@ import re
 import shutil
 import sys
 import tempfile
+import tomllib
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 
@@ -51,7 +52,45 @@ def build_claude_code(adapter, team, out):
         write(os.path.join(out, "agents", f"{name}.md"), frontmatter + render(load(f"core/roles/{name}.md"), vars_, name))
 
 
-BUILDERS = {"claude-code": build_claude_code}
+def toml_str(value):
+    return json.dumps(value)  # a JSON string is a valid TOML basic string
+
+
+def build_codex(adapter, team, out):
+    vars_ = adapter["vars"]
+    write(os.path.join(out, "AGENTS.md"),
+          render(load("core/instructions.md"), vars_, "instructions") + adapter.get("instructions_footer", ""))
+    for name, role in team["roles"].items():
+        body = render(load(f"core/roles/{name}.md"), vars_, name).strip("\n")
+        if "'''" in body:
+            sys.exit(f"build: {name} contains ''', which can't go in a TOML literal string")
+        tier = role["tier"]
+        text = (f"name = {toml_str(name)}\n"
+                f"description = {toml_str(role['description'])}\n"
+                f"model = {toml_str(adapter['models'][tier])}\n"
+                f"model_reasoning_effort = {toml_str(adapter['efforts'][tier])}\n"
+                f"developer_instructions = '''\n{body}\n'''\n")
+        tomllib.loads(text)  # fail the build rather than ship a file Codex can't parse
+        write(os.path.join(out, "agents", f"{name}.toml"), text)
+
+
+BUILDERS = {"claude-code": build_claude_code, "codex": build_codex}
+
+
+def copy_skills(vars_, out):
+    skills = os.path.join(ROOT, "core", "skills")
+    for dirpath, dirs, files in os.walk(skills):
+        dirs[:] = [d for d in dirs if d != "__pycache__"]
+        for name in files:
+            if name.endswith(".pyc"):
+                continue
+            src = os.path.join(dirpath, name)
+            dst = os.path.join(out, "skills", os.path.relpath(src, skills))
+            if name == "SKILL.md":
+                write(dst, render(load(os.path.relpath(src, ROOT)), vars_, os.path.relpath(src, ROOT)))
+            else:
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                shutil.copy2(src, dst)
 
 
 def build(harness, out):
@@ -60,6 +99,7 @@ def build(harness, out):
     if os.path.exists(out):
         shutil.rmtree(out)
     BUILDERS[adapter["harness"]](adapter, team, out)
+    copy_skills(adapter["vars"], out)
     for name in sorted(os.listdir(os.path.join(ROOT, "core", "bin"))):
         src = os.path.join(ROOT, "core", "bin", name)
         dst = os.path.join(out, "bin", name)

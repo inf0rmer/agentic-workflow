@@ -1,0 +1,19 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^(apply_patch|Edit|Write)$",
+        "hooks": [
+          { "type": "command", "command": "~/.codex/team/bin/team-guard hook-pretool", "timeout": 10, "statusMessage": "team-guard: checking sealed tests" }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "~/.codex/team/bin/team-guard hook-stop", "timeout": 20, "statusMessage": "team-guard: verifying sealed tests" }
+        ]
+      }
+    ]
+  }
+}

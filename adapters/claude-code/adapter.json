@@ -7,13 +7,17 @@
   },
   "vars": {
     "team_intro": "For significant features or changes that are more than a few lines of code, use [Claude Code agent teams](https://code.claude.com/docs/en/agent-teams) with a structured multi-agent approach.",
-    "worktree_cmd": "use `/enter-worktree` or `git worktree add`",
     "guard_hooks": "A `PreToolUse` hook blocks the engineer's edits to sealed files and holdout reads where the agent is identifiable, and a `TaskCompleted` hook blocks completing any task while a sealed test is modified.",
     "bin": "~/.claude/team/bin",
     "agents_dir": "~/.claude/agents",
     "project_agents_dir": ".claude/agents",
     "instructions_file": "CLAUDE.md",
-    "jev_skill": "`jev-decide` skill"
+    "jev_skill": "`jev-decide` skill",
+    "worktree_section": "**All teammates must work in the same worktree directory.** Before creating the team, set up a single worktree for the feature branch (use `/enter-worktree` or `git worktree add`). Then create the agent team from within that worktree so all teammates inherit it as their working directory.",
+    "phase_intro": "### Phased execution with task dependencies\n\nUse task dependencies to enforce phase ordering. Teammates within a phase can work in parallel; cross-phase work is blocked until dependencies complete.",
+    "agent_ext": ".md",
+    "ask_tester": "stop and message the tester",
+    "skills_dir": "~/.claude/skills"
   },
   "instructions_footer": "@RTK.md\n"
 }

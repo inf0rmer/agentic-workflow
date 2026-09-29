@@ -18,7 +18,8 @@ can't be faked without rewriting git history.
 Hook entry points (read the hook event JSON on stdin):
   team-guard hook-pretool       PreToolUse: deny edits to sealed files and holdout
                                 reads when the agent is identifiable as non-tester
-  team-guard hook-task          TaskCompleted: block completion if verify fails
+  team-guard hook-task          TaskCompleted (Claude Code): block completion if verify fails
+  team-guard hook-stop          SubagentStop (Codex): send the subagent back if verify fails
   team-guard pre-commit         git pre-commit: refuse staged changes to sealed files
 
 The git hook works with any agent harness, or none: a sealed test has to be
@@ -27,17 +28,19 @@ unsealed (which is logged for the reviewer) before a commit can change it.
 import datetime
 import json
 import os
+import re
 import stat
 import subprocess
 import sys
 
 LOCK_NAME = "team-test-lock.json"
-HOLDOUT_ROOT = os.path.expanduser(os.environ.get("TEAM_HOLDOUT_ROOT", "~/.claude/team-holdout"))
+# Shared by every harness, so a team can mix them.
+HOLDOUT_ROOT = os.path.expanduser(os.environ.get("TEAM_HOLDOUT_ROOT", "~/.agentic-workflow/holdout"))
 # Agents allowed to edit sealed tests. Everyone else is denied when the hook can tell who they are.
 TEST_OWNERS = {"tester"}
 # Agents that must never read holdout scenarios.
 HOLDOUT_BLIND = {"software-engineer"}
-EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
+EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit", "apply_patch"}
 HOOK_MARKER = "# managed by team-guard"
 CHAINED_SUFFIX = ".team-guard-chained"
 READ_TOOLS = {"Read", "Grep", "Glob"}
@@ -151,20 +154,34 @@ def deny(reason):
     }}))
 
 
+PATCH_FILE = re.compile(r"^\*\*\* (?:Add File|Update File|Delete File|Move to): (.+?)\s*$", re.M)
+
+
+def targets(tool_input):
+    """Paths a tool call touches: Claude Code passes one path; Codex's apply_patch passes patch text."""
+    for key in ("file_path", "notebook_path", "path"):
+        if tool_input.get(key):
+            return [tool_input[key]]
+    patch = tool_input.get("command") or tool_input.get("input") or ""
+    if isinstance(patch, list):
+        patch = "\n".join(patch)
+    return PATCH_FILE.findall(patch) if "*** Begin Patch" in patch else []
+
+
 def cmd_hook_pretool():
     event = json.load(sys.stdin)
     agent = event.get("agent_type")
     if not agent:
-        return  # main thread or unidentified teammate: detection at TaskCompleted covers it
+        return  # main thread or unidentified teammate: git and verify catch it
     tool = event.get("tool_name")
-    tool_input = event.get("tool_input") or {}
-    target = tool_input.get("file_path") or tool_input.get("notebook_path") or tool_input.get("path")
-    if not target:
+    paths = targets(event.get("tool_input") or {})
+    if not paths:
         return
     cwd = event.get("cwd") or os.getcwd()
-    target = os.path.realpath(os.path.join(cwd, target))
+    paths = [os.path.realpath(os.path.join(cwd, p)) for p in paths]
 
-    if tool in READ_TOOLS | EDIT_TOOLS and agent in HOLDOUT_BLIND and target.startswith(os.path.realpath(HOLDOUT_ROOT)):
+    holdout = os.path.realpath(HOLDOUT_ROOT)
+    if tool in READ_TOOLS | EDIT_TOOLS and agent in HOLDOUT_BLIND and any(p.startswith(holdout) for p in paths):
         return deny("Holdout scenarios are hidden from the engineer by design. Work from the spec and the sealed tests.")
 
     if tool not in EDIT_TOOLS or agent in TEST_OWNERS:
@@ -173,9 +190,29 @@ def cmd_hook_pretool():
         top, git_dir = repo_paths(cwd)
     except subprocess.CalledProcessError:
         return
-    if os.path.relpath(target, os.path.realpath(top)) in load_lock(git_dir)["files"]:
-        deny("This test is sealed by the tester. Don't change it: if you believe it is wrong, "
-             "message the tester with the failing assertion and why the spec supports your reading.")
+    sealed = load_lock(git_dir)["files"]
+    hits = [os.path.relpath(p, os.path.realpath(top)) for p in paths]
+    hits = [h for h in hits if h in sealed]
+    if hits:
+        deny(f"{', '.join(hits)} {'is' if len(hits) == 1 else 'are'} sealed by the tester. Don't change sealed tests: "
+             "if you believe one is wrong, report the failing assertion and why the spec supports your reading.")
+
+
+def cmd_hook_stop():
+    event = json.load(sys.stdin)
+    try:
+        bad = violations(event.get("cwd"))
+    except subprocess.CalledProcessError:
+        return
+    if not bad:
+        return
+    msg = "Sealed tests were modified:\n  " + "\n  ".join(bad)
+    if event.get("stop_hook_active"):
+        # Already sent back once; don't loop. verify and review still catch it.
+        print(json.dumps({"systemMessage": "team-guard: " + msg}))
+        return
+    print(json.dumps({"decision": "block", "reason": msg + "\nRestore them (git checkout <sealed commit> -- <file>) "
+                      "before finishing, or report why a sealed test is wrong."}))
 
 
 def cmd_hook_task():
@@ -272,7 +309,7 @@ def main():
     commands = {
         "seal": lambda: cmd_seal(args), "unseal": lambda: cmd_unseal(args), "verify": cmd_verify,
         "list": cmd_list, "holdout-path": cmd_holdout_path,
-        "hook-pretool": cmd_hook_pretool, "hook-task": cmd_hook_task,
+        "hook-pretool": cmd_hook_pretool, "hook-task": cmd_hook_task, "hook-stop": cmd_hook_stop,
         "pre-commit": cmd_pre_commit, "git-hook": lambda: cmd_git_hook(args),
     }
     if cmd not in commands or (cmd in ("seal", "unseal") and not args):

@@ -1,0 +1,321 @@
+#!/usr/bin/env python3
+"""Guard rails for the agent-team workflow: locked tests and holdout scenarios.
+
+The tester writes acceptance tests before implementation, commits them, and seals
+them. The engineer must make them pass without changing them; any change to a
+sealed file is detected by comparing it with the commit it was sealed at, which
+can't be faked without rewriting git history.
+
+  team-guard seal <path>...     lock committed test files at HEAD (tester)
+  team-guard unseal <path>...   release files for a sanctioned fix (tester; logged)
+  team-guard verify             exit 2 and list any sealed file that changed
+  team-guard list               show sealed files and the lock history
+  team-guard holdout-path       print this branch's holdout-scenario directory
+  team-guard git-hook install|uninstall|status
+                                manage the git pre-commit hook that refuses commits
+                                changing sealed tests (sealing installs it)
+
+Hook entry points (read the hook event JSON on stdin):
+  team-guard hook-pretool       PreToolUse: deny edits to sealed files and holdout
+                                reads when the agent is identifiable as non-tester
+  team-guard hook-task          TaskCompleted (Claude Code): block completion if verify fails
+  team-guard hook-stop          SubagentStop (Codex): send the subagent back if verify fails
+  team-guard pre-commit         git pre-commit: refuse staged changes to sealed files
+
+The git hook works with any agent harness, or none: a sealed test has to be
+unsealed (which is logged for the reviewer) before a commit can change it.
+"""
+import datetime
+import json
+import os
+import re
+import stat
+import subprocess
+import sys
+
+LOCK_NAME = "team-test-lock.json"
+# Shared by every harness, so a team can mix them.
+HOLDOUT_ROOT = os.path.expanduser(os.environ.get("TEAM_HOLDOUT_ROOT", "~/.agentic-workflow/holdout"))
+# Agents allowed to edit sealed tests. Everyone else is denied when the hook can tell who they are.
+TEST_OWNERS = {"tester"}
+# Agents that must never read holdout scenarios.
+HOLDOUT_BLIND = {"software-engineer"}
+EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit", "apply_patch"}
+HOOK_MARKER = "# managed by team-guard"
+CHAINED_SUFFIX = ".team-guard-chained"
+READ_TOOLS = {"Read", "Grep", "Glob"}
+
+
+def git(*args, cwd=None, check=True):
+    return subprocess.run(["git", *args], cwd=cwd, check=check, capture_output=True, text=True)
+
+
+def repo_paths(cwd=None):
+    top = git("rev-parse", "--show-toplevel", cwd=cwd).stdout.strip()
+    git_dir = git("rev-parse", "--absolute-git-dir", cwd=cwd).stdout.strip()
+    return top, git_dir
+
+
+def load_lock(git_dir):
+    path = os.path.join(git_dir, LOCK_NAME)
+    if not os.path.exists(path):
+        return {"files": {}, "history": []}
+    with open(path) as f:
+        return json.load(f)
+
+
+def save_lock(git_dir, lock):
+    with open(os.path.join(git_dir, LOCK_NAME), "w") as f:
+        json.dump(lock, f, indent=2)
+
+
+def now():
+    return datetime.datetime.now().isoformat(timespec="seconds")
+
+
+def rel(top, path):
+    return os.path.relpath(os.path.realpath(os.path.join(os.getcwd(), path)), os.path.realpath(top))
+
+
+def cmd_seal(paths):
+    top, git_dir = repo_paths()
+    head = git("rev-parse", "HEAD").stdout.strip()
+    lock = load_lock(git_dir)
+    files = [rel(top, p) for p in paths]
+    for f in files:
+        if git("ls-files", "--error-unmatch", f, cwd=top, check=False).returncode:
+            sys.exit(f"team-guard: {f} is not tracked; commit it before sealing")
+        if git("diff", "--quiet", "HEAD", "--", f, cwd=top, check=False).returncode:
+            sys.exit(f"team-guard: {f} has uncommitted changes; commit it before sealing")
+    for f in files:
+        lock["files"][f] = head
+    lock["history"].append({"at": now(), "action": "seal", "commit": head, "files": files})
+    save_lock(git_dir, lock)
+    print(f"sealed {len(files)} file(s) at {head[:12]}")
+    if hook_state() != "installed":
+        install_hook()
+
+
+def cmd_unseal(paths):
+    top, git_dir = repo_paths()
+    lock = load_lock(git_dir)
+    files = [rel(top, p) for p in paths]
+    for f in files:
+        lock["files"].pop(f, None)
+    lock["history"].append({"at": now(), "action": "unseal", "files": files})
+    save_lock(git_dir, lock)
+    print(f"unsealed {len(files)} file(s); reseal after the fix")
+
+
+def violations(cwd=None):
+    top, git_dir = repo_paths(cwd)
+    bad = []
+    for f, commit in load_lock(git_dir)["files"].items():
+        if not os.path.exists(os.path.join(top, f)):
+            bad.append(f"{f} (deleted)")
+        elif git("diff", "--quiet", commit, "--", f, cwd=top, check=False).returncode:
+            bad.append(f"{f} (changed since {commit[:12]})")
+    return bad
+
+
+def cmd_verify():
+    bad = violations()
+    if load_lock(repo_paths()[1])["files"] and hook_state() != "installed":
+        print("team-guard: warning: the pre-commit hook is not installed (another tool may have replaced it); "
+              "run `team-guard git-hook install`", file=sys.stderr)
+    if bad:
+        print("team-guard: sealed tests were modified:\n  " + "\n  ".join(bad), file=sys.stderr)
+        sys.exit(2)
+    print("team-guard: all sealed tests unchanged")
+
+
+def cmd_list():
+    _, git_dir = repo_paths()
+    print(json.dumps(load_lock(git_dir), indent=2))
+
+
+def holdout_path(cwd=None):
+    top, _ = repo_paths(cwd)
+    branch = git("rev-parse", "--abbrev-ref", "HEAD", cwd=cwd).stdout.strip().replace("/", "-")
+    return os.path.join(HOLDOUT_ROOT, os.path.basename(top), branch)
+
+
+def cmd_holdout_path():
+    path = holdout_path()
+    os.makedirs(path, exist_ok=True)
+    print(path)
+
+
+def deny(reason):
+    print(json.dumps({"hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "deny",
+        "permissionDecisionReason": reason,
+    }}))
+
+
+PATCH_FILE = re.compile(r"^\*\*\* (?:Add File|Update File|Delete File|Move to): (.+?)\s*$", re.M)
+
+
+def targets(tool_input):
+    """Paths a tool call touches: Claude Code passes one path; Codex's apply_patch passes patch text."""
+    for key in ("file_path", "notebook_path", "path"):
+        if tool_input.get(key):
+            return [tool_input[key]]
+    patch = tool_input.get("command") or tool_input.get("input") or ""
+    if isinstance(patch, list):
+        patch = "\n".join(patch)
+    return PATCH_FILE.findall(patch) if "*** Begin Patch" in patch else []
+
+
+def cmd_hook_pretool():
+    event = json.load(sys.stdin)
+    agent = event.get("agent_type")
+    if not agent:
+        return  # main thread or unidentified teammate: git and verify catch it
+    tool = event.get("tool_name")
+    paths = targets(event.get("tool_input") or {})
+    if not paths:
+        return
+    cwd = event.get("cwd") or os.getcwd()
+    paths = [os.path.realpath(os.path.join(cwd, p)) for p in paths]
+
+    holdout = os.path.realpath(HOLDOUT_ROOT)
+    if tool in READ_TOOLS | EDIT_TOOLS and agent in HOLDOUT_BLIND and any(p.startswith(holdout) for p in paths):
+        return deny("Holdout scenarios are hidden from the engineer by design. Work from the spec and the sealed tests.")
+
+    if tool not in EDIT_TOOLS or agent in TEST_OWNERS:
+        return
+    try:
+        top, git_dir = repo_paths(cwd)
+    except subprocess.CalledProcessError:
+        return
+    sealed = load_lock(git_dir)["files"]
+    hits = [os.path.relpath(p, os.path.realpath(top)) for p in paths]
+    hits = [h for h in hits if h in sealed]
+    if hits:
+        deny(f"{', '.join(hits)} {'is' if len(hits) == 1 else 'are'} sealed by the tester. Don't change sealed tests: "
+             "if you believe one is wrong, report the failing assertion and why the spec supports your reading.")
+
+
+def cmd_hook_stop():
+    event = json.load(sys.stdin)
+    try:
+        bad = violations(event.get("cwd"))
+    except subprocess.CalledProcessError:
+        return
+    if not bad:
+        return
+    msg = "Sealed tests were modified:\n  " + "\n  ".join(bad)
+    if event.get("stop_hook_active"):
+        # Already sent back once; don't loop. verify and review still catch it.
+        print(json.dumps({"systemMessage": "team-guard: " + msg}))
+        return
+    print(json.dumps({"decision": "block", "reason": msg + "\nRestore them (git checkout <sealed commit> -- <file>) "
+                      "before finishing, or report why a sealed test is wrong."}))
+
+
+def cmd_hook_task():
+    event = json.load(sys.stdin)
+    try:
+        bad = violations(event.get("cwd"))
+    except subprocess.CalledProcessError:
+        return  # not in a git repo: nothing sealed here
+    if bad:
+        print("Sealed tests were modified, so this task can't complete:\n  " + "\n  ".join(bad)
+              + "\nRestore them (git checkout <sealed commit> -- <file>) or ask the tester to review and reseal.",
+              file=sys.stderr)
+        sys.exit(2)
+
+
+def hook_paths():
+    hooks = git("rev-parse", "--git-path", "hooks").stdout.strip()
+    hook = os.path.join(os.path.abspath(hooks), "pre-commit")
+    return hook, hook + CHAINED_SUFFIX
+
+
+def hook_state():
+    hook, _ = hook_paths()
+    if not os.path.exists(hook):
+        return "missing"
+    with open(hook, errors="replace") as f:
+        return "installed" if HOOK_MARKER in f.read() else "foreign"
+
+
+def install_hook():
+    hook, chained = hook_paths()
+    state = hook_state()
+    if state == "installed":
+        print("team-guard: pre-commit hook already installed")
+        return
+    os.makedirs(os.path.dirname(hook), exist_ok=True)
+    if state == "foreign":
+        os.replace(hook, chained)  # keep the existing hook (e.g. lefthook) and run it after ours
+    guard = os.path.realpath(sys.argv[0])
+    with open(hook, "w") as f:
+        f.write(f"""#!/bin/sh
+{HOOK_MARKER}; the previous hook, if any, runs after it from pre-commit{CHAINED_SUFFIX}
+"{guard}" pre-commit || exit 1
+chained="$(dirname "$0")/pre-commit{CHAINED_SUFFIX}"
+if [ -x "$chained" ]; then exec "$chained" "$@"; fi
+""")
+    os.chmod(hook, os.stat(hook).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    print("team-guard: installed pre-commit hook" + (" (chaining the existing one)" if state == "foreign" else ""))
+
+
+def uninstall_hook():
+    hook, chained = hook_paths()
+    if hook_state() != "installed":
+        print("team-guard: pre-commit hook is not team-guard's; left alone")
+        return
+    os.remove(hook)
+    if os.path.exists(chained):
+        os.replace(chained, hook)
+    print("team-guard: removed pre-commit hook" + (" and restored the previous one" if os.path.exists(hook) else ""))
+
+
+def cmd_git_hook(args):
+    action = args[0] if args else "status"
+    if action == "install":
+        install_hook()
+    elif action == "uninstall":
+        uninstall_hook()
+    elif action == "status":
+        print(hook_state())
+    else:
+        sys.exit(__doc__)
+
+
+def cmd_pre_commit():
+    top, git_dir = repo_paths()
+    sealed = load_lock(git_dir)["files"]
+    staged = git("diff", "--cached", "--name-only", "--no-renames", cwd=top).stdout.split("\n")
+    # A staged change that makes the file match its sealed version again is a restore, not a change.
+    hits = sorted(f for f in staged if f in sealed
+                  and git("diff", "--cached", "--quiet", sealed[f], "--", f, cwd=top, check=False).returncode)
+    if hits:
+        print("team-guard: this commit changes sealed tests:\n  " + "\n  ".join(hits)
+              + "\nSealed tests define done and can't change in place. If one is wrong, the tester unseals it "
+              "(`team-guard unseal <file>`, logged for the reviewer), fixes it, commits, and reseals.",
+              file=sys.stderr)
+        sys.exit(1)
+
+
+def main():
+    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
+        print(__doc__)
+        return
+    cmd, args = sys.argv[1], sys.argv[2:]
+    commands = {
+        "seal": lambda: cmd_seal(args), "unseal": lambda: cmd_unseal(args), "verify": cmd_verify,
+        "list": cmd_list, "holdout-path": cmd_holdout_path,
+        "hook-pretool": cmd_hook_pretool, "hook-task": cmd_hook_task, "hook-stop": cmd_hook_stop,
+        "pre-commit": cmd_pre_commit, "git-hook": lambda: cmd_git_hook(args),
+    }
+    if cmd not in commands or (cmd in ("seal", "unseal") and not args):
+        sys.exit(__doc__)
+    commands[cmd]()
+
+
+if __name__ == "__main__":
+    main()

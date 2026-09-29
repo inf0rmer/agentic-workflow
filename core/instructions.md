@@ -29,23 +29,21 @@ Scale the team to the task — a small bug fix might only need an engineer + tes
 
 | Agent | Role | Owns | Definition |
 |-------|------|------|------------|
-| **product-owner** | Product vision, roadmap, EARS acceptance criteria | Roadmap, issues, spec | `{{agents_dir}}/product-owner.md` |
-| **researcher** | Research & design decisions | Design docs | `{{agents_dir}}/researcher.md` |
-| **architect** | Architecture specs & test contract | Architecture docs, `contract.md` | `{{agents_dir}}/architect.md` |
-| **software-engineer** | Implementation | Source code | `{{agents_dir}}/software-engineer.md` |
-| **tester** | Spec tests, holdout scenarios, hardening | Test files, holdout scenarios | `{{agents_dir}}/tester.md` |
-| **reviewer** | Code review & gap analysis | Nothing (read-only) | `{{agents_dir}}/reviewer.md` |
-| **doc-writer** | User-facing docs | Documentation | `{{agents_dir}}/doc-writer.md` |
+| **product-owner** | Product vision, roadmap, EARS acceptance criteria | Roadmap, issues, spec | `{{agents_dir}}/product-owner{{agent_ext}}` |
+| **researcher** | Research & design decisions | Design docs | `{{agents_dir}}/researcher{{agent_ext}}` |
+| **architect** | Architecture specs & test contract | Architecture docs, `contract.md` | `{{agents_dir}}/architect{{agent_ext}}` |
+| **software-engineer** | Implementation | Source code | `{{agents_dir}}/software-engineer{{agent_ext}}` |
+| **tester** | Spec tests, holdout scenarios, hardening | Test files, holdout scenarios | `{{agents_dir}}/tester{{agent_ext}}` |
+| **reviewer** | Code review & gap analysis | Nothing (read-only) | `{{agents_dir}}/reviewer{{agent_ext}}` |
+| **doc-writer** | User-facing docs | Documentation | `{{agents_dir}}/doc-writer{{agent_ext}}` |
 
 Projects can override these by placing project-specific versions in `{{project_agents_dir}}/`.
 
 ### Worktree-first workflow
 
-**All teammates must work in the same worktree directory.** Before creating the team, set up a single worktree for the feature branch ({{worktree_cmd}}). Then create the agent team from within that worktree so all teammates inherit it as their working directory.
+{{worktree_section}}
 
-### Phased execution with task dependencies
-
-Use task dependencies to enforce phase ordering. Teammates within a phase can work in parallel; cross-phase work is blocked until dependencies complete.
+{{phase_intro}}
 
 - **Phase 1 — Scope & Design** (parallel): product-owner (spec with numbered EARS acceptance criteria), researcher
 - **Phase 2 — Architecture & Spec Tests:**
