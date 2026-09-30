@@ -40,6 +40,10 @@ Workflow tooling:
                   [--majors-fixed N] [--holdouts-failed N] [--mutation-skipped yes|no|unknown]
                   [--human-level high|medium|low] [--packet] [--no-log]
   team-guard sign [--base <ref>]
+  team-guard gate review <gate> [<file>...] [--new] [--no-open]
+  team-guard gate reply <gate> --file <json> --author <role>
+  team-guard gate record <gate> [<file>...] (--crit | --chat \"<reply>\")
+  team-guard gate check [<gate>]
 
 Hook entry points (read the hook event JSON on stdin):
   team-guard hook-pretool       PreToolUse: deny edits to sealed files and holdout
@@ -2127,6 +2131,34 @@ def sign_repo(name, top, base):
     return f"team-guard: sign: {name}: signed {len(commits)} commit(s){note}"
 
 
+def cmd_gate(args):
+    subs = ("review", "reply", "record", "check")
+    if not args or args[0] not in subs:
+        die("gate: expected review, reply, record or check")
+    sub, rest = args[0], args[1:]
+    label = "gate " + sub
+    p = _Parser(prog="team-guard " + label, add_help=False)
+    if sub == "check":
+        p.add_argument("gate", nargs="?")
+    else:
+        p.add_argument("gate")
+    if sub == "review":
+        p.add_argument("files", nargs="*")
+        p.add_argument("--new", action="store_true")
+        p.add_argument("--no-open", action="store_true")
+    elif sub == "reply":
+        p.add_argument("--file")
+        p.add_argument("--author")
+    elif sub == "record":
+        p.add_argument("files", nargs="*")
+        g = p.add_mutually_exclusive_group(required=True)
+        g.add_argument("--crit", action="store_true")
+        g.add_argument("--chat")
+    _parse_or_die(p, rest, label)
+    print(f"team-guard: not implemented: {label}", file=sys.stderr)
+    sys.exit(70)
+
+
 def cmd_sign(args):
     p = _Parser(prog="team-guard sign", add_help=False)
     p.add_argument("--base")
@@ -2166,7 +2198,7 @@ def main():
         "workspace": lambda: cmd_workspace(args), "workspace-path": lambda: cmd_workspace_path(args),
         "gc": lambda: cmd_gc(args), "pre-push": lambda: cmd_pre_push(args),
         "refs": lambda: cmd_refs(args), "routing": lambda: cmd_routing(args),
-        "risk": lambda: cmd_risk(args), "sign": lambda: cmd_sign(args),
+        "risk": lambda: cmd_risk(args), "sign": lambda: cmd_sign(args), "gate": lambda: cmd_gate(args),
     }
     if cmd not in commands or (cmd in ("seal", "unseal") and not args):
         sys.exit(__doc__)
