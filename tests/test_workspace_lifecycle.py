@@ -115,9 +115,9 @@ class TestClose(LifecycleCase):
         wtB = self.attach(B)
         ho = Path(self.ok(self.sb.tg("holdout-path", cwd=ws)).out.strip())
         (ho / "s.md").write_text("scenario\n")
-        (ws / "spec" ".md").write_text("# spec\n")
+        (ws / "plan.md").write_text("# plan\n")
         (ws / "adr").mkdir()
-        (ws / "adr" / "1.md").write_text("# adr" " 1\n")
+        (ws / "adr" / "1.md").write_text("# decision 1\n")
         wj = (ws / "workspace.json").read_bytes()
         refs_before = {n: self.sb.refs(p) for n, p in (("A", A), ("B", B))}
         cfg_before = {n: read_bytes(p / ".git" / "config") for n, p in (("A", A), ("B", B))}
@@ -143,8 +143,8 @@ class TestClose(LifecycleCase):
         self.assertFalse(ho.exists())
         # The workspace dir is archived, artifacts included.
         self.assertFalse(ws.exists())
-        self.assertEqual(Path(archive, "spec" ".md").read_text(), "# spec\n")
-        self.assertEqual(Path(archive, "adr", "1.md").read_text(), "# adr" " 1\n")
+        self.assertEqual(Path(archive, "plan.md").read_text(), "# plan\n")
+        self.assertEqual(Path(archive, "adr", "1.md").read_text(), "# decision 1\n")
         self.assertEqual(Path(archive, "workspace.json").read_bytes(), wj)
         meta = json.loads(Path(archive, "archive.json").read_text())
         self.assertEqual(meta["feature"], "f")
@@ -168,7 +168,7 @@ class TestClose(LifecycleCase):
     def test_close_refuses_uncommitted_changes(self):
         ws, repos, wts = self.pushed_ws("f", "A", "B")
         self.ok(self.sb.tg("holdout-path", cwd=ws))
-        (ws / "spec" ".md").write_text("# spec\n")
+        (ws / "plan.md").write_text("# plan\n")
         for kind in ("untracked", "modified"):
             with self.subTest(kind=kind):
                 if kind == "untracked":
@@ -307,7 +307,7 @@ class TestClose(LifecycleCase):
     def test_close_partial_failure_then_rerun_completes(self):
         ws, repos, wts = self.pushed_ws("f", "A", "B")
         ho = Path(self.ok(self.sb.tg("holdout-path", cwd=ws)).out.strip())
-        (ws / "spec" ".md").write_text("# spec\n")
+        (ws / "plan.md").write_text("# plan\n")
         self.sb.git(repos["B"], "worktree", "lock", str(wts["B"]))
         r = self.close("f")
         self.code(r, 1)
@@ -318,7 +318,7 @@ class TestClose(LifecycleCase):
         self.assertEqual([e["name"] for e in data["repos"]], ["B"])
         self.assertIn("closing", data)
         self.assertTrue(ho.exists(), "holdouts are untouched until every worktree is gone")
-        self.assertTrue((ws / "spec" ".md").exists(), "artifacts are untouched until every worktree is gone")
+        self.assertTrue((ws / "plan.md").exists(), "artifacts are untouched until every worktree is gone")
         g = self.gc()
         self.has(g.out, "would resume closing f", g)
         C = self.sb.new_repo("C")
@@ -330,7 +330,7 @@ class TestClose(LifecycleCase):
         self.ok(r)
         self.has(r.out, "artifacts archived at %s" % realpath(self.sb.ar_root / "f"), r)
         self.assertFalse((self.sb.ar_root / "f+2").exists())
-        self.assertEqual((self.sb.ar_root / "f" / "spec" ".md").read_text(), "# spec\n")
+        self.assertEqual((self.sb.ar_root / "f" / "plan.md").read_text(), "# plan\n")
         self.assertFalse(ws.exists())
         self.assertFalse(ho.exists())
 
@@ -373,8 +373,8 @@ class TestGc(LifecycleCase):
         self.sb.commit_file(wm["M"], "pkg/new.go", "package pkg\n", "work")
         self.sb.git(rm["M"], "merge", "-q", "feat/m")
         wsi, ri, wi = self.pushed_ws("i", "I", commit_date=old)
-        (wsi / "spec" ".md").write_text("# spec\n")
-        backdate_tree(wsi / "spec" ".md", 40)
+        (wsi / "plan.md").write_text("# plan\n")
+        backdate_tree(wsi / "plan.md", 40)
         backdate_tree(wsi / "workspace.json", 40)
         wsn, rn, wn = self.pushed_ws("n", "N")
         r = self.ok(self.gc())

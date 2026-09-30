@@ -11,9 +11,9 @@ import unittest
 from wstools import ToolCase, tok, realpath
 
 CLEAN = "team-guard: refs: no workflow references in changed lines\n"
-APPENDED_NOTE = tok("adden", "dum")  # the pattern name is itself a word the check reports
+APPENDED_NOTE = tok("adden", "dum")  # test input for the reference scanner: a pattern name it reports
 
-# (pattern name, token) pairs the built-in set must report.
+# (pattern name, token) pairs the built-in set must report: test input for the reference scanner.
 MUST_MATCH = [
     ("criterion-id", tok("AC", "-12")), ("criterion-id", tok("ac", "12")), ("criterion-id", tok("AC", "_3")),
     ("criterion-id", tok("test_ac", "12_creates_file")),
@@ -27,6 +27,7 @@ MUST_MATCH = [
     ("review-round", tok("round", "-2")), ("review-round", tok("round", "_2")),
     ("adr-number", tok("ADR", " 0007")), ("adr-number", tok("ADR", "-7")),
 ]
+# Near misses the scanner must not report: test input for the reference scanner.
 MUST_NOT_MATCH = ["accuracy 5", "track1", tok("inspec", ".md"), "the round trip", "background",
                   "a contract between the two services"]
 SAFE_WORDS = ["alpha", "value", "count", "track1", "accuracy 5", "background", "the round trip", "services",
@@ -73,21 +74,26 @@ class TestRefsPatterns(RefsCase):
         # A citation already on main is neither an added line nor reported when a neighbour changes,
         # and removing it is not reported either.
         base = self.sb.new_repo("B")
+        # test input for the reference scanner
         self.sb.commit_file(base, "pkg/old.go", "package pkg\n// keep %s\n// drop %s\nvar x = 1\n"
                             % (tok("AC", "-7"), tok("round", " 3")), "base")
         self.sb.git(base, "checkout", "-q", "-b", "feat/x")
+        # test input for the reference scanner
         self.sb.commit_file(base, "pkg/old.go", "package pkg\n// keep %s\nvar x = 2\n" % tok("AC", "-7"), "edit")
         r = self.ok(self.refs(base, "--base", "main"))
         self.assertEqual(r.out, CLEAN)
 
+        # test input for the reference scanner
         named = self.repo_with({tok("pkg/test_ac", "12_thing.go"): "package pkg\n"}, name="N")
         r = self.code(self.refs(named, "--base", "main"), 2)
+        # test input for the reference scanner
         self.assertIn(tok("pkg/test_ac", "12_thing.go: criterion-id: file name"), finding_lines(r.err), self.show(r))
 
 
 class TestRefsFileSelection(RefsCase):
 
     def test_refs_skips_prose_and_generated_paths_and_reads_config(self):
+        # test input for the reference scanner
         t = tok("AC", "-12")
         files = {"docs/guide.go": "// %s\n" % t, "notes.md": "%s\n" % t, "sub/a.rst": "%s\n" % t,
                  "b.txt": "%s\n" % t, "dist/out.js": "// %s\n" % t,
@@ -105,8 +111,10 @@ class TestRefsFileSelection(RefsCase):
 
         # A deleted file is never scanned, whatever its name or content.
         gone = self.sb.new_repo("G")
+        # test input for the reference scanner
         self.sb.commit_file(gone, tok("pkg/", "brief", ".go"), "// %s\n" % t, "base")
         self.sb.git(gone, "checkout", "-q", "-b", "feat/x")
+        # test input for the reference scanner
         self.sb.git(gone, "rm", "-q", tok("pkg/", "brief", ".go"))
         self.sb.git(gone, "commit", "-qm", "delete")
         self.assertEqual(self.ok(self.refs(gone, "--base", "main")).out, CLEAN)
@@ -114,6 +122,7 @@ class TestRefsFileSelection(RefsCase):
         cfg = self.sb.tmp / "refs.json"
         cfg.write_text(json.dumps({"patterns": [{"name": "ticket", "regex": r"TICKET-\d+"}],
                                    "disable_patterns": ["criterion-id"], "exclude": ["pkg/**"]}))
+        # test input for the reference scanner
         repo2 = self.repo_with({"pkg/x.go": "// TICKET-9\n", "docs/y.go": "// ticket-4 %s\n" % t,
                                 "z.go": "// %s\n" % tok("round", " 2")}, name="S")
         for how in ("flag", "env"):
@@ -124,11 +133,13 @@ class TestRefsFileSelection(RefsCase):
                 else:
                     r = self.refs(repo2, "--base", "main", env={"TEAM_REFS_CONFIG": str(cfg)})
                 self.code(r, 2)
+                # test input for the reference scanner
                 self.assertEqual(finding_lines(r.err),
                                  ["docs/y.go:1: ticket: // ticket-4 %s" % t,
                                   "z.go:1: review-round: // %s" % tok("round", " 2")], self.show(r))
 
     def test_refs_rejects_a_bad_config_and_scans_nothing(self):
+        # test input for the reference scanner
         repo = self.repo_with({"pkg/x.go": "// %s\n" % tok("AC", "-1")})
         cases = {"missing": None, "invalid-json": "{not json", "bad-regex": {"patterns": [{"name": "x", "regex": "("}]},
                  "unknown-key": {"colour": "red"}, "wrong-type": {"exclude": "pkg/**"},
@@ -148,11 +159,13 @@ class TestRefsFileSelection(RefsCase):
 class TestRefsOutput(RefsCase):
 
     def test_refs_output_is_exact_ordered_and_repeatable(self):
+        # test input for the reference scanner
         repo = self.repo_with({"b.go": "// %s\n// fine\n// %s and %s\n" % (tok("round", " 2"), tok("ADR", " 0007"),
                                                                          tok("AC", "-5")),
                                "a.go": "// %s\n" % tok("adden", "dum"),
                                tok("c/test_ac", "5_x.go"): "// %s\n" % tok("§", "2")})
         r1 = self.code(self.refs(repo, "--base", "main"), 2)
+        # test input for the reference scanner
         expected = [
             "a.go:1: %s: // %s" % (APPENDED_NOTE, APPENDED_NOTE),
             "b.go:1: review-round: // %s" % tok("round", " 2"),
@@ -175,11 +188,14 @@ class TestRefsOutput(RefsCase):
         ws = self.new_ws("f")
         wtA = self.attach(A)
         wtB = self.attach(B)
+        # test input for the reference scanner
         self.sb.commit_file(wtB, "x.go", "// %s\n" % tok("AC", "-1"), "b")
+        # test input for the reference scanner
         self.sb.commit_file(wtA, "y.go", "// %s\n" % tok("round", "2"), "a")
         for cwd in (ws, wtB):
             with self.subTest(cwd=str(cwd)):
                 r = self.code(self.refs(cwd), 2)
+                # test input for the reference scanner
                 self.assertEqual(r.err.splitlines(),
                                  ["A: y.go:1: review-round: // %s" % tok("round", "2"),
                                   "B: x.go:1: criterion-id: // %s" % tok("AC", "-1"),

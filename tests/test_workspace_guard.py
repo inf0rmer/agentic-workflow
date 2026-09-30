@@ -325,7 +325,7 @@ class TestPretoolHook(GuardCase):
 
     def test_pretool_ignores_paths_outside_repos(self):
         ws, A, B, wtA, wtB = self.sealed_ws()
-        for target in (ws / "contract" ".md", self.sb.scratch / "loose" / "x.txt", "/tmp/x", self.sb.tmp / "nowhere.md"):
+        for target in (ws / "plan.md", self.sb.scratch / "loose" / "x.txt", "/tmp/x", self.sb.tmp / "nowhere.md"):
             with self.subTest(target=str(target)):
                 self.assert_no_decision(self.pretool(ws, "software-engineer", "Write", target))
 

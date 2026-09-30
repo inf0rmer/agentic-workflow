@@ -53,13 +53,13 @@ class TestNothingDeletedUnarchived(CloseSafetyCase):
         (ws / "notes.tmp").write_text("my notes\n")
         (ws / "draft.tmp").mkdir()
         (ws / "draft.tmp" / "x.md").write_text("draft\n")
-        (ws / "spec" ".md").write_text("# spec\n")
+        (ws / "plan.md").write_text("# plan\n")
         r = self.close("f")
         self.ok(r)
         ar = self.sb.ar_root / "f"
         self.assertEqual(text_of(ar / "notes.tmp"), "my notes\n", "notes.tmp was deleted without being archived")
         self.assertEqual(text_of(ar / "draft.tmp" / "x.md"), "draft\n")
-        self.assertEqual(text_of(ar / "spec" ".md"), "# spec\n")
+        self.assertEqual(text_of(ar / "plan.md"), "# plan\n")
         self.assertFalse(ws.exists())
 
     def test_file_in_repos_is_refused_even_with_force(self):
@@ -271,7 +271,7 @@ class TestNoTracebacks(CloseSafetyCase):
     @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "chmod can't block root")
     def test_close_oserror_then_resume(self):
         ws, repos, wts = self.pushed_ws("f", "A")
-        (ws / "spec" ".md").write_text("# spec\n")
+        (ws / "plan.md").write_text("# plan\n")
         self.sb.ar_root.mkdir(parents=True, exist_ok=True)
         os.chmod(self.sb.ar_root, 0o555)
         try:
@@ -283,7 +283,7 @@ class TestNoTracebacks(CloseSafetyCase):
         self.assertRegex(r.err, r"(?m)^team-guard: .*close.*: ", self.show(r))
         r = self.close("f")
         self.ok(r)
-        self.assertEqual(text_of(self.sb.ar_root / "f" / "spec" ".md"), "# spec\n")
+        self.assertEqual(text_of(self.sb.ar_root / "f" / "plan.md"), "# plan\n")
 
     @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "chmod can't block root")
     def test_gc_oserror(self):

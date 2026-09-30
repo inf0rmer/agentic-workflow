@@ -23,6 +23,8 @@ def tok(*parts):
     return "".join(parts)
 
 
+# The file the routing command writes; its name is one the reference scanner reports, so it is
+# assembled here rather than spelled out.
 ROUTING_MD = tok("routing", ".md")
 VARIANTS = ("chore", "bug-fix", "spike", "standard", "full")
 ANSWER_KEYS = ("repos", "files", "contract", "persisted", "security", "cross_team", "revertible",
