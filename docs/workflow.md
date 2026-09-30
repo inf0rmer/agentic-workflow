@@ -97,7 +97,7 @@ A Chore is a checklist of up to three items and one review.
 The researcher is no longer a pipeline step.
 The architect absorbs the researcher's brief, and the researcher stays available for research requests outside the pipeline.
 The doc-writer runs only when user-facing docs change.
-An interview skill for the product-owner's upfront questions is planned.
+The product-owner runs the upfront questions with the `grilling` skill.
 
 See [Guard rails](./guard-rails.md) for what sealing does.
 

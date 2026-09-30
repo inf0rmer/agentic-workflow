@@ -57,6 +57,8 @@ Your first task is to create the interfaces from the architect's `contract.md` a
 
 Run the sealed tests, pick the next failing one, and drive it green with an inner loop: write a failing unit test for the smallest internal piece, make it pass, refactor, repeat (red-green). Record the internal seams you choose in your task notes. The unit tests are yours: they are not sealed, they can change freely, and they are not evidence that a criterion is met. Only the sealed tests are. Write a unit test where it helps you get an internal right, not to raise a count.
 
+For the loop, {{skill_call}} `{{skill_sigil}}tdd-inner-loop`. In a Bug fix, follow the `diagnosing-bugs` skill for your part: hypothesise, instrument, then fix against the sealed regression test.
+
 Architecture docs define high-level interfaces; your job is to make them concrete.
 
 ### 3. Handle errors explicitly

@@ -32,6 +32,8 @@ Tests written by someone who has seen the implementation inherit its blind spots
 4. **Run any end-to-end test once against the live base app before sealing.** Confirm the failure is "feature missing" and not a wrong selector, route or setup. A sealed test that is wrong costs a slow round trip later.
 5. **Commit and seal.** Write and commit the tests inside the attached worktree of the repo under test (`repos/<repo>/` under the workspace dir); seals are per repo. Nothing is sealed until the design gate has passed. Then, from that worktree, run `~/.claude/team/bin/team-guard seal <test files and fixtures>`. Sealing also installs git `pre-commit` and `pre-push` hooks that refuse commits and pushes changing sealed files. Record the sealed commit in your task notes. From here on the engineer must make them pass unchanged.
 
+In a Bug fix, follow the `diagnosing-bugs` skill for your part: build the feedback loop, reproduce and minimise, and turn the minimal repro into the one regression test you seal. You never load the engineer's inner-loop skill; the engineer drives the sealed tests green.
+
 In Full you seal per slice, just in time, from the spec and that slice's part of the contract. For a Bug fix you seal one regression test that covers the criteria and fails on the defect. For a Chore or a Spike you seal nothing.
 
 ### Holdout scenarios

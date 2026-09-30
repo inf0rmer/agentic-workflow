@@ -58,6 +58,31 @@ The build parses each TOML file before writing it, so it fails rather than ship 
 Don't edit it: change `core/` or an adapter, then rebuild.
 `tests/run.sh` checks that every `dist/` is up to date; `tests/run.sh --slow` adds the `mutation-check` test.
 
+## Ship the vendored skills
+
+These are [Matt Pocock's skills](https://github.com/mattpocock/skills), MIT licensed, copied into `core/skills/` and pinned at one commit recorded in `core/skills/UPSTREAM.json`.
+The plugin is not installed, and the copies never auto-update, so prompts that run commands can't change under you.
+Every copy carries its `LICENSE` and a provenance line naming the source, the commit and whether it was modified.
+A patched skill is upstream plus a stored patch in `core/skills/patches/`, which keeps workflow files in the workspace dir and never in a project repo.
+
+| Skill | Status | Used by |
+|---|---|---|
+| `grilling` | as-is | product-owner, for the upfront round of questions |
+| `codebase-design` | as-is | architect, for an options brief |
+| `writing-for-agents` | as-is | whoever edits `core/` |
+| `domain-modeling` | patched | architect: ADRs as `adr/NNNN-<slug>.md` and an optional `GLOSSARY.md`, both in the workspace dir |
+| `handoff` | patched | the human, as a slash command; writes `handoff-<slug>.md` in the workspace dir |
+| `to-questionnaire` | patched | the human, as a slash command; writes `to-questionnaire-<slug>.md` in the workspace dir |
+| `diagnosing-bugs` | patched | Bug fix: the tester builds the feedback loop and the regression test, the engineer fixes |
+| `tdd-inner-loop` | patched (upstream `tdd`) | software-engineer only |
+
+`build.py` ships only the directories of `core/skills/` that hold a `SKILL.md`, so `UPSTREAM.json` and `patches/` stay behind. It renders each `SKILL.md` with the adapter's vars: `skill_call`, `skill_sigil` and `user_skill_sigil` say how a skill names another one (Claude Code calls the Skill tool; Codex mentions `$name`).
+
+Run `scripts/vendor-check` to see drift: it compares each copy with upstream at the pin plus its patch (`local drift`) and with a newer ref (`upstream changed`, `upstream removed`, or a `patch conflict`), exits 1 on drift and 2 when it can't run, and never changes anything.
+Moving the pin is a person's decision: update the copies and patches, then the pin.
+
+The byte-for-byte checks need a local clone of upstream at the pin. Run the suite with `VENDOR_UPSTREAM_CLONE=<path to a clone of mattpocock/skills at the pin> tests/run.sh`; without it those tests skip with that reason, and nothing touches the network.
+
 ## Install
 
 Each installer runs `tests/run.sh` first, backs up what it replaces to `backups/agentic-workflow-<timestamp>/` in the harness home, and copies the build.

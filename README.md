@@ -50,6 +50,31 @@ Human gate  review, questions, re-sign the branch, merge-risk footer
 After     doc-writer (only if user-facing docs changed) + product-owner close-out
 ```
 
+## Vendored skills
+
+These are [Matt Pocock's skills](https://github.com/mattpocock/skills), MIT licensed, copied into `core/skills/` and pinned at one commit recorded in `core/skills/UPSTREAM.json`.
+The plugin is not installed, and the copies never auto-update, so prompts that run commands can't change under you.
+Every copy carries its `LICENSE` and a provenance line naming the source, the commit and whether it was modified.
+A patched skill is upstream plus a stored patch in `core/skills/patches/`, which keeps workflow files in the workspace dir and never in a project repo.
+
+| Skill | Status | Used by |
+|---|---|---|
+| `grilling` | as-is | product-owner, for the upfront round of questions |
+| `codebase-design` | as-is | architect, for an options brief |
+| `writing-for-agents` | as-is | whoever edits `core/` |
+| `domain-modeling` | patched | architect: ADRs as `adr/NNNN-<slug>.md` and an optional `GLOSSARY.md`, both in the workspace dir |
+| `handoff` | patched | the human, as a slash command; writes `handoff-<slug>.md` in the workspace dir |
+| `to-questionnaire` | patched | the human, as a slash command; writes `to-questionnaire-<slug>.md` in the workspace dir |
+| `diagnosing-bugs` | patched | Bug fix: the tester builds the feedback loop and the regression test, the engineer fixes |
+| `tdd-inner-loop` | patched (upstream `tdd`) | software-engineer only |
+
+The Skill denial for `tdd-inner-loop` is enforced on Claude Code where the agent is identifiable (the `hook-pretool` matcher includes `Skill`); it is not enforced on Codex, which has no Skill hook, so there the rule rests on the role prose and `allow_implicit_invocation: false`.
+
+Run `scripts/vendor-check` to see drift: it compares each copy with upstream at the pin plus its patch (`local drift`) and with a newer ref (`upstream changed`, `upstream removed`, or a `patch conflict`), exits 1 on drift and 2 when it can't run, and never changes anything.
+Moving the pin is a person's decision: update the copies and patches, then the pin.
+
+The byte-for-byte checks need a local clone of upstream at the pin. Run the suite with `VENDOR_UPSTREAM_CLONE=<path to a clone of mattpocock/skills at the pin> tests/run.sh`; without it those tests skip with that reason, and nothing touches the network.
+
 ## Workspaces
 
 Workflow artifacts (spec, ADRs, `contract.md`, review reports, the Jev log) never land in a project repo. Each feature gets a **workspace** instead, and a feature can span several repos:
@@ -101,7 +126,8 @@ Start the team from the workspace dir. Each attached worktree points back at its
 | `core/bin/mutation-check` | Mutation-test changed code only (Go: gremlins; TypeScript: Stryker), bounded by `--min-free-gb` (default 20, exit 3), `--max-concurrency` (2), `--time-box` (15 minutes, exit 4) and `--sample` (50 changed lines) |
 | `adapters/<harness>/adapter.json` | Tier → model mapping and values for the `{{placeholders}}` in core |
 | `adapters/<harness>/install.sh` | Installs that harness's build |
-| `core/skills/` | Skills shipped to every harness (`jev-decide`) |
+| `core/skills/` | Skills shipped to every harness: `jev-decide` and the vendored set, with `UPSTREAM.json` and `patches/` (not shipped) |
+| `scripts/vendor-check` | Report drift of the vendored skills from upstream |
 | `dist/<harness>/` | Generated output, committed so diffs stay readable. Don't edit; run `./build.py <harness>` |
 | `build.py` | Renders core through an adapter; `--check` fails if `dist/` is stale |
 | `tests/run.sh` | Self-tests, including that every `dist/` is up to date (`--slow` adds the mutation-check test) |
@@ -146,7 +172,7 @@ Both harnesses share the workspace, holdout and archive directories under `~/.ag
 ## Known limits
 
 - **Three layers, from strongest to weakest.** (1) `team-guard verify` compares sealed files with the content hash recorded when they were sealed, so tampering is always *detected*, by any tool, at `SubagentStop`, `TaskCompleted` and in review. (2) Git `pre-commit` and `pre-push` hooks, installed on first seal, *refuse* commits and pushes that change sealed tests in any harness; `--no-verify` bypasses them, which layer 1 still catches. (3) Harness hooks block edits *before* they happen, but only where the harness identifies the agent: Claude Code passes `agent_type` inside subagents, but documents no equivalent for agent-team teammates, and teammates don't apply a definition's frontmatter `hooks`.
-- **The global Codex `AGENTS.md` is large.** At about 29.6 KB it leaves about 2.4 KB of Codex's 32 KiB cap for project `AGENTS.md` files.
+- **The global Codex `AGENTS.md` is large.** At about 30 KB it leaves about 1.9 KB of Codex's 32 KiB cap for project `AGENTS.md` files.
 - **Other tools can replace the git hook.** Running `lefthook install` (as Grafana's `make lefthook-install` does) overwrites it; `team-guard verify` warns when that happens, and `team-guard git-hook install` re-chains it.
 - **The tester's review-data denial has gaps.** `hook-pretool` denies a tester any path tool call into a workspace's `.crit/` and `reviews/`, but Codex's hook matcher doesn't cover reads and shell reads aren't covered in either harness, so there the rule rests on the spawn prompt and the reviewer.
 - **`core.hooksPath` hides the git hooks.** Husky and similar tools set it, and git then ignores `.git/hooks`. `team-guard verify` warns, but `team-guard git-hook install` would write into the tool's directory, so it isn't done for you; `verify` and the reviewer are the remaining checks.

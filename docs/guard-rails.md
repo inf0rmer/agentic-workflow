@@ -282,6 +282,22 @@ The `hook-pretool` hook denies a tester any tool call that reaches `.crit/` or `
 Codex's hook matcher doesn't cover reads, and shell reads aren't covered in either harness, so there the rule rests on the spawn prompt and the reviewer.
 Making `seal` require a matching gate record is planned.
 
+## Keep the tester out of the inner loop
+
+The Skill denial for `tdd-inner-loop` is enforced on Claude Code where the agent is identifiable (the `hook-pretool` matcher includes `Skill`); it is not enforced on Codex, which has no Skill hook, so there the rule rests on the role prose and `allow_implicit_invocation: false`.
+
+## Check the vendored skills
+
+These are [Matt Pocock's skills](https://github.com/mattpocock/skills), MIT licensed, copied into `core/skills/` and pinned at one commit recorded in `core/skills/UPSTREAM.json`.
+The plugin is not installed, and the copies never auto-update, so prompts that run commands can't change under you.
+Every copy carries its `LICENSE` and a provenance line naming the source, the commit and whether it was modified.
+A patched skill is upstream plus a stored patch in `core/skills/patches/`, which keeps workflow files in the workspace dir and never in a project repo.
+
+The set is `grilling`, `codebase-design`, `writing-for-agents`, `domain-modeling`, `handoff`, `to-questionnaire`, `diagnosing-bugs` and `tdd-inner-loop`.
+
+Run `scripts/vendor-check` to see drift: it compares each copy with upstream at the pin plus its patch (`local drift`) and with a newer ref (`upstream changed`, `upstream removed`, or a `patch conflict`), exits 1 on drift and 2 when it can't run, and never changes anything.
+Moving the pin is a person's decision: update the copies and patches, then the pin.
+
 ## Watch for `core.hooksPath`
 
 Tools such as Husky set `core.hooksPath`, and git then ignores the hooks in `.git/hooks` where `team-guard` installs its own.

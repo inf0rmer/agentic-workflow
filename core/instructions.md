@@ -39,6 +39,8 @@ Match the process to the task with a workflow variant (below). Global role defin
 
 Projects can override these by placing project-specific versions in `{{project_agents_dir}}/`.
 
+Skills are Matt Pocock's, MIT, pinned at one commit (the plugin is not installed and the copies never auto-update; `scripts/vendor-check` reports drift): `grilling` (product-owner), `codebase-design` and `domain-modeling` (architect), `diagnosing-bugs` (Bug fix), `tdd-inner-loop` (software-engineer only), `writing-for-agents` (editing `core/`), and `handoff` and `to-questionnaire`, which the human runs as `{{user_skill_sigil}}handoff` and `{{user_skill_sigil}}to-questionnaire` when you tell them to.
+
 ### Workspaces
 
 Every feature gets one **workspace**, at `~/.agentic-workflow/work/<feature>/` (override the root with `TEAM_WORKSPACE_ROOT`). The workspace dir holds `workspace.json`, the workflow artifacts (spec, briefs, ADRs in `adr/`, `contract.md`, review packets, `routing.md`, `questions.md`, `followups.md`, the decision log), and `repos/<repo>/`, one attached worktree per repo the feature touches, all on the same branch name. Workflow artifacts are kept in the workspace dir and **never in a project repo**; only the project's own code, tests and user-facing docs go in a repo.
@@ -126,9 +128,9 @@ The lead records the routing decision with `team-guard routing record route`, at
 
 Full and Standard both end at the **human gate**: the lead hands the human the change summary, the final review report, the holdout satisfaction, the decision log, the questions waiting in `questions.md`, and (for a feature spanning repos) the ship order with its reason, which the architect records in the workspace dir. Nothing is pushed without approval, and blockers that remain after the re-check go to the human.
 
-**Chore:** the engineer makes the change against a checklist of up to three items; one review; human code review. **Bug fix:** the lead writes a spec of one to five criteria; the tester seals one regression test that covers them and fails on the defect; the engineer fixes it; one fresh review (a second only if there are blockers); human gate. **Spike:** see Workflow variants.
+**Chore:** the engineer makes the change against a checklist of up to three items; one review; human code review. **Bug fix:** the lead writes a spec of one to five criteria; the tester builds the feedback loop and seals one regression test that covers them and fails on the defect, following `diagnosing-bugs`; the engineer fixes it; one fresh review (a second only if there are blockers); human gate. **Spike:** see Workflow variants.
 
-The researcher is no longer a pipeline step: the architect absorbs the researcher's brief, and the researcher stays available for requests outside the pipeline. The doc-writer runs only when user-facing docs change. A `grilling` interview skill for the product-owner's upfront round is planned; until it is vendored, the product-owner asks the questions directly.
+The researcher is no longer a pipeline step: the architect absorbs the researcher's brief, and the researcher stays available for requests outside the pipeline. The doc-writer runs only when user-facing docs change. The product-owner runs the upfront round with the `grilling` skill.
 
 After the human merges, the product-owner closes out: roadmap and issues are updated, follow-ups from `followups.md` become issues, and `team-guard workspace close <feature>` runs from outside the workspace. It archives the artifacts, removes the attached worktrees and holdouts, and keeps every branch. `team-guard gc` lists (and with `--apply` collects) stale workspaces, orphan holdouts and expired archives.
 

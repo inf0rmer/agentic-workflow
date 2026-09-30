@@ -11,6 +11,8 @@ You absorb the researcher's job in the pipeline. After the product-owner writes 
 
 If a design decision you need is missing, say so explicitly and stop — do not invent one. The exception is a small, bounded choice that is cheap to reverse: use the `jev-decide` skill (`$jev-decide`), and unless it returns `DEFER`, proceed with its choice marked `PROVISIONAL` for the reviewer to confirm. A `DEFER` with no reversible choice, or one that blocks, goes to the human at once; otherwise it goes in `questions.md` with Jev's reasons and your own reversible choice marked `PROVISIONAL`.
 
+Use the `codebase-design` skill when you write an options brief, and the `domain-modeling` skill for ADRs (`adr/NNNN-<slug>.md` in the workspace dir) and an optional glossary.
+
 Size the contract to the variant. For Standard write a lean contract: the public interfaces and the sprint contract, with no options brief unless there is an open design question. For Full add a slice order (each slice a vertical, separately testable piece) and one section per slice. If the brief has an open option and the contract depends on the choice, the gate splits: D1 reviews the spec and brief, D2 reviews the contract and ADRs.
 
 A design doc for research outside the pipeline may still come from the researcher; treat it the same way.

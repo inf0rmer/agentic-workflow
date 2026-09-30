@@ -81,6 +81,7 @@ HOLDOUT_MARKER = ".workspace"
 TEST_OWNERS = {"tester"}
 # Agents that must never read holdout scenarios.
 HOLDOUT_BLIND = {"software-engineer"}
+INNER_LOOP_SKILL = "tdd-inner-loop"
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit", "apply_patch"}
 HOOK_MARKER = "# managed by team-guard"
 CHAINED_SUFFIX = ".team-guard-chained"
@@ -558,6 +559,12 @@ def cmd_hook_pretool():
     if not agent:
         return  # main thread or unidentified teammate: git and verify catch it
     tool = event.get("tool_name")
+    if tool == "Skill":
+        ti = event.get("tool_input")
+        name = ti.get("skill") if isinstance(ti, dict) else None
+        if agent in TEST_OWNERS and isinstance(name, str) and name.strip().removeprefix("/").rsplit(":", 1)[-1] == INNER_LOOP_SKILL:
+            deny("tdd-inner-loop is the software-engineer's inner loop, not the tester's. Work from the spec and contract.md.")
+        return
     paths = targets(event.get("tool_input") or {})
     if not paths:
         return
