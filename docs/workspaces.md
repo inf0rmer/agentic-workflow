@@ -231,5 +231,5 @@ A command-line option beats its variable.
 
 ## Next steps
 
-- Follow the phases in [Workflow](./workflow.md).
+- Follow the steps in [Workflow](./workflow.md).
 - Learn how seals work in [Guard rails](./guard-rails.md).

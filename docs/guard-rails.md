@@ -130,7 +130,10 @@ The reviewer treats any unseal without a matching tester note as a blocker.
 
 ## Harden tests with mutation testing
 
-Once the sealed tests pass, the tester runs `mutation-check` from inside the repo:
+Mutation testing is off by default in every variant.
+In Full it is opt-in for risk-flagged modules, and then it is sampled and time-boxed.
+Python has no supported mutation path.
+When it is opted in and the sealed tests pass, the tester runs `mutation-check` from inside the repo:
 
 ```bash
 mutation-check --base main
@@ -156,10 +159,10 @@ Survivors — each is a behavior change no test noticed:
 ```
 
 `mutation-check` exits 0 whether or not mutants survive.
-For each survivor, the tester either writes a test that kills it, or records why it's equivalent (it can't change observable behavior) or irrelevant.
+For each survivor that matters, the tester either writes a test that kills it, or records why it's equivalent (it can't change observable behavior) or irrelevant.
 New tests from this phase get sealed too.
 
-The bar is that every surviving mutant on changed code is killed or justified.
+Hard limits in `mutation-check` (a free-disk check, capped concurrency, guaranteed cleanup, an enforced time box, sampling) are planned and don't exist yet, so the tester keeps the sample and the time box by hand.
 Line coverage is a secondary signal only.
 
 > **Note:** The TypeScript path assumes a jest setup that Stryker's jest runner can discover. Expect to tune it on first use in a large monorepo.

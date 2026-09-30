@@ -4,7 +4,7 @@ These guides show you how to run a feature through the agent team, from spec to 
 
 | Guide | Read it to |
 |---|---|
-| [Workflow](./workflow.md) | Follow the five phases, the review loop, and the human gate. |
+| [Workflow](./workflow.md) | Pick a variant, follow its steps through the design gate, the review, and the human gate. |
 | [Workspaces](./workspaces.md) | Set up a feature across one or more repos, then close and collect it. |
 | [Guard rails](./guard-rails.md) | Seal tests, verify them, and harden them with mutation testing. |
 | [Decisions with Jev](./decisions-with-jev.md) | Settle small choices fast, and know when not to. |
@@ -35,8 +35,8 @@ After install, the tools live in `~/.claude/team/bin/` (Claude Code) or `~/.code
 - _Workspace_: a per-feature directory that holds the workflow artifacts and one git worktree per attached repo.
 - _Contract_: the architect's `contract.md`, with the public interfaces and how each acceptance criterion is verified. It's the only architecture doc the tester reads.
 - _Sealed test_: a committed test the engineer must make pass without changing it.
-- _Holdout scenarios_: a few end-to-end scenarios the engineer never sees. The final-round reviewer runs them.
-- _Surviving mutant_: a small change to the new code that no test noticed. The tester kills or justifies each one.
+- _Holdout scenarios_: a few end-to-end scenarios the engineer never sees. The reviewer runs them in the last review pass.
+- _Surviving mutant_: a small change to the new code that no test noticed. When mutation testing is opted in, the tester writes a test for each one that matters or records why it doesn't.
 - _Jev_: a third-party decision model for small, bounded choices.
 - _Human gate_: the point where you review the result before anything is pushed.
 

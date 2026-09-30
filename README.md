@@ -12,7 +12,7 @@ git diff 78427bc HEAD -M -- agents CLAUDE.md dist/claude-code
 
 Guides live in [docs/](./docs/README.md):
 
-- [Workflow](./docs/workflow.md): the five phases, the review loop, and the human gate.
+- [Workflow](./docs/workflow.md): the five variants, their steps, the design gate, the review, and the human gate.
 - [Workspaces](./docs/workspaces.md): set up, close, and collect per-feature workspaces.
 - [Guard rails](./docs/guard-rails.md): sealed tests, the three enforcement layers, and mutation testing.
 - [Decisions with Jev](./docs/decisions-with-jev.md): when to ask Jev, and what each verdict means.
@@ -24,30 +24,30 @@ The old workflow had the engineer and tester, on the same model and reading the 
 
 | Change | Evidence |
 |---|---|
-| **Tester writes acceptance/integration/e2e tests first, from the spec only** | TDFlow (2025): 94.3% of SWE-bench Verified solved with human-written tests up front vs 68.0% with self-written tests. AgentCoder: an isolated test designer beat same-context tests on accuracy and coverage. Claude Code best practices: "have one Claude write tests, then another write code to pass them." |
+| **Tester writes one sealed test per criterion first, from the spec only** | TDFlow (2025): 94.3% of SWE-bench Verified solved with human-written tests up front vs 68.0% with self-written tests. AgentCoder: an isolated test designer beat same-context tests on accuracy and coverage. Claude Code best practices: "have one Claude write tests, then another write code to pass them." |
 | **Sealed tests the engineer can't change** | ImpossibleBench (2025): Claude models mostly cheat by editing tests; read-only tests were the best mitigation, especially for Claude. |
-| **Engineer stops writing "ritual" tests** | A 2026 study of six frontier models: agent-written tests didn't raise resolution rates; suppressing them cut tokens 33–49%. |
+| **Engineer's tests become an inner loop under one sealed test per criterion** | The engineer drives each sealed test green with unit tests it owns; they aren't sealed and don't count as evidence. A 2026 study of six frontier models: agent-written tests didn't raise resolution rates; suppressing them cut tokens 33–49%. |
 | **Small holdout set of hidden scenarios** | StrongDM's software factory keeps scenarios outside the codebase as a holdout set. Fully hiding all tests hurts legitimate performance (ImpossibleBench), so the holdout set stays small. |
-| **Mutation score on changed code replaces 80% line coverage** | Meta's ACH (FSE 2025): mutation-guided test generation at scale. Mutants are an objective, LLM-free check on blind spots. |
+| **Sampled mutation testing, opt-in for risk-flagged modules, replaces 80% line coverage** | Meta's ACH (FSE 2025): mutation-guided test generation at scale. Mutants are an objective, LLM-free check on blind spots. It is off by default because full runs on everything took hours and filled disks. |
 | **EARS acceptance criteria, product owner on Sonnet** | AWS Kiro derives property-based tests from EARS criteria. The criteria are now the tests' only source of truth, so they're too important for the cheapest model. |
 | **Architect's `contract.md` with a sprint contract** | Anthropic's long-running-agent harness has generator and evaluator agree on "done" and how it's checked before coding. MAST (NeurIPS 2025): most multi-agent failures are spec ambiguity and weak verification. |
-| **Build ⇄ fresh-context review loop, max two rounds** | Cognition (2026): a context-free reviewer finds ~2 bugs per PR. Stripe Minions cap CI feedback at 1–2 rounds. |
+| **One fresh-context review plus a targeted re-check of the fix diff** | Cognition (2026): a context-free reviewer finds ~2 bugs per PR. Stripe Minions cap CI feedback at 1–2 rounds. |
 | **Reviewer drops "at least one finding"** | Claude Code best practices: a reviewer asked for gaps always finds some, which drives over-engineering. |
 | **Tester on Opus, engineer on Sonnet** | Errors are correlated even across models (ICML 2025); a different *and* stronger test author beats a weaker second opinion (Self-MoA, TMLR 2026). |
 
 ## Workflow
 
 ```
-Phase 1  product-owner (EARS criteria) + researcher
-Phase 2  architect → contract.md
+Variants  Chore | Bug fix | Spike | Standard | Full  (the lead proposes, you confirm)
+Step 1    design: product-owner (upfront questions, EARS criteria), then architect (options brief if needed, contract.md)
+Step 2    design gate: one Crit review, zero comments to pass; nothing is sealed before it
+Step 3    tests in parallel with the scaffold
            ├─ engineer: scaffold contract as failing stubs
-           └─ tester (isolated): spec tests → prove red → commit → seal; holdout scenarios
-Phase 3  engineer makes sealed tests pass
-           → tester: mutation-check, kill or justify survivors
-           → fresh reviewer (guard rails, then review) ⇄ engineer, max 2 rounds
-           → final round: holdout scenarios, satisfaction score
-Phase 4  human gate
-Phase 5  doc-writer + product-owner
+           └─ tester (isolated): one sealed test per criterion → prove red → seal; holdout scenarios
+Step 4    engineer makes sealed tests pass (inner red-green loop)
+Step 5    one fresh reviewer (guard rails, then review) + targeted re-check of the fix diff; holdout satisfaction
+Human gate  review, questions, re-sign the branch, merge-risk footer
+After     doc-writer (only if user-facing docs changed) + product-owner close-out
 ```
 
 ## Workspaces
@@ -134,7 +134,7 @@ It installs `~/.codex/AGENTS.md`, one `~/.codex/agents/<role>.toml` per role, th
 | Instructions | `~/.claude/CLAUDE.md` | `~/.codex/AGENTS.md` (no `@imports`; 32 KiB cap together with project `AGENTS.md` files) |
 | Roles | `agents/*.md`, frontmatter + prose | `agents/*.toml`, `developer_instructions` + `model` + `model_reasoning_effort` |
 | Models (strong / standard / fast) | `claude-opus-5-5` / `claude-sonnet-5-5` / `claude-haiku-4-5` | `gpt-6-astra` / `gpt-6-sol` / `gpt-6-luna` |
-| Phase ordering | agent-team task dependencies | the lead spawns each phase with `spawn_agent` (context not forked) and `wait_agent`s before the next |
+| Step ordering | the lead starts one subagent per step and waits for its report | the lead spawns each step with `spawn_agent` (context not forked) and `wait_agent`s before the next |
 | Agent-to-agent messages | `SendMessage` | none between subagents: the engineer reports a disputed test to the lead |
 | Edit guard | `PreToolUse` on `Edit`/`Write` (`file_path`) | `PreToolUse` on `apply_patch` (paths parsed from the patch) |
 | Completion guard | `TaskCompleted`, exit 2 | `SubagentStop`, JSON `block` decision, once per stop |

@@ -97,7 +97,7 @@ Then:
 | | Claude Code | Codex CLI |
 |---|---|---|
 | Instructions | `~/.claude/CLAUDE.md` | `~/.codex/AGENTS.md`, with no `@imports` and a 32 KiB cap together with project `AGENTS.md` files |
-| Phase ordering | Agent-team task dependencies | The lead spawns each phase with `spawn_agent` and waits with `wait_agent` |
+| Step ordering | The lead starts one subagent per step and waits for its report | The lead spawns each step with `spawn_agent` and waits with `wait_agent` |
 | Agent-to-agent messages | `SendMessage` | None between subagents: the engineer reports a disputed test to the lead |
 | Edit guard | `PreToolUse` on `Edit` and `Write` (`file_path`) | `PreToolUse` on `apply_patch`, with paths parsed from the patch |
 | Completion guard | `TaskCompleted`, exit 2 | `SubagentStop`, a JSON `block` decision, once per stop |
@@ -118,5 +118,5 @@ Both harnesses share the workspace, holdout, and archive directories under `~/.a
 
 ## Next steps
 
-- Follow the phases in [Workflow](./workflow.md).
+- Follow the steps in [Workflow](./workflow.md).
 - See what the hooks enforce in [Guard rails](./guard-rails.md).
