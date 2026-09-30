@@ -237,8 +237,10 @@ class TestBuiltSkills(unittest.TestCase):
                 self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
 
     def test_skill_calls_render_per_harness_from_adapter_placeholders(self):
+        # patches/ and UPSTREAM.json record upstream (a patch must quote the lines it removes), so only
+        # the vendored skill files are held to the rule.
         for f in sorted(SK.rglob("*")):
-            if f.is_file():
+            if f.is_file() and f.relative_to(SK).parts[0] not in ("patches", "UPSTREAM.json"):
                 with self.subTest(file=str(f.relative_to(ROOT))):
                     self.assertNotIn(b"Skill tool", f.read_bytes())
         want = {"claude-code": {"skill_call": "call the Skill tool with", "skill_sigil": "", "user_skill_sigil": "/"},
