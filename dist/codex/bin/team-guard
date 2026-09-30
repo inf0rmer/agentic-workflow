@@ -38,7 +38,7 @@ Workflow tooling:
   team-guard routing summary [--json]
   team-guard risk [--base R] [--feature F] [--answer k=v]... [--contract none|additive|breaking|unknown]
                   [--majors-fixed N] [--holdouts-failed N] [--mutation-skipped yes|no|unknown]
-                  [--human-level high|medium|low] [--packet] [--no-log]
+                  [--human-level high|medium|low] [--pr-budget N] [--packet] [--no-log]
   team-guard sign [--base <ref>]
   team-guard gate review <gate> [<file>...] [--new] [--no-open]
   team-guard gate reply <gate> --file <json> --author <role>
@@ -2075,9 +2075,12 @@ def cmd_risk(args):
     p.add_argument("--holdouts-failed", type=int, default=0)
     p.add_argument("--mutation-skipped", choices=YES_NO, default="no")
     p.add_argument("--human-level", choices=("high", "medium", "low"))
+    p.add_argument("--pr-budget")
     p.add_argument("--packet", action="store_true")
     p.add_argument("--no-log", action="store_true")
     a = _parse_or_die(p, args, "risk")
+    if a.pr_budget is not None or os.environ.get("TEAM_PR_BUDGET"):
+        die("not implemented: risk --pr-budget", 70)
     if a.majors_fixed < 0 or a.holdouts_failed < 0:
         die("risk: --majors-fixed and --holdouts-failed must be integers of at least 0")
     overrides = parse_answer_items(a.answer, "risk")
