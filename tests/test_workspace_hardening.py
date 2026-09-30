@@ -1,5 +1,5 @@
-"""Tests added after mutation testing: each one pins a behavior of the spec or contract
-that a surviving mutant showed the earlier suites didn't check."""
+"""Tests added after mutation testing: each one pins a documented behavior that a
+surviving mutant showed the other suites didn't check."""
 
 import json
 import os
@@ -13,7 +13,7 @@ from wslib import WSTestCase, realpath, tree_snapshot
 class TestDefaultRoots(WSTestCase):
 
     def test_roots_default_under_home(self):
-        # Contract §1: without the env vars the roots are ~/.agentic-workflow/{work,holdout,archive}.
+        # Without the env vars the roots are ~/.agentic-workflow/{work,holdout,archive}.
         unset = ("TEAM_WORKSPACE_ROOT", "TEAM_HOLDOUT_ROOT", "TEAM_ARCHIVE_ROOT")
         home = self.sb.home
         base = home / ".agentic-workflow"
@@ -48,11 +48,11 @@ class TestHoldoutRootSymlink(WSTestCase):
         link = self.sb.tmp / "holdout-link"
         os.symlink(real, link)
         env = {"TEAM_HOLDOUT_ROOT": str(link)}
-        # Inside a workspace, printed paths are realpaths (contract conventions).
+        # Inside a workspace, printed paths are realpaths.
         ws = self.new_ws("f")
         r = self.ok(self.sb.tg("holdout-path", cwd=ws, env=env))
         self.assertEqual(r.out, realpath(real / "f") + "\n")
-        # Outside one, the legacy output is unchanged: the root as given (AC-57).
+        # Outside one, the legacy output is unchanged: the root as given.
         repo = self.sb.new_repo("repo", branch="feat/x")
         r = self.ok(self.sb.tg("holdout-path", cwd=repo, env=env))
         self.assertEqual(r.out, str(link) + "/repo/feat-x\n")
@@ -66,7 +66,7 @@ class TestHoldoutRootSymlink(WSTestCase):
 class TestWorkspaceLookupEdges(WSTestCase):
 
     def test_dot_dirs_under_the_root_are_not_workspaces(self):
-        # Contract §8(b): W is a direct child of <WS> whose name doesn't start with ".".
+        # A workspace W is a direct child of <WS> whose name doesn't start with ".".
         d = self.sb.ws_root / ".trash" / "x"
         d.mkdir(parents=True)
         (self.sb.ws_root / ".trash" / "workspace.json").write_text(json.dumps({"feature": ".trash", "repos": []}))
@@ -78,7 +78,7 @@ class TestWorkspaceLookupEdges(WSTestCase):
         self.has(r.err, "no workspace found", r)
 
     def test_workspace_json_of_the_wrong_shape(self):
-        # AC-10: a workspace.json that parses but isn't a workspace object is reported, never used.
+        # A workspace.json that parses but isn't a workspace object is reported, never used.
         for bad in ("[]", '{"feature": "f"}', '{"feature": "f", "repos": 5}', '"text"'):
             with self.subTest(content=bad):
                 ws = self.sb.ws_dir("f")
@@ -139,7 +139,7 @@ class TestVerifyEdges(WSTestCase):
         return p if p.is_absolute() else Path(repo) / p
 
     def test_worktree_whose_repository_is_gone(self):
-        # Contract §3 verify: "  ‹repo-name›: repository unavailable: ‹worktree›".
+        # verify reports "  ‹repo-name›: repository unavailable: ‹worktree›".
         A = self.sb.new_repo("A")
         B = self.sb.new_repo("B")
         ws = self.new_ws("f")
@@ -156,7 +156,7 @@ class TestVerifyEdges(WSTestCase):
         self.has(t.err, "repository unavailable", t)
 
     def test_workspace_verify_warns_when_a_repos_hook_is_gone(self):
-        # Same warning as single-repo verify (AC-58 parity), per attached repo that has seals.
+        # Same warning as single-repo verify (the same output either way), per attached repo that has seals.
         A = self.sb.new_repo("A")
         B = self.sb.new_repo("B")
         ws = self.new_ws("f")
@@ -172,7 +172,7 @@ class TestVerifyEdges(WSTestCase):
         self.lacks(r.err, " B", r)
 
     def test_no_hook_warning_without_seals(self):
-        # AC-52: an unsealed repo without hooks verifies silently, as today.
+        # An unsealed repo without hooks verifies silently, as today.
         R = self.sb.new_repo("R")
         r = self.ok(self.sb.tg("verify", cwd=R))
         self.assertEqual((r.out, r.err), ("team-guard: all sealed tests unchanged\n", ""))

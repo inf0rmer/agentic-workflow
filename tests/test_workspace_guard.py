@@ -1,5 +1,5 @@
 """Hash-carrying seals, target-path hooks, workspace-wide verify, the pre-push hook and
-backwards compatibility (spec sections D, E, F)."""
+backwards compatibility."""
 
 import itertools
 import json
@@ -55,7 +55,7 @@ class GuardCase(WSTestCase):
 
 class TestHashSeals(GuardCase):
 
-    def test_ac32_seal_records_commit_and_blob(self):
+    def test_seal_records_commit_and_blob(self):
         ws, A, B, wtA, wtB = self.two_repo_ws()
         r = self.seal(wtA, SEALED_A)
         self.has(r.out, "sealed 1 file(s) at", r)
@@ -64,7 +64,7 @@ class TestHashSeals(GuardCase):
         self.assertEqual(lock["files"][SEALED_A], head)
         self.assertEqual(lock.get("blobs", {}).get(SEALED_A), self.sb.git(wtA, "rev-parse", "HEAD:" + SEALED_A))
 
-    def test_ac32_unseal_removes_both(self):
+    def test_unseal_removes_commit_and_blob(self):
         R, _ = self.standalone()
         self.seal(R, SEALED_A, SEALED_B)
         self.ok(self.sb.tg("unseal", SEALED_A, cwd=R))
@@ -73,7 +73,7 @@ class TestHashSeals(GuardCase):
         self.assertIn(SEALED_B, lock.get("blobs", {}), "seal writes blobs")
         self.assertNotIn(SEALED_A, lock.get("blobs", {}))
 
-    def test_ac33_ac38_amended_sealed_commit_in_workspace(self):
+    def test_verify_accepts_amended_sealed_commit_in_workspace(self):
         ws, A, B, wtA, wtB = self.two_repo_ws()
         c2 = self.sb.commit_file(wtA, SEALED_A, "func TestA2(t *testing.T) {}\n", "tests")
         self.seal(wtA, SEALED_A)
@@ -93,7 +93,7 @@ class TestHashSeals(GuardCase):
                 self.no_traceback(r)
         self.assertEqual(self.hook_task(wtA).code, 0)
 
-    def test_ac33_ac38_squashed_sealed_commit_single_repo(self):
+    def test_verify_accepts_squashed_sealed_commit_single_repo(self):
         R, _ = self.standalone()
         c2 = self.sb.commit_file(R, SEALED_A, "func TestA2(t *testing.T) {}\n", "tests")
         self.seal(R, SEALED_A)
@@ -107,7 +107,7 @@ class TestHashSeals(GuardCase):
         self.assertEqual(r.out, "team-guard: all sealed tests unchanged\n")
         self.assertEqual(r.err, "")
 
-    def test_ac33_rebased_sealed_commit(self):
+    def test_verify_accepts_rebased_sealed_commit(self):
         R, _ = self.standalone()
         self.sb.git(R, "checkout", "-q", "-b", "feat/x")
         c2 = self.sb.commit_file(R, SEALED_A, "func TestA2(t *testing.T) {}\n", "tests")
@@ -122,7 +122,7 @@ class TestHashSeals(GuardCase):
         self.ok(r)
         self.assertEqual(r.out, "team-guard: all sealed tests unchanged\n")
 
-    def test_ac34_changed_content_uncommitted_and_committed(self):
+    def test_verify_catches_changed_content_uncommitted_and_committed(self):
         for where in ("single", "workspace"):
             with self.subTest(where=where):
                 if where == "single":
@@ -142,7 +142,7 @@ class TestHashSeals(GuardCase):
                 self.code(r, 2)
                 self.has(r.err, line, r)
 
-    def test_ac35_deleted(self):
+    def test_verify_reports_deleted_sealed_file(self):
         R, _ = self.standalone()
         self.seal(R, SEALED_A)
         (R / SEALED_A).unlink()
@@ -155,7 +155,7 @@ class TestHashSeals(GuardCase):
         self.code(r, 2)
         self.has(r.err, "  B: %s (deleted)" % SEALED_B, r)
 
-    def test_ac36_legacy_lock_fixture(self):
+    def test_verify_reads_legacy_lock_without_blobs(self):
         R, _ = self.standalone()
         head = self.sb.git(R, "rev-parse", "HEAD")
         lock_path = self.git_dir(R) / "team-test-lock.json"
@@ -191,7 +191,7 @@ class TestHashSeals(GuardCase):
         self.seal(R, SEALED_A)
         self.assertIn(SEALED_A, self.lock(R).get("blobs", {}))
 
-    def test_ac37_pre_commit_by_hash_after_rebase_away(self):
+    def test_pre_commit_checks_by_hash_after_rebase_away(self):
         R, _ = self.standalone()
         sealed_text = "func TestA2(t *testing.T) {}\n"
         c2 = self.sb.commit_file(R, SEALED_A, sealed_text, "tests")
@@ -222,7 +222,7 @@ class TestHashSeals(GuardCase):
         self.code(r, 0)
         self.ok(self.sb.tg("verify", cwd=R))
 
-    def test_ac39_lock_per_worktree(self):
+    def test_lock_is_kept_per_worktree(self):
         ws, A, B, wtA, wtB = self.two_repo_ws()
         self.seal(wtA, SEALED_A)
         lockA = self.git_dir(wtA) / "team-test-lock.json"
@@ -237,7 +237,7 @@ class TestHashSeals(GuardCase):
         lock = json.loads(self.ok(self.sb.tg("list", cwd=wtA / "pkg")).out)
         self.assertEqual(sorted(lock["files"]), [SEALED_A])
 
-    def test_ac40_from_workspace_dir(self):
+    def test_repo_commands_refuse_workspace_dir(self):
         ws, A, B, wtA, wtB = self.two_repo_ws()
         for args in (("seal", "x"), ("unseal", "x"), ("list",), ("git-hook", "status"), ("git-hook", "install")):
             with self.subTest(args=args):
@@ -248,13 +248,13 @@ class TestHashSeals(GuardCase):
                 self.has(r.err, realpath(wtB), r)
                 self.no_traceback(r)
 
-    def test_ac40_empty_workspace(self):
+    def test_list_in_empty_workspace_fails(self):
         ws = self.new_ws("e")
         r = self.sb.tg("list", cwd=ws)
         self.code(r, 1)
         self.has(r.err, "no repos attached yet", r)
 
-    def test_ac40_outside_any_repo(self):
+    def test_repo_commands_outside_any_repo_fail_cleanly(self):
         for args in (("seal", "x"), ("unseal", "x"), ("list",), ("git-hook", "status"), ("git-hook", "install")):
             with self.subTest(args=args):
                 r = self.sb.tg(*args, cwd=self.sb.scratch)
@@ -268,7 +268,7 @@ class TestHashSeals(GuardCase):
 
 class TestPretoolHook(GuardCase):
 
-    def test_ac41_repo_from_target_not_cwd_property(self):
+    def test_pretool_repo_comes_from_target_not_cwd_property(self):
         ws, A, B, wtA, wtB = self.sealed_ws()
         (wtA / "pkg" / "sub").mkdir()
         cwds = [ws, wtA, wtB, wtA / "pkg" / "sub", Path("/"), self.sb.scratch, A]
@@ -287,12 +287,12 @@ class TestPretoolHook(GuardCase):
                 else:
                     self.assert_no_decision(r)
 
-    def test_ac42_cwd_is_workspace_dir(self):
+    def test_pretool_with_workspace_dir_cwd(self):
         ws, A, B, wtA, wtB = self.sealed_ws()
         reason = self.assert_deny(self.pretool(ws, "software-engineer", "Edit", "repos/A/" + SEALED_A), SEALED_A)
         self.has(reason, "A:")
 
-    def test_ac43_multi_repo_patch(self):
+    def test_pretool_multi_repo_patch(self):
         ws, A, B, wtA, wtB = self.sealed_ws()
         mixed = patch_text(("update", "repos/A/pkg/a.go"), ("update", "repos/B/" + SEALED_B))
         reason = self.assert_deny(self.pretool(ws, "software-engineer", "apply_patch", patch=mixed), SEALED_B)
@@ -307,14 +307,14 @@ class TestPretoolHook(GuardCase):
         self.has(reason, SEALED_A)
         self.has(reason, SEALED_B)
 
-    def test_ac44_relative_paths_use_event_cwd(self):
+    def test_pretool_relative_paths_use_event_cwd(self):
         ws, A, B, wtA, wtB = self.sealed_ws()
         self.assert_deny(self.pretool(wtA, "software-engineer", "Edit", SEALED_A, proc_cwd=self.sb.scratch), SEALED_A)
         # pkg/b_test.go is sealed in B only; the process cwd must not decide
         self.assert_deny(self.pretool(wtB, "software-engineer", "Edit", SEALED_B, proc_cwd=wtA), SEALED_B)
         self.assert_no_decision(self.pretool(wtA, "software-engineer", "Edit", SEALED_B, proc_cwd=wtB))
 
-    def test_ac44_new_and_deleted_paths(self):
+    def test_pretool_new_and_deleted_paths(self):
         ws, A, B, wtA, wtB = self.sealed_ws()
         (wtA / SEALED_A).unlink()
         self.assert_deny(self.pretool(ws, "software-engineer", "Write", wtA / SEALED_A), SEALED_A)
@@ -323,13 +323,13 @@ class TestPretoolHook(GuardCase):
         self.assert_no_decision(self.pretool(ws, "software-engineer", "apply_patch", patch=add))
         self.assert_no_decision(self.pretool(ws, "software-engineer", "Write", wtA / "new" / "dir" / "x_test.go"))
 
-    def test_ac45_outside_repos(self):
+    def test_pretool_ignores_paths_outside_repos(self):
         ws, A, B, wtA, wtB = self.sealed_ws()
-        for target in (ws / "contract.md", self.sb.scratch / "loose" / "x.txt", "/tmp/x", self.sb.tmp / "nowhere.md"):
+        for target in (ws / "contract" ".md", self.sb.scratch / "loose" / "x.txt", "/tmp/x", self.sb.tmp / "nowhere.md"):
             with self.subTest(target=str(target)):
                 self.assert_no_decision(self.pretool(ws, "software-engineer", "Write", target))
 
-    def test_ac46_holdout_from_any_cwd(self):
+    def test_pretool_denies_holdout_from_any_cwd(self):
         ws, A, B, wtA, wtB = self.sealed_ws()
         ho = Path(self.ok(self.sb.tg("holdout-path", cwd=ws)).out.strip())
         (ho / "s.md").write_text("scenario\n")
@@ -343,7 +343,7 @@ class TestPretoolHook(GuardCase):
         rel = os.path.relpath(ho / "s.md", ws)
         self.assert_deny(self.pretool(ws, "software-engineer", "Read", rel), "Holdout scenarios are hidden")
 
-    def test_ac47_unidentified_and_tester(self):
+    def test_pretool_leaves_unidentified_agent_and_tester_alone(self):
         ws, A, B, wtA, wtB = self.sealed_ws()
         self.assert_no_decision(self.pretool(ws, None, "Edit", "repos/A/" + SEALED_A))
         self.assert_no_decision(self.pretool(wtA, None, "Edit", SEALED_A))
@@ -354,7 +354,7 @@ class TestPretoolHook(GuardCase):
 
 class TestWorkspaceVerify(GuardCase):
 
-    def test_ac48_verify_iff_all_match_property(self):
+    def test_verify_passes_iff_all_sealed_files_match_property(self):
         ws, A, B, wtA, wtB = self.sealed_ws()
         C = self.sb.new_repo("C")
         wtC = self.attach(C)
@@ -401,7 +401,7 @@ class TestWorkspaceVerify(GuardCase):
                         wt, f = files[name]
                         self.sb.git(wt, "checkout", "-q", "--", f)
 
-    def test_ac49_violation_reporting(self):
+    def test_verify_reports_violations_per_repo(self):
         ws, A, B, wtA, wtB = self.sealed_ws()
         self.sb.commit_file(wtB, SEALED_B, "// weakened\n", "weaken", no_verify=True)
         for cwd in (wtA, ws):
@@ -426,7 +426,7 @@ class TestWorkspaceVerify(GuardCase):
                 self.has(data["systemMessage"], "team-guard:", s)
                 self.has(data["systemMessage"], SEALED_B, s)
 
-    def test_ac50_missing_worktree(self):
+    def test_verify_reports_missing_worktree(self):
         ws, A, B, wtA, wtB = self.sealed_ws()
         import shutil
         shutil.rmtree(wtB)
@@ -443,7 +443,7 @@ class TestWorkspaceVerify(GuardCase):
         self.assertEqual(json.loads(s.out)["decision"], "block", self.show(s))
         self.has(json.loads(s.out)["reason"], "worktree missing", s)
 
-    def test_ac51_clean_workspace(self):
+    def test_verify_clean_workspace(self):
         ws, A, B, wtA, wtB = self.sealed_ws()
         for cwd in (ws, wtA, wtB / "pkg"):
             with self.subTest(cwd=str(cwd)):
@@ -495,7 +495,7 @@ class TestPrePush(GuardCase):
     def remote_ref(self, bare, ref="main"):
         return self.sb.git(bare, "rev-parse", ref, check=False).out.strip()
 
-    def test_ac53_seal_installs_pre_push(self):
+    def test_seal_installs_pre_push(self):
         R, bare = self.standalone(remote=True)
         r = self.seal(R, SEALED_A)
         self.has(r.out, "team-guard: installed pre-push hook", r)
@@ -507,7 +507,7 @@ class TestPrePush(GuardCase):
         self.code(r, 0)
         self.assertEqual(self.remote_ref(bare), self.sb.git(R, "rev-parse", "HEAD"))
 
-    def test_ac53_foreign_pre_push_is_chained(self):
+    def test_foreign_pre_push_is_chained(self):
         R, bare = self.standalone(remote=True)
         _, _, stdin_copy = self.foreign_pre_push(R)
         r = self.seal(R, SEALED_A)
@@ -519,7 +519,7 @@ class TestPrePush(GuardCase):
         self.has(r.out + r.err, "foreign-pre-push-ran", r)
         self.has(stdin_copy.read_text(), "refs/heads/")
 
-    def test_ac53_chained_hook_exit_status_is_honoured(self):
+    def test_chained_pre_push_exit_status_is_honoured(self):
         R, bare = self.standalone(remote=True)
         self.foreign_pre_push(R, code=1)
         self.seal(R, SEALED_A)
@@ -533,7 +533,7 @@ class TestPrePush(GuardCase):
         self.has(r.out + r.err, "foreign-pre-push-ran", r)
         self.assertEqual(self.remote_ref(bare), before)
 
-    def test_ac54_push_refused_then_allowed(self):
+    def test_push_refused_then_allowed(self):
         R, bare = self.standalone(remote=True)
         _, _, stdin_copy = self.foreign_pre_push(R)
         sealed_text = (R / SEALED_A).read_text()
@@ -564,7 +564,7 @@ class TestPrePush(GuardCase):
         self.has(r.err, "push refused", r)
         self.has(r.err, "  %s (changed since " % SEALED_A, r)
 
-    def test_ac53_pre_push_checks_only_the_pushed_repo(self):
+    def test_pre_push_checks_only_the_pushed_repo(self):
         ws, A, B, wtA, wtB = self.sealed_ws(remotes=True)
         (wtB / SEALED_B).write_text("// weakened\n")
         self.sb.commit_file(wtA, "pkg/a.go", "package pkg // A work\n", "A work")
@@ -574,7 +574,7 @@ class TestPrePush(GuardCase):
         self.code(r, 1)
         self.lacks(r.err, SEALED_A, r)
 
-    def test_ac55_uninstall_restores_and_install_rechains(self):
+    def test_uninstall_restores_and_install_rechains(self):
         R, _ = self.standalone()
         hook, text, _ = self.foreign_pre_push(R)
         self.seal(R, SEALED_A)
@@ -598,7 +598,7 @@ class TestPrePush(GuardCase):
         self.assertIn("other-tool", chained.read_text())
         self.assertEqual(self.ok(self.sb.tg("git-hook", "status", "pre-push", cwd=R)).out, "installed\n")
 
-    def test_ac55_uninstall_leaves_foreign_alone(self):
+    def test_uninstall_leaves_foreign_hook_alone(self):
         R, _ = self.standalone()
         self.ok(self.sb.tg("git-hook", "install", cwd=R))
         hook = self.hooks_dir(R) / "pre-push"
@@ -607,7 +607,7 @@ class TestPrePush(GuardCase):
         self.has(r.out, "team-guard: pre-push hook is not team-guard's; left alone", r)
         self.assertEqual(hook.read_text(), "#!/bin/sh\necho mine\n")
 
-    def test_ac56_hooks_dir_only(self):
+    def test_seal_writes_only_into_hooks_dir(self):
         R, _ = self.standalone()
         files = self.sb.git(R, "ls-files")
         self.seal(R, SEALED_A)
@@ -618,7 +618,7 @@ class TestPrePush(GuardCase):
 
 class TestCompatibility(GuardCase):
 
-    def test_ac52_unattached_verify_output(self):
+    def test_unattached_verify_output_is_unchanged(self):
         R, _ = self.standalone()
         self.seal(R, SEALED_A)
         r = self.sb.tg("verify", cwd=R)
@@ -633,7 +633,7 @@ class TestCompatibility(GuardCase):
         self.has(r.err, "\n  %s (changed since " % SEALED_A, r)
         self.sb.git(R, "checkout", "-q", "--", SEALED_A)
 
-    def test_ac52_missing_pre_push_is_not_warned(self):
+    def test_missing_pre_push_is_not_warned(self):
         R, _ = self.standalone()
         self.seal(R, SEALED_A)
         hooks = Path(self.sb.git(R, "rev-parse", "--git-path", "hooks"))
@@ -648,7 +648,7 @@ class TestCompatibility(GuardCase):
         self.code(r, 0)
         self.has(r.err, "not installed", r)
 
-    def test_ac52_source_checkout_is_not_in_the_workspace(self):
+    def test_source_checkout_is_not_in_the_workspace(self):
         ws, A, B, wtA, wtB = self.sealed_ws()
         self.seal(A, SEALED_B)
         (wtA / SEALED_A).write_text("// weakened\n")
@@ -658,7 +658,7 @@ class TestCompatibility(GuardCase):
         t = self.hook_task(A)
         self.code(t, 0)
 
-    def test_ac58_unattached_command_output(self):
+    def test_unattached_command_output_is_unchanged(self):
         R, _ = self.standalone()
         r = self.ok(self.sb.tg("git-hook", "install", cwd=R))
         lines = r.out.splitlines()
@@ -682,7 +682,7 @@ class TestCompatibility(GuardCase):
 
 class TestNoWorkingTreeWrites(GuardCase):
 
-    def test_ac60_no_command_writes_into_working_trees(self):
+    def test_no_command_writes_into_working_trees(self):
         ws, A, B, wtA, wtB = self.two_repo_ws(remotes=True)
         sources = {"A": A, "B": B}
         wts = {"A": wtA, "B": wtB}

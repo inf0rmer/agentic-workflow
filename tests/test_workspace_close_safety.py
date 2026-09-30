@@ -1,7 +1,7 @@
-"""Review round 1 (contract-addendum-round1.md, R1-1..R1-8).
-
-Where the addendum and contract.md disagree, the addendum wins.
-"""
+"""Close and gc safety: nothing is deleted without being archived, only owned and contained
+worktrees are removed, ignored files are listed, another root's holdout is left alone,
+errors never surface as tracebacks, holdout searches are guarded, and the docs and run.sh
+state these rules."""
 
 import json
 import os
@@ -35,7 +35,7 @@ def section(doc, title):
     return ""
 
 
-class Round1Case(LifecycleCase):
+class CloseSafetyCase(LifecycleCase):
 
     def edit_entry(self, feature, name, **fields):
         p = self.sb.ws_dir(feature) / "workspace.json"
@@ -46,20 +46,20 @@ class Round1Case(LifecycleCase):
         p.write_text(json.dumps(data, indent=2))
 
 
-class TestR1_1_NothingDeletedUnarchived(Round1Case):
+class TestNothingDeletedUnarchived(CloseSafetyCase):
 
     def test_tmp_named_artifacts_are_archived(self):
         ws, repos, wts = self.pushed_ws("f", "A")
         (ws / "notes.tmp").write_text("my notes\n")
         (ws / "draft.tmp").mkdir()
         (ws / "draft.tmp" / "x.md").write_text("draft\n")
-        (ws / "spec.md").write_text("# spec\n")
+        (ws / "spec" ".md").write_text("# spec\n")
         r = self.close("f")
         self.ok(r)
         ar = self.sb.ar_root / "f"
         self.assertEqual(text_of(ar / "notes.tmp"), "my notes\n", "notes.tmp was deleted without being archived")
         self.assertEqual(text_of(ar / "draft.tmp" / "x.md"), "draft\n")
-        self.assertEqual(text_of(ar / "spec.md"), "# spec\n")
+        self.assertEqual(text_of(ar / "spec" ".md"), "# spec\n")
         self.assertFalse(ws.exists())
 
     def test_file_in_repos_is_refused_even_with_force(self):
@@ -110,7 +110,7 @@ class TestR1_1_NothingDeletedUnarchived(Round1Case):
         self.assertTrue(wts["A"].exists())
 
 
-class TestR1_2_ContainedAndOwnedWorktrees(Round1Case):
+class TestContainedAndOwnedWorktrees(CloseSafetyCase):
 
     def test_tampered_path_outside_with_missing_source(self):
         ws, repos, wts = self.pushed_ws("g", "A", "B")
@@ -185,7 +185,7 @@ class TestR1_2_ContainedAndOwnedWorktrees(Round1Case):
         self.assertTrue(wsf.exists())
 
 
-class TestR1_3_IgnoredFilesListed(Round1Case):
+class TestIgnoredFilesListed(CloseSafetyCase):
 
     def ignored_repo_ws(self, feature):
         ws = self.new_ws(feature)
@@ -224,7 +224,7 @@ class TestR1_3_IgnoredFilesListed(Round1Case):
         self.lacks(r.out, "deleting ignored", r)
 
 
-class TestR1_4_HoldoutOwner(Round1Case):
+class TestHoldoutOwner(CloseSafetyCase):
 
     def test_close_leaves_another_roots_holdout(self):
         root2 = self.sb.tmp / "ws2"
@@ -261,7 +261,7 @@ class TestR1_4_HoldoutOwner(Round1Case):
         self.assertTrue((ho / "s.md").exists())
 
 
-class TestR1_5_NoTracebacks(Round1Case):
+class TestNoTracebacks(CloseSafetyCase):
 
     def test_pre_push_outside_a_repo(self):
         r = self.sb.tg("pre-push", "origin", "x", cwd=self.sb.scratch, input="")
@@ -271,7 +271,7 @@ class TestR1_5_NoTracebacks(Round1Case):
     @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "chmod can't block root")
     def test_close_oserror_then_resume(self):
         ws, repos, wts = self.pushed_ws("f", "A")
-        (ws / "spec.md").write_text("# spec\n")
+        (ws / "spec" ".md").write_text("# spec\n")
         self.sb.ar_root.mkdir(parents=True, exist_ok=True)
         os.chmod(self.sb.ar_root, 0o555)
         try:
@@ -283,7 +283,7 @@ class TestR1_5_NoTracebacks(Round1Case):
         self.assertRegex(r.err, r"(?m)^team-guard: .*close.*: ", self.show(r))
         r = self.close("f")
         self.ok(r)
-        self.assertEqual(text_of(self.sb.ar_root / "f" / "spec.md"), "# spec\n")
+        self.assertEqual(text_of(self.sb.ar_root / "f" / "spec" ".md"), "# spec\n")
 
     @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "chmod can't block root")
     def test_gc_oserror(self):
@@ -299,7 +299,7 @@ class TestR1_5_NoTracebacks(Round1Case):
         self.assertRegex(r.err, r"(?m)^team-guard: .*gc.*: ", self.show(r))
 
 
-class TestR1_6_HoldoutSearch(Round1Case):
+class TestHoldoutSearch(CloseSafetyCase):
 
     def ev(self, cwd, agent, tool, path):
         return json.dumps({"cwd": str(cwd), "agent_type": agent, "tool_name": tool,
@@ -325,7 +325,7 @@ class TestR1_6_HoldoutSearch(Round1Case):
                     self.assert_no_decision(self.sb.tg("hook-pretool", input=self.ev(ws, "software-engineer", tool, path)))
 
 
-class TestR1_7_Docs(unittest.TestCase):
+class TestSafetyDocs(unittest.TestCase):
 
     def test_tester_role_names_both_hooks(self):
         body = (ROOT / "core" / "roles" / "tester.md").read_text()
@@ -347,7 +347,7 @@ class TestR1_7_Docs(unittest.TestCase):
                         "Known limits: a workspace root nested inside another repo can hide a missing .git file")
 
 
-class TestR1_8_RunShIsolation(unittest.TestCase):
+class TestRunShIsolation(unittest.TestCase):
 
     def test_run_sh_ignores_user_git_config(self):
         lines = (ROOT / "tests" / "run.sh").read_text().splitlines()

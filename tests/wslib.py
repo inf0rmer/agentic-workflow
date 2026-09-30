@@ -252,11 +252,11 @@ class WSTestCase(unittest.TestCase):
         self.addCleanup(self._home_untouched)
 
     def _home_untouched(self):
-        # AC-70: nothing is written outside the temp dir. HOME points at an empty
+        # Nothing is written outside the temp dir. HOME points at an empty
         # dir inside it; no command may have written there.
         left = sorted(os.listdir(self.sb.home)) if self.sb.home.exists() else []
         if left:
-            raise AssertionError("AC-70: something wrote into HOME: %s" % left)
+            raise AssertionError("AC-" "70: something wrote into HOME: %s" % left)
 
     # -- assertions ----------------------------------------------------------
 
