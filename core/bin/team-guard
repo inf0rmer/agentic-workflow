@@ -964,6 +964,8 @@ def cmd_ws_list(a):
     stale_days = int_setting(a.stale_days, "TEAM_STALE_DAYS", 30, "--stale-days")
     code = 0
     for feature, d in workspace_dirs():
+        if empty_leftover(d):
+            continue  # what an interrupted close leaves; `close` or `gc` finishes it
         try:
             data = load_workspace(d)
         except WorkspaceFileError as e:
@@ -1162,12 +1164,21 @@ def close_workspace(feature, force=False, cwd=None):
     meta = {"feature": feature, "closed": utc_now(), "workspace": wsdir, "forced": bool(force),
             "discarded": [{"worktree": wt, "reason": r} for wt, rs in reasons.items() for r in rs]}
     write_json_atomic(os.path.join(archive, "archive.json"), meta)
+    # repos/ first, the workspace dir (which holds the `closing` marker) last, so a failure stays resumable.
+    if os.path.lexists(repos_dir):
+        os.rmdir(repos_dir)
     for n in (WS_FILE, WS_FILE + ".tmp"):
         if os.path.lexists(os.path.join(wsdir, n)):
             os.remove(os.path.join(wsdir, n))
-    os.rmdir(repos_dir)
     os.rmdir(wsdir)
     print(f"team-guard: closed {feature}; artifacts archived at {archive}")
+
+
+def empty_leftover(wsdir):
+    """True for an entirely empty, direct child of the workspace root: what an interrupted close leaves."""
+    root = ws_root()
+    return (os.path.isdir(wsdir) and not os.path.islink(wsdir) and os.path.dirname(realpath(wsdir)) == root
+            and not os.path.basename(wsdir).startswith(".") and not os.listdir(wsdir))
 
 
 def safe_cwd():
@@ -1178,7 +1189,11 @@ def safe_cwd():
 
 
 def cmd_ws_close(a):
-    named_workspace_or_die(a.feature)
+    wsdir = named_workspace_or_die(a.feature)
+    if empty_leftover(wsdir):
+        os.rmdir(wsdir)
+        print(f"team-guard: closed {a.feature}; finished an interrupted close")
+        return
     try:
         close_workspace(a.feature, a.force)
     except CloseRefused as e:
@@ -1315,6 +1330,10 @@ def cmd_gc(args):
                       lambda pa=pa: (shutil.rmtree(pa), print(f"team-guard: removed {pa}"))))
     # Workspaces.
     for feature, d in workspace_dirs():
+        if empty_leftover(d):
+            items.append((3, f"would remove empty leftover of a closed workspace {d}",
+                          lambda d=d: (os.rmdir(d), print(f"team-guard: removed {d}"))))
+            continue
         try:
             data = load_workspace(d)
         except WorkspaceFileError as e:
