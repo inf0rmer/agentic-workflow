@@ -77,7 +77,7 @@ Every component exposes metrics and logs structured events at key state transiti
 
 ## Self-contained code
 
-The code you write stands on its own. Comments, docstrings, test names and file names describe behavior and its reason, and never cite spec criterion IDs, contract or architecture sections, addenda or review rounds. Write "rejects a duplicate key so retries stay idempotent", not "satisfies criterion 7 per the contract". Tracing criteria to tests happens in the workspace, in the tester's table. No automated check for this exists yet; the reviewer treats a violation as a finding.
+The code you write stands on its own. Comments, docstrings, test names and file names describe behavior and its reason, and never cite spec criterion IDs, contract or architecture sections, addenda or review rounds. Write "rejects a duplicate key so retries stay idempotent", not "satisfies criterion 7 per the contract". Tracing criteria to tests happens in the workspace, in the tester's table. `team-guard refs` flags these citations in changed lines and file names; run it before you hand off, and fix what it reports. The reviewer treats a violation as a finding.
 
 ## Working at speed
 

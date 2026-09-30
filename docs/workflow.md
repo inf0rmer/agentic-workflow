@@ -73,9 +73,9 @@ A **Spike** is time-boxed exploration by one engineer, with no spec, contract, s
 It produces a branch and a `findings.md`, gets one review and then your review, and never merges as-is.
 To ship it, re-run as Standard or Full with the findings as input.
 
-The lead records the routing decision and the wall time of each step in `routing.md` in the workspace dir.
-A Chore has no workspace, so its record goes in the git directory.
-A shared log at `~/.agentic-workflow/routing-log.jsonl` is planned; no tool writes it yet.
+The lead records the routing decision with `team-guard routing record route` at kickoff, and the wall time of each step with `team-guard routing record step` after each step.
+Each record goes to `routing.md` in the workspace dir (a Chore has no workspace, so its record goes in the git directory) and to the shared log `~/.agentic-workflow/routing-log.jsonl`.
+`team-guard routing summary` shows override and upgrade rates and time per variant.
 
 ## Steps by variant
 
@@ -135,7 +135,7 @@ In Full the tester seals per slice, just in time.
 
 Code, comments, test names and file names never cite spec criterion IDs, contract sections, addenda or review rounds.
 They describe behavior and the reason for it.
-An automated check for this is planned; until then the reviewer treats a violation as a finding.
+`team-guard refs` checks changed lines and file names for it, and the reviewer treats a violation as a finding.
 
 ```mermaid
 sequenceDiagram
@@ -197,7 +197,8 @@ The tester unseals it, fixes it, commits, reseals, and notes the reason.
 Mutation testing is off by default in every variant.
 In Full it is opt-in for risk-flagged modules, and then it is sampled and time-boxed.
 Python has no supported mutation path.
-Sampling and hard limits in `mutation-check` (a free-disk check, capped concurrency, guaranteed cleanup, an enforced time box) are planned, so until they land the tester samples by hand and stops at the time box.
+`mutation-check` bounds every run: it refuses to start below `--min-free-gb` (default 20; exit 3), runs `--max-concurrency` workers (default 2), samples `--sample` changed lines (default 50) and stops at `--time-box` minutes (default 15; exit 4).
+It removes its temp files on every exit.
 
 ## Speed rules
 
@@ -205,7 +206,7 @@ Sampling and hard limits in `mutation-check` (a free-disk check, capped concurre
 - **Subagents by default.** The lead starts one subagent per step. Agent-team teammates are used only for parallel work within one step.
 - **Scope stays fixed.** A finding that is neither a blocker nor security goes to `followups.md`, not into the current run.
 - **Warm environment.** The dev or e2e environment stays running between rounds and restarts only when its config changes.
-- **Unsigned commits, re-signed once.** Agents commit unsigned with `git -c commit.gpgsign=false commit …`, a per-command setting that writes no config. After you approve the code review and before anything is pushed, every commit on the branch is re-signed. A re-sign command is planned; until then, in every attached repo, run `git rebase --keep-base --rebase-merges --exec 'git commit --amend --no-edit -S' <base>` and check with `git log --show-signature <base>..`.
+- **Unsigned commits, re-signed once.** Agents commit unsigned with `git -c commit.gpgsign=false commit …`, a per-command setting that writes no config. After you approve the code review and before anything is pushed, the human (you) runs `team-guard sign` to re-sign every commit on the branch in every attached repo. The lead prepares the command and never runs it.
 
 ## Human gate
 
@@ -228,10 +229,10 @@ Every PR carries an advisory merge-risk footer of High, Medium or Low, with a re
 Merge risk: high (advisory) — changes the stored config format; a revert needs the old format restored.
 ```
 
-The level comes from a table checked top-down over facts about the change: persisted data, a public contract, several repos, security or a hard revert give High.
-An additive contract change, user-visible behavior, more than 15 files or 500 changed non-test lines, deploy, CI or config files, a major fixed in review, an unseal, skipped mutation testing on a risk-flagged module, or any failed holdout scenario (variants with no holdouts never trigger this) give Medium; anything else (docs, tests, or an internal change within limits) gives Low.
+The level comes from a table checked top-down over facts about the change: persisted data, a breaking public-contract change, several repos, security or a hard revert give High.
+An additive public-contract change, user-visible behavior, more than 15 files or 500 changed non-test lines, deploy, CI or config files, a major fixed in review, an unseal, skipped mutation testing on a risk-flagged module, or any failed holdout scenario (variants with no holdouts never trigger this) give Medium; anything else (docs, tests, or an internal change within limits) gives Low.
 Any unknown input counts as "yes", and review findings, unseals and skipped mutation testing can only raise the level.
-A script that computes the level is planned; until it exists the lead applies the table by hand.
+`team-guard risk` computes the level, and `--packet` prints the rules and inputs for your review packet.
 
 ## Close out
 

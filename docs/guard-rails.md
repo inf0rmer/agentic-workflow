@@ -1,6 +1,6 @@
 # Guard rails
 
-Sealed tests, three layers of enforcement, and mutation testing keep the engineer's definition of done fixed and honest.
+Sealed tests, three layers of enforcement, mutation testing, and a few checks on what the workflow leaves in a repo keep the engineer's definition of done fixed and honest.
 
 ## Seal tests
 
@@ -143,8 +143,15 @@ mutation-check --base main
 |---|---|
 | `--base <branch>` | Compare against the merge base with this branch. Default: `origin/main`. |
 | `--go-only`, `--ts-only` | Mutate only one language. |
-| `--dry-run` | Print the commands without running them. |
+| `--dry-run` | Print the free disk, the sampling line and the commands without running them. |
+| `--min-free-gb N` | Refuse to start below N GB free (10^9 bytes) in the repo and the temp dir. Default: 20. `0` turns it off. Env: `MUTATION_MIN_FREE_GB`. |
+| `--max-concurrency N` | Workers for gremlins (`--workers`) and Stryker (`--concurrency`). Default: 2, minimum 1. Env: `MUTATION_MAX_CONCURRENCY`. |
+| `--time-box MIN` | Stop after MIN minutes. Default: 15. `0` turns it off. Env: `MUTATION_TIME_BOX_MIN`. |
+| `--sample N` | Mutate at most N changed lines. Default: 50. `0` turns it off. Env: `MUTATION_SAMPLE`. |
+| `--seed S` | Choose which lines are sampled. The same seed picks the same lines. Default: 1. |
 
+A flag beats its environment variable, which beats the default.
+A value that isn't an integer, or is negative, stops the run with exit 1 before anything starts.
 It mutates only files changed since the merge base, skipping tests and generated code.
 Go runs through gremlins per changed package, with survivors filtered to changed lines.
 TypeScript runs through Stryker's jest runner on the changed files.
@@ -159,13 +166,100 @@ Survivors — each is a behavior change no test noticed:
 ```
 
 `mutation-check` exits 0 whether or not mutants survive.
+It exits 3 when it refuses to start because the repo or the temp dir has too little free disk, and it starts nothing.
+It exits 4 when the time box ends the run: it prints the counts so far and `INCOMPLETE: time box of 15 minutes reached`.
+A run interrupted by SIGINT or SIGTERM exits 130 or 143.
 For each survivor that matters, the tester either writes a test that kills it, or records why it's equivalent (it can't change observable behavior) or irrelevant.
 New tests from this step get sealed too.
 
-Sampling and hard limits in `mutation-check` (a free-disk check, capped concurrency, guaranteed cleanup, an enforced time box) are planned and don't exist yet, so the tester samples by hand (one risk-flagged package, or a subset from `--dry-run`) and stops at the time box.
+Sampling works on changed lines.
+When there are more than N changed lines, `mutation-check` prints `sampled N of M changed lines (seed S)`, runs gremlins only for packages that hold a sampled line, and reports at most one Go mutant per sampled line.
+For TypeScript it passes Stryker line ranges that cover exactly the sampled lines.
+For Go, sampling limits which packages run, not the mutants inside one package, so the time box is what bounds a large package.
+Only one tool process runs at a time, in its own process group.
+Each run keeps its temp files in `<tmp>/mutation-check-<pid>` and removes them, any `.stryker-tmp` it created, and its tool processes on every exit.
 Line coverage is a secondary signal only.
 
 > **Note:** The TypeScript path assumes a jest setup that Stryker's jest runner can discover. Expect to tune it on first use in a large monorepo.
+
+## Keep workflow references out of code
+
+`team-guard refs [--base <ref>]` scans the lines added since the merge base, plus new file names, for citations of workflow artifacts.
+Comments, docstrings, test names and file names describe behavior and never cite them.
+
+| Pattern | Finds |
+|---|---|
+| `criterion-id` | Criterion numbers such as `AC-12` or `test_ac12_creates_file` |
+| `section-mark` | Section marks such as `§4` |
+| `workflow-file` | Names of planning files such as `contract.md` |
+| `addendum` | The word addendum |
+| `review-round` | Review rounds such as `round 2` |
+| `adr-number` | ADR numbers such as `ADR 0007` |
+
+`team-guard refs` skips deleted and binary files, `docs/**`, `**/*.md`, `**/*.rst`, `**/*.txt` and `dist/**`.
+It exits 2 when it finds something (one line per line and pattern on stderr, then `team-guard: refs: N finding(s)`), 0 when nothing is found, and 1 for a bad config, an unknown base, or a missing `--base` outside a workspace.
+Inside a workspace it scans every attached repo against its recorded base, and prefixes each finding with the repo name.
+
+Point `--config <file>` (or `TEAM_REFS_CONFIG`) at a JSON file to change the scan:
+
+```json
+{
+  "patterns": [{"name": "ticket", "regex": "TICKET-\\d+"}],
+  "disable_patterns": ["section-mark"],
+  "exclude": ["vendor/**"]
+}
+```
+
+`patterns` adds to the built-in set, `disable_patterns` names built-in patterns to drop, and `exclude` replaces the default path skips.
+Unknown keys and names are errors, and nothing is scanned.
+
+## Record routing and merge risk
+
+`team-guard routing record` appends what the lead proposes, what the human confirms and how long each step took to `$TEAM_LOG_ROOT/routing-log.jsonl` (default `~/.agentic-workflow/routing-log.jsonl`), and a matching line to `routing.md` in the workspace dir, or in the git directory outside a workspace.
+The log is only ever appended to.
+
+```bash
+team-guard routing record route --proposed standard --confirmed full --override-reason "touches stored data" \
+  --answer repos=1 --answer files=4-15 --answer persisted=yes
+team-guard routing record step --step build --seconds 1800
+team-guard routing record upgrade --to full --reason "a second repo is needed"
+team-guard routing summary --json
+```
+
+The `--answer` keys are `repos`, `files`, `contract`, `persisted`, `security`, `cross_team`, `revertible`, `user_visible`, `design_question` and `repro`; an omitted key is stored as `unknown`.
+A variant never goes down, and a Spike is never upgraded.
+`team-guard routing summary` reports overrides and their direction, upgrades and time per final variant, and counts lines it can't read.
+
+`team-guard risk` computes the merge-risk level and prints the footer line for the PR:
+
+```bash
+team-guard risk --feature payments --majors-fixed 1 --packet
+# Merge risk: high (advisory) — changes stored data or its format, which a revert may not undo.
+```
+
+It reads the routing answers, the changed files and lines in every attached repo, the unseals in the lock history, and the flags `--contract`, `--majors-fixed`, `--holdouts-failed` and `--mutation-skipped`.
+An unknown input counts as risky, and a file path can raise the level (a migration, or an auth or security path) but never lower it.
+`--packet` adds the rules that fired and every input for the human's review packet.
+The level and rule ids go to the routing log unless you pass `--no-log`; the log holds enums and counts, never file names.
+
+## Re-sign the branch
+
+Agents commit unsigned, so the human re-signs the branch once, after the code review and before anything is pushed:
+
+```bash
+team-guard sign          # from the workspace dir, or a repo with --base <ref>
+```
+
+When the human runs it, `team-guard sign` checks every repo first and refuses a checkout with uncommitted changes to tracked files, a rebase or merge in progress, or a detached HEAD.
+It then rebases the branch onto its own base with an amend that signs each commit, checks that every commit is signed and that the trees are unchanged, and restores the branch if anything fails.
+It warns when another pre-commit hook runs on every amend.
+Without `gpg.ssh.allowedSignersFile` git can't verify an SSH signature, so it says the signatures are present but not verified.
+
+## Watch for `core.hooksPath`
+
+Tools such as Husky set `core.hooksPath`, and git then ignores the hooks in `.git/hooks` where `team-guard` installs its own.
+`team-guard verify` prints a warning that names the setting when a repo with sealed files has one and the hook there isn't team-guard's.
+Nothing else changes: `team-guard git-hook install` would write into that directory, so `verify` and the reviewer are the remaining checks.
 
 ## Next steps
 

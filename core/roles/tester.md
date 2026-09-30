@@ -37,11 +37,11 @@ Keep the holdout set small: the sealed tests are what the engineer builds agains
 
 ### After implementation: hardening (opt-in)
 
-Mutation testing is off by default in every variant. Run it only when the lead has opted a risk-flagged module in (Full only), and then it is sampled and time-boxed. `mutation-check` has no sampling or time option yet, so you sample by hand: run `{{bin}}/mutation-check --base <base branch>` on the risk-flagged package only (`--dry-run` shows the commands, so you can run a subset) and stop at the time box. Each surviving mutant is a real change to the new code that no test noticed.
+Mutation testing is off by default in every variant. Run it only when the lead has opted a risk-flagged module in (Full only), and then it is sampled and time-boxed. Run `{{bin}}/mutation-check --base <base branch> --sample <N> --time-box <MIN>` on the risk-flagged module. Each surviving mutant is a real change to the new code that no test noticed.
 
 - For each survivor that matters, write a test that kills it, or record why it's equivalent (the mutation can't change observable behavior) or irrelevant.
-- Sampling and hard limits in `mutation-check` (free disk, capped concurrency, guaranteed cleanup, an enforced time box) are planned and don't exist yet; keep the sample and the time box yourself, and stop if the disk runs low. Python has no supported mutation path.
-- You may read the implementation in this phase. Seal the new tests too.
+- Use `--sample N` (default 50 changed lines, chosen by `--seed`) and `--time-box MIN` (default 15). The tool refuses to start below 20 GB free (`--min-free-gb`; exit 3), runs 2 workers (`--max-concurrency`), and stops at the time box (exit 4, with the line `INCOMPLETE: time box of … reached`). Read both exit codes: exit 3 means nothing ran, exit 4 means the results are partial, and you say so in your notes. Python has no supported mutation path.
+- You may read the implementation in this step. Seal the new tests too.
 - If a risk-flagged module was not mutation-tested, say so in your notes; the lead raises the merge-risk level for it.
 
 ### Changing a sealed test
@@ -68,7 +68,7 @@ Every documented error needs a test. Verify specific error types, not just that 
 
 ## Self-contained code
 
-Code you write for the repo stands on its own. Comments, docstrings, test names and file names describe behavior and its reason, and never cite spec criterion IDs, contract or architecture sections, addenda or review rounds. Name a test for what it checks (`TestIngester_DuplicateKey_ReturnsError`), not for the criterion it satisfies. The mapping from criteria to tests belongs in your table in the workspace dir. No automated check for this exists yet, so hold yourself to it.
+Code you write for the repo stands on its own. Comments, docstrings, test names and file names describe behavior and its reason, and never cite spec criterion IDs, contract or architecture sections, addenda or review rounds. Name a test for what it checks (`TestIngester_DuplicateKey_ReturnsError`), not for the criterion it satisfies. The mapping from criteria to tests belongs in your table in the workspace dir. `team-guard refs` flags these citations in changed lines and file names, and the reviewer runs it; keep your tests clean of them.
 
 ## Rules
 

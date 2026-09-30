@@ -102,7 +102,7 @@ An unknown answer counts as "yes", so uncertainty routes to more process: read i
 
 The lead proposes the variant with its reason, and the human confirms or overrides it in one line before any work starts. Jev does not route. A variant may be upgraded mid-run and is never downgraded. A design question moves a task up to at least Standard.
 
-The lead records the routing decision, and the wall time of each step, in `routing.md` in the workspace dir. A Chore has no workspace, so its record goes in `routing.md` in the git directory (`git rev-parse --absolute-git-dir`), like the Jev log outside a workspace; never in the repo. A shared append-only log at `~/.agentic-workflow/routing-log.jsonl` is planned; no tool writes it yet, so don't run a command for it.
+The lead records the routing decision with `team-guard routing record route`, at kickoff once the human has confirmed, and the wall time of each step with `team-guard routing record step` after each step (`upgrade` records a mid-run upgrade). Each record goes to `routing.md` in the workspace dir (outside a workspace, as for a Chore, in the git directory) and to the shared append-only log `~/.agentic-workflow/routing-log.jsonl`. `team-guard routing summary` reports override and upgrade rates and time per variant.
 
 ### Steps by variant
 
@@ -156,7 +156,7 @@ When end-to-end tests are written, the tester runs them once against the live ba
 
 ### Mutation testing
 
-Mutation testing is off by default in every variant. In Full it is opt-in for risk-flagged modules only, and then it is sampled and time-boxed: the tester runs a sample of mutants within a fixed time and writes a test for each survivor that matters, or a note on why it doesn't. Python has no supported mutation path. Hard limits in `mutation-check` (a free-disk check, capped concurrency, guaranteed cleanup, an enforced time box, sampling) are planned; until they land, the tester samples by hand (run only the risk-flagged package, or `--dry-run` and run a subset), stops at the time box, and only runs it where the disk allows.
+Mutation testing is off by default in every variant. In Full it is opt-in for risk-flagged modules only, and then it is sampled and time-boxed: the tester runs `mutation-check` on a sample of changed lines within a fixed time and writes a test for each survivor that matters, or a note on why it doesn't. Python has no supported mutation path. `mutation-check` bounds every run: `--min-free-gb` (default 20; exit 3 below it), `--max-concurrency` (default 2), `--time-box` (minutes, default 15; exit 4 when reached) and `--sample` (default 50 changed lines, chosen by `--seed`), and it cleans up its temp files on every exit.
 
 ### Speed rules
 
@@ -167,7 +167,7 @@ These apply to every variant.
 - **Scope stays fixed.** A finding that is neither a blocker nor security goes to `followups.md`, not into the current run. Cleanups across branches become a separate Chore.
 - **Warm environment.** The dev or e2e environment stays running between rounds and restarts only when its config changes.
 - **Timing.** The lead records the wall time of each step in `routing.md`.
-- **Unsigned commits during the run.** Agents commit unsigned with `git -c commit.gpgsign=false commit …`, a per-command setting that writes no config: it exists only in that command in the agent session environment, never in repo or global config. If a commit still asks to sign, stop and report it; never run `git config` for signing. At the human gate, after the human's code-review approval, every commit on the branch is re-signed, before anything is pushed, using the human's normal signing setup (usually one prompt for the whole branch). Seals check file contents, so the new commit IDs don't break them. A re-sign command is planned; until it exists this is a manual interim step. In every attached repo run `git rebase --keep-base --rebase-merges --exec 'git commit --amend --no-edit -S' <base>`, then check with `git log --show-signature <base>..`.
+- **Unsigned commits during the run.** Agents commit unsigned with `git -c commit.gpgsign=false commit …`, a per-command setting that writes no config: it exists only in that command in the agent session environment, never in repo or global config. If a commit still asks to sign, stop and report it; never run `git config` for signing. At the human gate, after the human's code-review approval, the human runs `team-guard sign` to re-sign every commit on the branch in every attached repo, before anything is pushed, with their normal signing setup (usually one prompt). The lead prepares the command and never runs it. `team-guard sign` refuses a dirty or mid-rebase checkout, restores the branch if anything fails, and warns when another pre-commit hook runs on every amend. Seals check file contents, so the new commit IDs don't break them.
 
 ### Keep the loop running with `/goal`
 
@@ -226,6 +226,7 @@ Separation between agents only helps if their contexts stay separate. Shared con
 Tooling lives in `~/.codex/team/bin/`:
 
 - `team-guard seal|unseal|verify|list` — the tester seals committed tests; `verify` fails if any sealed file's content changed since it was sealed (inside a workspace it checks every attached repo). Sealing installs git `pre-commit` and `pre-push` hooks (chaining any existing ones) that refuse commits and pushes changing sealed tests, whatever tool makes them. A `PreToolUse` hook blocks subagents other than the tester from `apply_patch` edits to sealed files (in whichever attached repo the file lives), and a `SubagentStop` hook sends a subagent back to work while a sealed test is modified.
+- `team-guard refs [--base <ref>]` — exits 2 when a changed line or file name cites a workflow artifact (criterion IDs, review rounds, `contract.md`-style names). `team-guard verify` also warns when `core.hooksPath` (for example Husky) hides these git hooks.
 - `mutation-check --base <branch>` — mutation-tests only changed code (Go via gremlins, TypeScript via Stryker) and lists surviving mutants on changed lines. Run it only where mutation testing is opted in.
 
 The lead runs `team-guard verify` from the workspace dir after every subagent report, before starting the next step.
@@ -257,7 +258,7 @@ Every PR carries an advisory merge-risk footer of High, Medium or Low, with a re
 Merge risk: high (advisory) — changes the stored config format; a revert needs the old format restored.
 ```
 
-The level comes from a rule table over facts about the change, checked top-down: persisted data or migrations, a public contract, several repos, auth or security, or hard to revert give High; an additive public-contract change, user-visible behavior, more than 15 files or 500 changed non-test lines, deploy, CI or config files, a major fixed in review, an unseal, skipped mutation testing on a risk-flagged module, or any holdout scenario failing (variants with no holdouts never trigger this) give Medium; none of those (docs, tests, or an internal change within limits) gives Low. Any unknown input counts as "yes". Review findings, unseals and skipped mutation testing can only raise the level, never lower it. The reason is the one or two highest rules that fired, in project terms. A merge-risk script that computes the level is planned; until it exists the lead applies the table by hand. Review outcomes, holdout scores and unseals stay in the human's review packet, not in the footer.
+The level comes from a rule table over facts about the change, checked top-down: persisted data or migrations, a breaking public-contract change (or one of unknown kind), several repos, auth or security, or hard to revert give High; an additive public-contract change, user-visible behavior, more than 15 files or 500 changed non-test lines, deploy, CI or config files, a major fixed in review, an unseal, skipped mutation testing on a risk-flagged module, or any holdout scenario failing (variants with no holdouts never trigger this) give Medium; none of those (docs, tests, or an internal change within limits) gives Low. Any unknown input counts as "yes". Review findings, unseals and skipped mutation testing can only raise the level, never lower it. The reason is the one or two highest rules that fired, in project terms. `team-guard risk` computes the level from the routing answers, git facts and the process flags `--majors-fixed`, `--holdouts-failed` and `--mutation-skipped`. The lead runs it before adding the footer, and `--packet` prints the rules and inputs for the human's review packet. Review outcomes, holdout scores and unseals stay in the human's review packet, not in the footer.
 
 ### Commit messages and PRs
 
