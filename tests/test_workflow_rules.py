@@ -30,7 +30,7 @@ H_FALLBACK = "### Gate fallback without Crit"
 H_DOUBLE = "### Double-loop tests"
 H_MUTATION = "### Mutation testing"
 H_SPEED = "### Speed rules"
-H_GOAL = "### Keep the loop running with `/goal`"
+H_LEAD = "### How the lead runs the steps"
 H_ISOLATION = "### Context isolation"
 H_FOOTER = "### Merge-risk footer"
 
@@ -63,17 +63,13 @@ STANDARD_STEPS_LABEL = "**Standard (5 steps):**"
 FULL_STEP_TOPICS = [[r"design", r"product-owner", r"architect"], [r"design gate"], [r"tests?", r"scaffold"],
                     [r"build"], [r"fresh review", r"re-check"]]
 
-STOP_SET = [r"blockers.{0,60}re-check", r"DEFER", r"security question", r"human decision", r"\d+ turns"]
-HUMAN_GATE_MUST = [r"Stop at the human gate", r"Never push"] + STOP_SET
-GOALS = [
-    ("**Design-gate goal (Standard, Full):**", [r"Stop at the design gate", r"Never push"],
-     [r"human gate", r"sealed tests pass"]),
-    ("**D1 goal (split gates):**", [r"Stop at the D1 gate", r"Never push"], [r"D2", r"seal", r"human gate"]),
-    ("**D2 goal (split gates):**", [r"Stop at the D2 gate", r"Never push"], [r"human gate", r"sealed tests pass"]),
-    ("**Human-gate goal (Bug fix):**", HUMAN_GATE_MUST, []),
-    ("**Human-gate goal (Standard):**", HUMAN_GATE_MUST, []),
-    ("**Human-gate goal (Full):**", HUMAN_GATE_MUST, []),
-]
+STOP_SET = [r"blockers remain after the re-check", r"DEFER", r"security question", r"human decision"]
+HUMAN_GATE_MUST = [r"drives each step", r"subagent's report", r"design gate", r"human gate", r"per slice",
+                   r"never pushes", r"approval", r"\bturns?\b", r"team-guard verify", r"evidence"] + STOP_SET
+# The turn cap per variant: each named with its own number, or the two lists in the same order.
+TURN_CAPS = [(r"Bug fix\D{0,40}\b20\b", r"Standard\D{0,40}\b40\b", r"Full\D{0,40}\b60\b"),
+         (r"\b20\s*/\s*40\s*/\s*60\b", r"Bug fix\s*/\s*Standard\s*/\s*Full")]
+LEAD_DOC_MUST = [r"design gate", r"human gate", r"never pushes", r"\bturns?\b"]
 
 FOOTER_LINE = r"Merge risk: (high|medium|low) \(advisory\) — \S"
 PLAIN_WORDS_BANNED = [r"sealed", r"holdout", r"Jev", r"mutation survivors"]
@@ -259,18 +255,6 @@ class RulesCase(unittest.TestCase):
             self.assertIsNotNone(sec, "%s has no %r heading" % (name, heading))
             out[name] = sec
         return out
-
-    def goal_blocks(self, sec):
-        """{label: [(info, body)]} for fenced blocks starting with /goal, keyed by the line before each."""
-        found = {}
-        for info, body, start, lines in fenced_blocks(sec):
-            if not body.lstrip().startswith("/goal"):
-                continue
-            j = start - 1
-            while j >= 0 and not lines[j].strip():
-                j -= 1
-            found.setdefault(lines[j].strip() if j >= 0 else "", []).append((info, body))
-        return found
 
 
 # ---------------------------------------------------------------- variants and routing
@@ -473,22 +457,13 @@ class TestSpeedGoalsFooter(RulesCase):
                             r"before anything is pushed", r"team-guard sign")
         self.assert_not_planned(AVAILABLE_RESIGN)
 
-    def test_one_goal_per_gate_each_stopping_at_its_gate(self):
-        for name, sec in self.instr_section(H_GOAL).items():
-            with self.subTest(file=name):
-                text_blocks = [b for b in fenced_blocks(sec) if b[0] == "text"]
-                self.assertEqual(len(text_blocks), 6, "%s: expected six ```text blocks" % name)
-                found = self.goal_blocks(sec)
-                self.assertEqual(sum(len(v) for v in found.values()), 6,
-                                 "%s: expected exactly six /goal blocks, got labels %r" % (name, list(found)))
-                for label, must, must_not in GOALS:
-                    with self.subTest(file=name, goal=label):
-                        self.assertIn(label, found, "%s: no /goal block after %r" % (name, label))
-                        self.assertEqual(len(found[label]), 1)
-                        info, body = found[label][0]
-                        self.assertEqual(info, "text")
-                        self.assert_has("%s %s" % (name, label), body, *must)
-                        self.assert_lacks("%s %s" % (name, label), body, *must_not)
+    def test_lead_drives_each_step_and_stops_at_every_gate_and_on_blockers(self):
+        for name, sec in self.instr_section(H_LEAD).items():
+            self.assert_has(name, sec, *HUMAN_GATE_MUST)
+            with self.subTest(file=name, check="turn cap per variant"):
+                self.assertTrue(any(all(re.search(p, sec, re.I) for p in form) for form in TURN_CAPS),
+                                "%s: no turn cap of 20 / 40 / 60 for Bug fix / Standard / Full" % name)
+        self.assert_has("docs/workflow.md", section(read(WF), "## How the lead runs the steps"), *LEAD_DOC_MUST)
 
     def test_every_pr_gets_an_advisory_merge_risk_footer(self):
         for name, sec in self.instr_section(H_FOOTER).items():
@@ -596,7 +571,7 @@ class TestInvariants(RulesCase):
                 "checklist": checklist(choosing),
                 "Full steps": list_under(steps, FULL_STEPS_LABEL),
                 "Standard steps": list_under(steps, STANDARD_STEPS_LABEL),
-                "goal blocks": self.goal_blocks(section(doc, H_GOAL) or "") or None,
+                "lead rules": section(doc, H_LEAD),
                 "design gate": section(doc, H_GATE),
                 "speed rules": section(doc, H_SPEED),
                 "merge-risk footer": section(doc, H_FOOTER),

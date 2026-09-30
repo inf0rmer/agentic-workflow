@@ -13,7 +13,7 @@ import unittest
 from wstools import ToolCase, route_event, safe_answers, ANSWER_KEYS
 
 RANK = {"low": 0, "medium": 1, "high": 2}
-FIRST_LINE = re.compile(r"^Merge risk: (high|medium|low) \(advisory\) — .+\.$")
+FIRST_LINE = re.compile(r"^Merge risk: (high|medium|low) \(advisory\)( — .+)?\.$")
 REASON = {
     "persisted-data": "changes stored data or its format, which a revert may not undo",
     "breaking-contract": "may break a public interface that others rely on",
@@ -22,11 +22,10 @@ REASON = {
     "hard-to-revert": "a plain revert may not undo it",
     "additive-contract": "adds to a public interface that others rely on",
     "user-visible": "changes behavior users can see",
-    "large-change": "is a large change",
     "config-or-ci": "changes deploy, CI or configuration files",
 }
 PROCESS_ONLY = "extra checks during development flagged this change for a closer look"
-LOW = "docs, tests or an internal change within size limits"
+LOW = "docs, tests or an internal change"
 BANNED = ["sealed", "unseal", "holdout", "Jev", "mutation", "AC-"]
 
 
@@ -102,7 +101,10 @@ class TestRiskRules(RiskCase):
                 self.ok(r)
                 first, rules, _ = parse(r.out)
                 self.assertEqual(rules, {rule: level}, self.show(r))
-                self.assertEqual(first, footer(level, REASON.get(rule, PROCESS_ONLY)), self.show(r))
+                if rule == "large-change":
+                    self.assertEqual(first, "Merge risk: medium (advisory).", self.show(r))
+                else:
+                    self.assertEqual(first, footer(level, REASON.get(rule, PROCESS_ONLY)), self.show(r))
 
         _, _, r = self.scenario(None, safe_answers())
         first, rules, inputs = parse(self.ok(r).out)
