@@ -267,7 +267,8 @@ class TestClose(LifecycleCase):
             with self.subTest(extra=extra):
                 r = self.close("f", *extra)
                 self.code(r, 1)
-                self.has(r.err, "  %s: not an attached worktree" % realpath(ws / "repos" / "X"), r)
+                # contract-addendum-round1 R1-1 replaces contract §3's "‹path›: not an attached worktree".
+                self.has(r.err, "unrecorded entry in repos/: X", r)
                 self.assertEqual(self.everything(repos["A"]), before)
 
     def test_ac85_worktree_already_gone(self):

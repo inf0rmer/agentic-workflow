@@ -10,6 +10,9 @@ MUT=$ROOT/core/bin/mutation-check
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 export TEAM_HOLDOUT_ROOT=$WORK/holdout
+# Keep the user's global and system git config (commit signing, hooks, aliases) out of the tests.
+: > "$WORK/empty-gitconfig"
+export GIT_CONFIG_GLOBAL=$WORK/empty-gitconfig GIT_CONFIG_NOSYSTEM=1
 fails=0
 
 check() { # name, expected, actual
