@@ -79,7 +79,7 @@ class TestRiskRules(RiskCase):
         big = "".join("var V%d = %d\n" % (i, i) for i in range(501))
         many = {"pkg/m%02d.go" % i: "package pkg\n" for i in range(16)}
         cases = [
-            ("persisted-data", "high", {}, safe_answers(persisted="yes"), ()),
+            ("persisted-data", "high", None, safe_answers(persisted="yes"), ()),
             ("persisted-data", "high", {"db/migrations/0001_init.sql": "create table t (x int);\n"}, safe_answers(), ()),
             ("breaking-contract", "high", None, safe_answers(), ("--contract", "breaking")),
             ("breaking-contract", "high", None, safe_answers(contract="yes"), ()),
