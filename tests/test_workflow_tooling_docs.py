@@ -99,7 +99,7 @@ class TestToolingDocs(unittest.TestCase):
                 self.assertIn("breaking public-contract change", sec)
                 self.assertIn("additive public-contract change", sec)
 
-    def test_the_lead_runs_sign_after_approval_and_the_human_gets_the_prompt(self):
+    def test_the_lead_runs_sign_after_approval_with_the_humans_own_signer(self):
         targets = {"instructions/" + k: section(v, H_SPEED) for k, v in instr_texts().items()}
         targets["docs/workflow.md"] = read(WF)
         targets["docs/guard-rails.md"] = read(GUARD_RAILS)
@@ -108,7 +108,9 @@ class TestToolingDocs(unittest.TestCase):
                 self.assertIsNotNone(text)
                 self.paragraph_with(name, text, r"\blead\b[^.]*\bruns?\b[^.]*team-guard sign", r"approv",
                                     r"before (any|anything is) push")
-                self.paragraph_with(name, text, r"team-guard sign|signing|sign(s|ed)?\b", r"prompt", r"\bhuman")
+                self.paragraph_with(name, text, r"team-guard sign|\bsign(s|ed|ing)?\b",
+                                    r"human's (own )?key|their (own )?key", r"signer")
+                self.paragraph_with(name, text, r"signer", r"settings", r"approv|prompt|asks")
         rendered = dict(("instructions/" + k, v) for k, v in instr_texts().items())
         for role in ROLES:
             rendered.update(agent_texts(role))
