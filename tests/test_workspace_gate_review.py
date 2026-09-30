@@ -207,16 +207,21 @@ class TestReviewRounds(GateCase):
         self.addCleanup(lambda: hold.exists() or hold.write_text("go"))
         self.set_comments(C1)
         p = self.popen_gate("review", "design", "plan.md", env={"FAKE_CRIT_HOLD": str(hold)})
-        self.assertTrue(LineReader(p.stderr).wait_for("(session "))
+        # One reader per pipe: this thread owns stderr for the whole run.
+        err_reader = LineReader(p.stderr)
+        self.assertTrue(err_reader.wait_for("(session "))
         self.assertTrue(wait_until(lambda: self.export("design", 1) == C1))
         reviews = self.ws / "reviews"
         self.set_comments(C2)
         os.chmod(reviews, 0o555)
         try:
             hold.write_text("go")
-            out, err = p.communicate(timeout=30)
+            out = p.stdout.read()
+            p.wait(timeout=30)
+            err_reader.wait_for("\x00never", timeout=10)  # returns at end of stream
         finally:
             os.chmod(reviews, 0o755)
+        err = "\n".join(err_reader.lines)
         self.assertEqual(p.returncode, 0, err)
         self.assertTrue(out.splitlines()[-1].startswith(verdict_line("design", 1, False, 0)[:-1]), out)
         self.assertTrue(any(l.startswith("team-guard: warning: could not write reviews/%s: " % export_name("design", 1))
