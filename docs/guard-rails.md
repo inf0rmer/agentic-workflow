@@ -1,6 +1,6 @@
 # Guard rails
 
-Sealed tests, three layers of enforcement, mutation testing, and a few checks on what the workflow leaves in a repo keep the engineer's definition of done fixed and honest.
+Sealed tests, three layers of enforcement, mutation testing, design-gate approvals, and a few checks on what the workflow leaves in a repo keep the engineer's definition of done fixed and honest.
 
 ## Seal tests
 
@@ -254,6 +254,33 @@ When the human runs it, `team-guard sign` checks every repo first and refuses a 
 It then rebases the branch onto its own base with an amend that signs each commit, checks that every commit is signed and that the trees are unchanged, and restores the branch if anything fails.
 It warns when another pre-commit hook runs on every amend.
 Without `gpg.ssh.allowedSignersFile` git can't verify an SSH signature, so it says the signatures are present but not verified.
+
+## Run a design gate
+
+The lead runs each design gate with four commands, from the workspace dir or an attached worktree.
+Crit runs locally with `-o <workspace>/.crit`, in its own session, with `CRIT_NO_UPDATE_CHECK=1`, `CRIT_PLAN_REVIEW=off` and an empty `CRIT_SHARE_URL`.
+The tool never uses Crit's `share`, `push`, `pull` or `--pr`, and never changes Crit's config.
+`CRIT_BIN` names the executable (default `crit`).
+
+| Command | What it does |
+|---|---|
+| `team-guard gate review <gate> [<file>...] [--new] [--no-open]` | Starts a review (or continues the unfinished one), streams Crit's output, and exports the round to `reviews/<gate>-round<N>.json` when it starts and when it ends. It ends with `gate <gate> round <N>: approved=<true or false> comments=<K>` and exits 0 for either verdict. |
+| `team-guard gate reply <gate> --file <json> --author <role>` | Posts a JSON array of `{reply_to, body}` entries to the unfinished review, exactly as written, then re-exports the round. It never resolves a thread. |
+| `team-guard gate record <gate> [<file>...] (--crit \| --chat "<reply>")` | Appends the approval and the sha256 of each reviewed file to `design-gate.md`. `--crit` uses the files and hashes stored when the review was approved. `--chat` needs the exact reply and works without Crit. |
+| `team-guard gate check [<gate>]` | Compares the files with the latest recorded approval (the named gate, or the last one in the file). |
+
+`gate review` starts Crit detached, so it survives if the waiting process is killed.
+Run it in the background with the harness's longest background timeout, and if the wait is stopped, re-run it: it continues the same session and round, and `--new` starts a fresh review instead.
+An export is never replaced by one with fewer comments, and earlier rounds are never touched, because Crit deletes its data when a review is approved.
+
+`gate review` fails with exit 3, and names the reply that approves the gate, when Crit is unavailable: use the chat fallback.
+The literal replies are `approve design`, `approve D1` and `approve D2`, and nothing else counts.
+`gate check` exits 0 when the recorded hashes still match, and exit 2 means a file changed or is missing, or nothing is recorded: reopen the gate.
+Any other failure exits 1.
+
+The `hook-pretool` hook denies a tester any tool call that reaches `.crit/` or `reviews/`.
+Codex's hook matcher doesn't cover reads, and shell reads aren't covered in either harness, so there the rule rests on the spawn prompt and the reviewer.
+Making `seal` require a matching gate record is planned.
 
 ## Watch for `core.hooksPath`
 

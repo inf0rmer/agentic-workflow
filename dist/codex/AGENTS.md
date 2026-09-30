@@ -136,17 +136,27 @@ After the human merges, the product-owner closes out: roadmap and issues are upd
 
 The default is one design gate over the spec, `contract.md` and any brief. The human discusses them, and each decision is recorded as an ADR in the workspace `adr/` directory (`adr/NNNN-title.md`). D1 (spec and brief) and D2 (contract and ADRs) run as separate reviews only when the brief has an open option and the contract depends on the choice.
 
-Nothing is sealed until the gate passes (Bug fix and Chore have no gate). The gate passes when the human finishes the review with zero comments. The lead then writes `design-gate.md` in the workspace dir with the sha256 of each reviewed file. If `contract.md` changes afterwards, the gate reopens: the lead runs it again before any further tests are sealed.
+Nothing is sealed until the gate passes (Bug fix and Chore have no gate). The gate passes when the human finishes the review with zero comments. The lead then records the approval in `design-gate.md` in the workspace dir, with the sha256 of each reviewed file.
+
+If `contract.md` or another reviewed file changes afterwards, the gate reopens: `team-guard gate check <gate>` exits 2, and the lead runs the gate again before any further tests are sealed.
 
 ### Crit at a gate
 
-In Claude Code, where Crit is installed, the lead reviews at a gate with Crit, locally. Review output goes under `<workspace>/.crit`, and `CRIT_NO_UPDATE_CHECK=1` is set. Each comment goes to the owner of the file it is on (the spec to the product-owner; the contract, brief and ADRs to the architect), who edits the file and replies. The lead never uses Crit's `share`, `push`, `pull` or `--pr` at a gate.
+In Claude Code, where Crit is installed, the lead runs the review with `team-guard gate review <gate> <files…>`, locally. Review output goes under `<workspace>/.crit`, and every Crit process runs with `CRIT_NO_UPDATE_CHECK=1`. Each comment goes to the owner of the file it is on (the spec to the product-owner; the contract, brief and ADRs to the architect), who edits the file and answers with `team-guard gate reply <gate> --file <json> --author <role>`. The reply file is a JSON array of `{"reply_to", "body"}` entries, and a reply never resolves a thread. The lead never uses Crit's `share`, `push`, `pull` or `--pr` at a gate. `--no-open` skips opening a browser, and `--new` starts a fresh review instead of continuing the current one.
 
-Approval deletes the review data. So the lead exports each round's comments to `<workspace>/reviews/<gate>-round<N>.json` before re-running the review, and the threads survive. There is no wrapper or `team-guard` subcommand for Crit yet; the lead runs it directly.
+Approval deletes the review data. So `team-guard gate review` exports each round's comments to `<workspace>/reviews/<gate>-round<N>.json` when the round starts and again when it ends, and `reply` re-exports the round. The comments are always exported before re-running the review, so the threads survive, and earlier rounds are never overwritten.
+
+Run `team-guard gate review` in the background with the harness's longest background timeout. Crit itself is started detached, so it survives a stopped wait. If the wait is stopped, re-run `team-guard gate review <gate>`: it continues the same session and round. The last line it prints is `gate <gate> round <N>: approved=<true|false> comments=<K>`, with exit 0 either way.
+
+When the review ends with `approved=true` and zero comments, run `team-guard gate record <gate> --crit`, which appends the reviewed files' sha256 to `design-gate.md`. Never edit that file by hand.
+
+`team-guard gate check [<gate>]` compares the files with the last recorded approval: exit 0 means they still match, and exit 2 means a reviewed file changed or is missing, so the gate reopens.
 
 ### Gate fallback without Crit
 
-Where Crit is unavailable, or the harness is Codex, the lead posts numbered questions in chat about the reviewed files. The human answers them and the owners revise. The reply that ends the single gate is the literal `approve design`; when the gates are split, it is `approve D1` or `approve D2`. No other reply counts as approval. The lead then writes `design-gate.md` as above.
+Where Crit is unavailable (`team-guard gate review` exits with exit 3 and names the reply for the gate), or the harness is Codex, the lead posts numbered questions in chat about the reviewed files. The human answers them and the owners revise. The reply that ends the single gate is the literal `approve design`; when the gates are split, it is `approve D1` or `approve D2`. No other reply counts as approval.
+
+Then the lead records it with `team-guard gate record <gate> <files…> --chat "<reply>"`, which checks the reply and appends the current sha256 of the files to `design-gate.md`.
 
 ### Double-loop tests
 
@@ -217,7 +227,7 @@ Keep the condition built on evidence the session prints — test results, exit c
 
 Separation between agents only helps if their contexts stay separate. Shared context means shared blind spots.
 
-- **Tester spawn prompt:** only the paths to the spec and `contract.md` in their approved state, and the task. Never paste design notes, implementation plans, review comments or engineer output into it. The tester never reads `.crit/` or `reviews/`.
+- **Tester spawn prompt:** only the paths to the spec and `contract.md` in their approved state, and the task. Never paste design notes, implementation plans, review comments or engineer output into it. The tester never reads `.crit/` or `reviews/`. In Claude Code the `hook-pretool` hook denies the tester any path in them; on Codex the rule rests on this prompt and the reviewer.
 - **Reviewer spawn prompt:** the spec, `contract.md`, and the base branch. Spawn a **new** reviewer for the re-check, passing the first report, not the engineer's explanations.
 - **Holdout scenarios** live outside the repo and the workspace dir (`~/.codex/team/bin/team-guard holdout-path`). Never mention their content to the engineer.
 

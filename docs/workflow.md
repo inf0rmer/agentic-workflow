@@ -109,17 +109,19 @@ D1 (spec and brief) and D2 (contract and ADRs) run as separate reviews only when
 
 Nothing is sealed until the gate passes (Bug fix and Chore have no gate).
 The gate passes when you finish the review with zero comments.
-The lead then writes `design-gate.md` with the sha256 of each reviewed file.
-If `contract.md` changes afterwards, the gate reopens.
+The lead then records the approval in `design-gate.md` with the sha256 of each reviewed file.
+If `contract.md` changes afterwards, `team-guard gate check` exits 2 and the gate reopens.
 
-The review is a local Crit session.
-Its output stays under `<workspace>/.crit`, each comment goes to the owner of the file, and the lead never shares or pushes a review.
-Approval deletes Crit's review data, so the lead exports each round's comments to `reviews/` before re-running.
-The tester never reads `.crit/` or `reviews/`: it sees only the approved spec and contract.
+The lead runs the review with `team-guard gate review`, a local Crit session.
+Its output stays under `<workspace>/.crit`, each comment goes to the owner of the file, who answers with `team-guard gate reply`, and the lead never shares or pushes a review.
+Approval deletes Crit's review data, so `gate review` exports each round's comments to `reviews/` as it runs.
+If the wait is stopped, the lead re-runs it and the same session continues.
+When you approve, the lead runs `team-guard gate record <gate> --crit` to save the approved hashes.
+The tester never reads `.crit/` or `reviews/`, and its hook denies them: it sees only the approved spec and contract.
 
 Where Crit is unavailable, or in Codex, the lead posts numbered questions in chat.
 Reply `approve design` to pass the single gate, or `approve D1` or `approve D2` when the gates are split.
-No other reply counts as approval.
+No other reply counts as approval, and the lead records it with `team-guard gate record`.
 
 ## Double-loop tests
 
