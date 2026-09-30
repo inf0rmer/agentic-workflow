@@ -141,6 +141,9 @@ Both harnesses share the workspace, holdout and archive directories under `~/.ag
 - **Squash merges aren't detected.** A squash-merged branch isn't an ancestor of its base, so the workspace stays `active` until it goes stale; `workspace close` is the primary cleanup and `gc` the backstop.
 - **`pre-push` checks the working tree, not the pushed commits**, like `verify`. The git hooks live in the source repo's shared hooks dir and stay after `close`; they do nothing without a lock.
 - **Closing loses no audit trail**, but a worktree's seal lock lives in its git dir and is copied to the archive before the worktree is removed. Legacy holdouts (`<repo>/<branch>`) are collected by age, not by whether their repo still exists.
+- **Pushing from the source checkout skips the check.** The lock lives in the attached worktree's git dir, so pushing the workflow branch from the source checkout, not the worktree, skips the worktree's `pre-push` check.
+- **A workspace root nested inside another repo can hide a missing `.git` file.** If an attached worktree loses its `.git` file, git finds the enclosing repo, and `verify` may report clean instead of `repository unavailable`.
+- **Ignored files go with the worktree.** `workspace close` lists ignored files (such as a local `.env`) as `deleting ignored:` and then deletes them; only uncommitted changes and unpushed commits block a close.
 - **An engineer can still run `team-guard unseal`.** It's logged, and the reviewer treats any unseal without a matching tester note as a blocker.
 - **Holdout isolation is by path.** Engineers are denied reads of the holdout directory where identifiable and told not to look; a `Bash` `cat` isn't intercepted.
 - **gremlins v0.5.1's `--diff` mode** skips every mutant when given a package path, so `mutation-check` runs gremlins per changed package and filters survivors to changed lines itself. Cost scales with package size.

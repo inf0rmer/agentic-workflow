@@ -405,7 +405,7 @@ def guard_scope(cwd):
                 lines.append(f"{name}: worktree missing: {wt}")
                 continue
             ids = repo_ids(wt)
-            if not ids:
+            if not ids or ids[0] != realpath(wt):
                 lines.append(f"{name}: repository unavailable: {wt}")
                 continue
             lines.extend(f"{name}: {v}" for v in violations_in(ids[0], ids[1]))
@@ -515,7 +515,9 @@ def cmd_hook_pretool():
     paths = [os.path.realpath(os.path.join(cwd, p)) for p in paths]
 
     holdout = holdout_root()
-    if tool in READ_TOOLS | EDIT_TOOLS and agent in HOLDOUT_BLIND and any(under(p, holdout) for p in paths):
+    if agent in HOLDOUT_BLIND and (
+            (tool in READ_TOOLS | EDIT_TOOLS and any(under(p, holdout) for p in paths))
+            or (tool in READ_TOOLS and any(under(holdout, p) for p in paths))):
         return deny("Holdout scenarios are hidden from the engineer by design. Work from the spec and the sealed tests.")
 
     if tool not in EDIT_TOOLS or agent in TEST_OWNERS:
@@ -684,7 +686,7 @@ def cmd_pre_commit():
 def cmd_pre_push(args):
     r = repo_for_path(os.getcwd())
     if not r:
-        return
+        die("not in a git repository")
     bad = violations_in(*r)
     if bad:
         print("team-guard: push refused: sealed tests were modified:\n  " + "\n  ".join(bad), file=sys.stderr)
@@ -1010,6 +1012,23 @@ def move_into(src, dst):
     shutil.move(src, dst)
 
 
+def registered_worktrees(src):
+    """Realpaths of every worktree the source repo lists."""
+    out = git("worktree", "list", "--porcelain", cwd=src, check=False).stdout.splitlines()
+    return {realpath(l[len("worktree "):]) for l in out if l.startswith("worktree ")}
+
+
+def owns_checkout(wt, entry):
+    """True when wt/.git is a gitfile naming the git dir recorded at attach time."""
+    try:
+        with open(os.path.join(wt, ".git")) as f:
+            line = f.readline().strip()
+    except OSError:
+        return False
+    return line.startswith("gitdir:") and bool(entry.get("git_dir")) \
+        and realpath(line[len("gitdir:"):].strip()) == realpath(entry["git_dir"])
+
+
 class CloseRefused(Exception):
     def __init__(self, header, problems, force_hint):
         super().__init__(header)
@@ -1031,19 +1050,29 @@ def close_workspace(feature, force=False, cwd=None):
     problems, discard = [], []
     repos_dir = os.path.join(wsdir, "repos")
     blocking = []
-    if os.path.isdir(repos_dir):
+    real_repos = os.path.join(realpath(wsdir), "repos")
+    expected = {n: os.path.join(real_repos, n) for n in (e["name"] for e in data["repos"])}
+    if os.path.lexists(repos_dir):
         for n in sorted(os.listdir(repos_dir)):
-            p = os.path.join(repos_dir, n)
-            if os.path.isdir(p) and realpath(p) not in recorded and p not in recorded:
-                blocking.append((p, "not an attached worktree"))
+            if n not in expected:
+                blocking.append((None, f"unrecorded entry in repos/: {n}"))
     for e in data["repos"]:
         wt, src = e["worktree"], e["source"]
+        if realpath(wt) != expected[e["name"]]:
+            blocking.append((None, f"worktree outside workspace: {realpath(wt)}"))
+            continue
         if os.path.isfile(os.path.join(wsdir, e["name"])):
             blocking.append((os.path.join(wsdir, e["name"]), "an artifact file has the name of an attached repo"))
         if not os.path.isdir(wt):
             continue
         if not repo_ok(src):
+            if not owns_checkout(wt, e):
+                blocking.append((None, f"worktree outside workspace: {realpath(wt)}"))
+                continue
             problems.append((wt, "source repository missing"))
+            continue
+        if realpath(wt) not in registered_worktrees(src):
+            blocking.append((None, f"worktree outside workspace: {realpath(wt)}"))
             continue
         if git("status", "--porcelain", cwd=wt, check=False).stdout.strip():
             problems.append((wt, "uncommitted changes"))
@@ -1088,6 +1117,9 @@ def close_workspace(feature, force=False, cwd=None):
             for reason in reasons.get(wt, []):
                 print(f"team-guard: discarded {reason} in {wt}")
         elif os.path.isdir(wt):
+            for line in git("status", "--porcelain", "--ignored", cwd=wt, check=False).stdout.splitlines():
+                if line.startswith("!! "):
+                    print(f"team-guard: deleting ignored: {name}/{line[3:]}")
             r = subprocess.run(["git", "-C", src, "worktree", "remove", *(["--force"] if force else []), wt],
                                capture_output=True, text=True, stdin=subprocess.DEVNULL)
             if r.returncode:
@@ -1115,19 +1147,26 @@ def close_workspace(feature, force=False, cwd=None):
                 info = json.load(f)
         except (OSError, ValueError):
             pass
-        if isinstance(info, dict) and info.get("feature") == feature:
-            shutil.rmtree(hp, ignore_errors=True)
-        else:
+        if not isinstance(info, dict):
             warn(f"{hp} is not this workspace's holdout directory; left in place")
+        elif info.get("feature") == feature and isinstance(info.get("workspace"), str) \
+                and realpath(info["workspace"]) == realpath(wsdir):
+            shutil.rmtree(hp)
+        else:
+            warn(f"holdout {hp} belongs to another workspace root")
 
     for n in sorted(os.listdir(wsdir)):
-        if n in ("repos", WS_FILE) or n.endswith(".tmp"):
+        if n in ("repos", WS_FILE, WS_FILE + ".tmp"):
             continue
         move_into(os.path.join(wsdir, n), os.path.join(archive, n))
     meta = {"feature": feature, "closed": utc_now(), "workspace": wsdir, "forced": bool(force),
             "discarded": [{"worktree": wt, "reason": r} for wt, rs in reasons.items() for r in rs]}
     write_json_atomic(os.path.join(archive, "archive.json"), meta)
-    shutil.rmtree(wsdir)
+    for n in (WS_FILE, WS_FILE + ".tmp"):
+        if os.path.lexists(os.path.join(wsdir, n)):
+            os.remove(os.path.join(wsdir, n))
+    os.rmdir(repos_dir)
+    os.rmdir(wsdir)
     print(f"team-guard: closed {feature}; artifacts archived at {archive}")
 
 
@@ -1145,7 +1184,7 @@ def cmd_ws_close(a):
     except CloseRefused as e:
         if e.problems is None:
             die(e.header)
-        lines = [f"team-guard: {e.header}"] + [f"  {p}: {why}" for p, why in e.problems]
+        lines = [f"team-guard: {e.header}"] + [f"  {p}: {why}" if p else f"  {why}" for p, why in e.problems]
         if e.force_hint:
             lines.append("use --force to remove them anyway (branches are kept)")
         print("\n".join(lines), file=sys.stderr)
@@ -1203,6 +1242,18 @@ def newest_mtime(path):
     return newest
 
 
+def holdout_orphaned(path, name):
+    """A marked holdout is orphaned when the workspace that created it no longer has a workspace.json."""
+    try:
+        with open(os.path.join(path, HOLDOUT_MARKER)) as f:
+            owner = json.load(f).get("workspace")
+    except (OSError, ValueError, AttributeError):
+        owner = None
+    if isinstance(owner, str) and owner:
+        return not os.path.isfile(os.path.join(owner, WS_FILE))
+    return not os.path.isdir(os.path.join(ws_root(), name))
+
+
 def cmd_gc(args):
     p = Parser(prog="gc", add_help=False)
     p.add_argument("--apply", action="store_true")
@@ -1242,7 +1293,7 @@ def cmd_gc(args):
             if os.path.islink(pa) or not os.path.isdir(pa):
                 continue
             if os.path.isfile(os.path.join(pa, HOLDOUT_MARKER)):
-                if not os.path.isdir(os.path.join(ws_root(), n)):
+                if holdout_orphaned(pa, n):
                     orphans.append(pa)
                 continue
             for b in sorted(os.listdir(pa)):
@@ -1298,7 +1349,7 @@ def cmd_gc(args):
             if e.code not in (0, None):
                 code = 1
         except Exception as e:  # one item's failure doesn't stop the rest
-            print(f"team-guard: {text.replace('would ', 'failed to ')}: {e}", file=sys.stderr)
+            print(f"team-guard: gc: {e}", file=sys.stderr)
             code = 1
         sys.stdout.flush()
     sys.exit(code)
@@ -1312,7 +1363,7 @@ def gc_close(feature):
             print(f"skipped {feature}: the current directory is inside it")
         else:
             for path, why in e.problems:
-                print(f"skipped {feature}: {path}: {why}")
+                print(f"skipped {feature}: {path}: {why}" if path else f"skipped {feature}: {why}")
 
 
 def main():
@@ -1336,6 +1387,9 @@ def main():
         workspace_file_die(e)
     except subprocess.CalledProcessError as e:
         die(f"git {' '.join(e.cmd[1:])} failed: {(e.stderr or '').strip()}")
+    except OSError as e:
+        label = f"workspace {args[0]}" if cmd == "workspace" and args else cmd
+        die(f"{label}: {e}" + ("; fix the cause and rerun to resume" if label in ("workspace close", "gc") else ""))
 
 
 if __name__ == "__main__":

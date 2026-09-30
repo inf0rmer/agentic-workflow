@@ -32,7 +32,7 @@ Before reviewing any code, read the relevant specifications:
 
 These are mechanical and come before any judgment:
 
-1. **Sealed tests untouched.** Run `~/.claude/team/bin/team-guard verify` from the workspace dir, which checks every attached repo. Any modified sealed test is a **blocker**. Then read `team-guard list`: every `unseal` in the history must match a tester note explaining a spec-backed fix. An unexplained unseal is a blocker.
+1. **Sealed tests untouched.** Run `~/.claude/team/bin/team-guard verify` from the workspace dir, which checks every attached repo. Any modified sealed test is a **blocker**. Then run `team-guard list` in each attached worktree (it refuses from the workspace dir) and read it: every `unseal` in the history must match a tester note explaining a spec-backed fix. An unexplained unseal is a blocker.
 2. **Suite green.** Run the sealed tests and the project's full relevant suite yourself. Don't trust a report that they passed.
 3. **Mutation results.** Read the tester's Phase B notes: every surviving mutant on changed code is killed or justified. An unjustified survivor on a spec'd behavior is a **major**.
 4. **Final round only — holdout scenarios.** Run each scenario in `$(~/.claude/team/bin/team-guard holdout-path)` against the implementation, by hand or with the project's e2e tooling. Report **satisfaction**: scenarios passed / total, with what failed. Never quote scenario content back to the engineer beyond the failing observable behavior, so the holdout set stays useful.

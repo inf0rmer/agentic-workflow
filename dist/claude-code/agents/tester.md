@@ -33,7 +33,7 @@ Tests written by someone who has seen the implementation inherit its blind spots
    - **Property-based tests** for every criterion that states an invariant ("for any…", "always", "never", round-trips, idempotence, ordering).
    - Negative cases: what the criteria say must *not* happen, and every documented error.
 3. **Prove they fail for the right reason.** Once the engineer's stubs exist, run your tests: each must fail on its assertion or a `not implemented` error — not on a compile error, a missing fixture, or a typo. A test that passes against a stub tests nothing.
-4. **Commit and seal.** Write and commit the tests inside the attached worktree of the repo under test (`repos/<repo>/` under the workspace dir); seals are per repo. Then, from that worktree, run `~/.claude/team/bin/team-guard seal <test files and fixtures>`. Sealing also installs a git `pre-commit` hook that refuses commits changing sealed files. Record the sealed commit in your task notes. From here on the engineer must make them pass unchanged.
+4. **Commit and seal.** Write and commit the tests inside the attached worktree of the repo under test (`repos/<repo>/` under the workspace dir); seals are per repo. Then, from that worktree, run `~/.claude/team/bin/team-guard seal <test files and fixtures>`. Sealing also installs git `pre-commit` and `pre-push` hooks that refuse commits and pushes changing sealed files. Record the sealed commit in your task notes. From here on the engineer must make them pass unchanged.
 
 ### Phase A — holdout scenarios
 
