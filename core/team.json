@@ -6,7 +6,7 @@
     },
     "doc-writer": {
       "description": "Owns user-facing documentation. Use when creating or updating the project README, end-user guides, concept explanations, how-tos, or reference pages derived from internal architecture and design docs.",
-      "tier": "fast"
+      "tier": "standard"
     },
     "product-owner": {
       "description": "Owns the product end-to-end \u2014 roadmap, milestones, feature requests, bug reports, and ideas. Use when the user wants to plan features, prioritise work, file issues, triage bugs, break work into milestones, track open TODOs, identify documentation gaps, assess product direction, or decide what to build next.",

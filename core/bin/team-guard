@@ -1,19 +1,34 @@
 #!/usr/bin/env python3
-"""Guard rails for the agent-team workflow: locked tests and holdout scenarios.
+"""Guard rails for the agent-team workflow: locked tests, holdout scenarios and per-feature workspaces.
 
 The tester writes acceptance tests before implementation, commits them, and seals
 them. The engineer must make them pass without changing them; any change to a
-sealed file is detected by comparing it with the commit it was sealed at, which
-can't be faked without rewriting git history.
+sealed file is detected by comparing its content hash with the one recorded when
+it was sealed (older locks fall back to comparing with the sealed commit).
 
   team-guard seal <path>...     lock committed test files at HEAD (tester)
   team-guard unseal <path>...   release files for a sanctioned fix (tester; logged)
-  team-guard verify             exit 2 and list any sealed file that changed
+  team-guard verify             exit 2 and list any sealed file that changed; inside a
+                                workspace it checks every attached repo
   team-guard list               show sealed files and the lock history
-  team-guard holdout-path       print this branch's holdout-scenario directory
-  team-guard git-hook install|uninstall|status
-                                manage the git pre-commit hook that refuses commits
-                                changing sealed tests (sealing installs it)
+  team-guard holdout-path       print the holdout-scenario directory (per workspace
+                                inside one, else per repo and branch)
+  team-guard git-hook install|uninstall|status [pre-commit|pre-push]
+                                manage the git hooks that refuse commits and pushes
+                                changing sealed tests (sealing installs them)
+  team-guard pre-push [<remote> <url>]
+                                git pre-push: refuse a push if sealed tests changed
+
+Workspaces (one per feature, under ~/.agentic-workflow/work/<feature>/):
+  team-guard workspace new <feature> [--branch <name>]
+  team-guard workspace attach <repo-path> [--base <branch>] [--feature <feature>]
+  team-guard workspace list [--stale-days <N>]
+  team-guard workspace show [<feature>]
+  team-guard workspace close <feature> [--force]
+  team-guard workspace-path     print the workspace dir containing the cwd
+  team-guard gc [--apply] [--stale-days <N>] [--retention-days <R>]
+                                list (or with --apply, collect) stale workspaces,
+                                orphan holdouts and expired archives
 
 Hook entry points (read the hook event JSON on stdin):
   team-guard hook-pretool       PreToolUse: deny edits to sealed files and holdout
@@ -22,20 +37,28 @@ Hook entry points (read the hook event JSON on stdin):
   team-guard hook-stop          SubagentStop (Codex): send the subagent back if verify fails
   team-guard pre-commit         git pre-commit: refuse staged changes to sealed files
 
-The git hook works with any agent harness, or none: a sealed test has to be
+Environment: TEAM_WORKSPACE_ROOT, TEAM_HOLDOUT_ROOT, TEAM_ARCHIVE_ROOT,
+TEAM_STALE_DAYS, TEAM_ARCHIVE_RETENTION_DAYS.
+
+The git hooks work with any agent harness, or none: a sealed test has to be
 unsealed (which is logged for the reviewer) before a commit can change it.
 """
+import argparse
+import calendar
 import datetime
 import json
 import os
 import re
+import shutil
 import stat
 import subprocess
 import sys
+import time
 
 LOCK_NAME = "team-test-lock.json"
-# Shared by every harness, so a team can mix them.
-HOLDOUT_ROOT = os.path.expanduser(os.environ.get("TEAM_HOLDOUT_ROOT", "~/.agentic-workflow/holdout"))
+POINTER_NAME = "team-workspace"
+WS_FILE = "workspace.json"
+HOLDOUT_MARKER = ".workspace"
 # Agents allowed to edit sealed tests. Everyone else is denied when the hook can tell who they are.
 TEST_OWNERS = {"tester"}
 # Agents that must never read holdout scenarios.
@@ -44,17 +67,249 @@ EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit", "apply_patch"}
 HOOK_MARKER = "# managed by team-guard"
 CHAINED_SUFFIX = ".team-guard-chained"
 READ_TOOLS = {"Read", "Grep", "Glob"}
+HOOK_NAMES = ("pre-commit", "pre-push")
+FEATURE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+TS_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+DAY = 86400
+
+
+# --- roots and small helpers ------------------------------------------------
+
+def _root(var, default):
+    return os.path.expanduser(os.environ.get(var) or default)
+
+
+def ws_root():
+    return os.path.realpath(_root("TEAM_WORKSPACE_ROOT", "~/.agentic-workflow/work"))
+
+
+def holdout_root(real=True):
+    root = _root("TEAM_HOLDOUT_ROOT", "~/.agentic-workflow/holdout")
+    return os.path.realpath(root) if real else root
+
+
+def archive_root():
+    return os.path.realpath(_root("TEAM_ARCHIVE_ROOT", "~/.agentic-workflow/archive"))
+
+
+def die(msg, code=1):
+    print(f"team-guard: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+def warn(msg):
+    print(f"team-guard: warning: {msg}", file=sys.stderr)
 
 
 def git(*args, cwd=None, check=True):
-    return subprocess.run(["git", *args], cwd=cwd, check=check, capture_output=True, text=True)
+    return subprocess.run(["git", *args], cwd=cwd, check=check, capture_output=True, text=True, stdin=subprocess.DEVNULL)
 
 
-def repo_paths(cwd=None):
-    top = git("rev-parse", "--show-toplevel", cwd=cwd).stdout.strip()
-    git_dir = git("rev-parse", "--absolute-git-dir", cwd=cwd).stdout.strip()
-    return top, git_dir
+def realpath(p):
+    return os.path.realpath(p)
 
+
+def under(path, root):
+    path, root = realpath(path), realpath(root)
+    if path == root:
+        return True
+    try:
+        return os.path.commonpath([path, root]) == root
+    except ValueError:
+        return False
+
+
+def nearest_existing_dir(p):
+    p = os.path.abspath(p)
+    while not os.path.exists(p):
+        parent = os.path.dirname(p)
+        if parent == p:
+            break
+        p = parent
+    return p if os.path.isdir(p) else os.path.dirname(p)
+
+
+def utc_now():
+    return time.strftime(TS_FORMAT, time.gmtime())
+
+
+def parse_ts(s):
+    try:
+        return calendar.timegm(time.strptime(s, TS_FORMAT))
+    except (TypeError, ValueError):
+        return None
+
+
+def now():
+    return datetime.datetime.now().isoformat(timespec="seconds")
+
+
+def int_setting(value, env_var, default, option):
+    """A command-line option beats its env var, which beats the default; all must be non-negative ints."""
+    if value is not None:
+        name, raw = option, value
+    elif os.environ.get(env_var) not in (None, ""):
+        name, raw = env_var, os.environ[env_var]
+    else:
+        return default
+    try:
+        n = int(str(raw).strip())
+    except ValueError:
+        die(f"invalid {name}: {raw!r} is not a non-negative integer")
+    if n < 0:
+        die(f"invalid {name}: {raw!r} is not a non-negative integer")
+    return n
+
+
+# --- locating repos and workspaces ------------------------------------------
+
+def repo_ids(d):
+    """(top, absolute git dir, absolute common git dir) for the repo containing directory d, or None."""
+    r = git("rev-parse", "--show-toplevel", "--absolute-git-dir", "--git-common-dir", cwd=d, check=False)
+    lines = r.stdout.split("\n")
+    if r.returncode or len(lines) < 3:
+        return None
+    top, gd, common = lines[:3]
+    return realpath(top), realpath(gd), realpath(os.path.join(d, common))
+
+
+def read_first_line(path):
+    try:
+        with open(path) as f:
+            return f.readline().strip() or None
+    except OSError:
+        return None
+
+
+def location_workspace(p):
+    """The workspace dir that path p is in by location, or None."""
+    root = ws_root()
+    p = realpath(p)
+    if p == root or not under(p, root):
+        return None
+    feature = os.path.relpath(p, root).split(os.sep)[0]
+    if feature.startswith(".") or not os.path.isdir(os.path.join(root, feature)):
+        return None
+    return os.path.join(root, feature)
+
+
+def resolve_workspace(start):
+    """("ok", dir) | ("dangling", pointer) | None for a cwd or target path."""
+    d = nearest_existing_dir(start)
+    ids = repo_ids(d)
+    if ids and ids[1] != ids[2]:  # a linked worktree
+        ptr = read_first_line(os.path.join(ids[1], POINTER_NAME))
+        if ptr:
+            return ("ok", ptr) if os.path.isfile(os.path.join(ptr, WS_FILE)) else ("dangling", ptr)
+    loc = location_workspace(d)
+    return ("ok", loc) if loc else None
+
+
+def repo_for_path(p):
+    """(top, git dir) of the repo containing path p, or None. Never reads workspace.json."""
+    d = nearest_existing_dir(p)
+    ids = repo_ids(d)
+    if not ids:
+        return None
+    loc = location_workspace(d)
+    if loc and not under(ids[0], loc):
+        return None  # the workspace root happens to sit inside some other repo
+    return ids[0], ids[1]
+
+
+class WorkspaceFileError(Exception):
+    def __init__(self, path):
+        super().__init__(path)
+        self.path = path
+
+
+def load_workspace(wsdir):
+    path = os.path.join(wsdir, WS_FILE)
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        if not isinstance(data, dict) or not isinstance(data.get("repos"), list):
+            raise ValueError("not a workspace")
+    except (OSError, ValueError):
+        raise WorkspaceFileError(path)
+    return data
+
+
+def workspace_file_die(e, code=1):
+    die(f"can't read {e.path} (missing or not valid JSON)", code)
+
+
+def write_json_atomic(path, data):
+    tmp = path + ".tmp"
+    try:
+        with open(tmp, "w") as f:
+            json.dump(data, f, indent=2)
+            f.write("\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def save_workspace(wsdir, data):
+    names = [r["name"] for r in data["repos"]]
+    sources = [r["source"] for r in data["repos"]]
+    assert len(set(names)) == len(names) and len(set(sources)) == len(sources), "duplicate repo entry"
+    write_json_atomic(os.path.join(wsdir, WS_FILE), data)
+
+
+NO_WORKSPACE = ("no workspace found; create one with `team-guard workspace new <feature>` "
+                "or run this from a workspace dir or an attached worktree")
+
+
+def current_workspace_or_die():
+    """The workspace dir containing the cwd; exits otherwise."""
+    ws = resolve_workspace(os.getcwd())
+    if ws is None:
+        die(NO_WORKSPACE)
+    if ws[0] == "dangling":
+        die(f"the workspace pointer here is dangling: {ws[1]} has no {WS_FILE}")
+    return ws[1]
+
+
+def named_workspace_or_die(feature):
+    if not valid_feature(feature) or not os.path.isdir(os.path.join(ws_root(), feature)):
+        die(f"no workspace named {feature}")
+    return os.path.join(ws_root(), feature)
+
+
+def valid_feature(name):
+    return bool(name and FEATURE_RE.match(name) and ".." not in name and not name.endswith((".", ".lock")))
+
+
+def require_repo():
+    """(top, git dir) for the cwd, or exit with the message for a workspace dir or a non-repo."""
+    r = repo_for_path(os.getcwd())
+    if r:
+        return r
+    ws = resolve_workspace(os.getcwd())
+    if ws and ws[0] == "ok":
+        try:
+            repos = load_workspace(ws[1])["repos"]
+        except WorkspaceFileError:
+            repos = None
+        msg = f"{ws[1]} is a workspace dir, not a repo; cd into an attached worktree:"
+        if repos is None:
+            msg = f"{ws[1]} is a workspace dir, not a repo; cd into an attached worktree (repos/<name>)"
+        elif repos:
+            msg += "\n" + "\n".join("  " + r["worktree"] for r in repos)
+        else:
+            msg += "\n  no repos attached yet"
+        die(msg)
+    die("not a git repository")
+
+
+# --- lock -------------------------------------------------------------------
 
 def load_lock(git_dir):
     path = os.path.join(git_dir, LOCK_NAME)
@@ -69,16 +324,12 @@ def save_lock(git_dir, lock):
         json.dump(lock, f, indent=2)
 
 
-def now():
-    return datetime.datetime.now().isoformat(timespec="seconds")
-
-
 def rel(top, path):
     return os.path.relpath(os.path.realpath(os.path.join(os.getcwd(), path)), os.path.realpath(top))
 
 
 def cmd_seal(paths):
-    top, git_dir = repo_paths()
+    top, git_dir = require_repo()
     head = git("rev-parse", "HEAD").stdout.strip()
     lock = load_lock(git_dir)
     files = [rel(top, p) for p in paths]
@@ -87,61 +338,144 @@ def cmd_seal(paths):
             sys.exit(f"team-guard: {f} is not tracked; commit it before sealing")
         if git("diff", "--quiet", "HEAD", "--", f, cwd=top, check=False).returncode:
             sys.exit(f"team-guard: {f} has uncommitted changes; commit it before sealing")
+    blobs = lock.setdefault("blobs", {})
     for f in files:
         lock["files"][f] = head
+        blobs[f] = git("rev-parse", f"{head}:{f}", cwd=top).stdout.strip()
     lock["history"].append({"at": now(), "action": "seal", "commit": head, "files": files})
     save_lock(git_dir, lock)
     print(f"sealed {len(files)} file(s) at {head[:12]}")
-    if hook_state() != "installed":
-        install_hook()
+    for name in HOOK_NAMES:
+        if hook_state(name) != "installed":
+            install_hook(name)
 
 
 def cmd_unseal(paths):
-    top, git_dir = repo_paths()
+    top, git_dir = require_repo()
     lock = load_lock(git_dir)
     files = [rel(top, p) for p in paths]
     for f in files:
         lock["files"].pop(f, None)
+        if "blobs" in lock:
+            lock["blobs"].pop(f, None)
     lock["history"].append({"at": now(), "action": "unseal", "files": files})
     save_lock(git_dir, lock)
     print(f"unsealed {len(files)} file(s); reseal after the fix")
 
 
-def violations(cwd=None):
-    top, git_dir = repo_paths(cwd)
+def violations_in(top, git_dir):
+    """Problems with one repo's sealed files, in lock order: 'file (deleted)' / 'file (changed since c12)'."""
+    lock = load_lock(git_dir)
+    blobs = lock.get("blobs") or {}
+    present = [f for f in lock["files"] if os.path.exists(os.path.join(top, f))]
+    hashed = [f for f in present if f in blobs]
+    current = {}
+    if hashed:
+        out = git("hash-object", "--", *hashed, cwd=top, check=False).stdout.split("\n")
+        current = dict(zip(hashed, out))
     bad = []
-    for f, commit in load_lock(git_dir)["files"].items():
-        if not os.path.exists(os.path.join(top, f)):
+    for f, commit in lock["files"].items():
+        if f not in present:
             bad.append(f"{f} (deleted)")
+        elif f in blobs:
+            if current.get(f) != blobs[f]:
+                bad.append(f"{f} (changed since {commit[:12]})")
         elif git("diff", "--quiet", commit, "--", f, cwd=top, check=False).returncode:
             bad.append(f"{f} (changed since {commit[:12]})")
     return bad
 
 
+class NoRepo(Exception):
+    pass
+
+
+def guard_scope(cwd):
+    """What verify, hook-task and hook-stop check from cwd.
+
+    Returns (lines, count, in_workspace, warnings, hook_warnings). Raises NoRepo outside any repo and
+    WorkspaceFileError for an unreadable workspace.json."""
+    ws = resolve_workspace(cwd)
+    warnings = []
+    if ws and ws[0] == "ok":
+        data = load_workspace(ws[1])
+        lines, hook_warnings = [], []
+        for e in data["repos"]:
+            name, wt = e["name"], e["worktree"]
+            if not os.path.isdir(wt):
+                lines.append(f"{name}: worktree missing: {wt}")
+                continue
+            ids = repo_ids(wt)
+            if not ids or ids[0] != realpath(wt):
+                lines.append(f"{name}: repository unavailable: {wt}")
+                continue
+            lines.extend(f"{name}: {v}" for v in violations_in(ids[0], ids[1]))
+            if load_lock(ids[1])["files"] and hook_state("pre-commit", wt) != "installed":
+                hook_warnings.append(f"the pre-commit hook is not installed in {name} (another tool may have "
+                                     f"replaced it); run `team-guard git-hook install` there")
+        return lines, len(data["repos"]), True, warnings, hook_warnings
+    if ws and ws[0] == "dangling":
+        warnings.append(f"the workspace pointer here is dangling ({ws[1]}); checking only this repo")
+    r = repo_for_path(cwd)
+    if not r:
+        raise NoRepo
+    hook_warnings = []
+    if load_lock(r[1])["files"] and hook_state("pre-commit", r[0]) != "installed":
+        hook_warnings.append("the pre-commit hook is not installed (another tool may have replaced it); "
+                             "run `team-guard git-hook install`")
+    return violations_in(*r), 1, False, warnings, hook_warnings
+
+
 def cmd_verify():
-    bad = violations()
-    if load_lock(repo_paths()[1])["files"] and hook_state() != "installed":
-        print("team-guard: warning: the pre-commit hook is not installed (another tool may have replaced it); "
-              "run `team-guard git-hook install`", file=sys.stderr)
-    if bad:
-        print("team-guard: sealed tests were modified:\n  " + "\n  ".join(bad), file=sys.stderr)
+    try:
+        lines, count, in_ws, warnings, hook_warnings = guard_scope(os.getcwd())
+    except NoRepo:
+        die("not a git repository")
+    except WorkspaceFileError as e:
+        workspace_file_die(e, 2)
+    for w in warnings:
+        warn(w)
+    for w in hook_warnings:
+        print("team-guard: warning: " + w, file=sys.stderr)
+    if lines:
+        print("team-guard: sealed tests were modified:\n  " + "\n  ".join(lines), file=sys.stderr)
         sys.exit(2)
-    print("team-guard: all sealed tests unchanged")
+    if in_ws:
+        print(f"team-guard: all sealed tests unchanged in {count} attached repo(s)")
+    else:
+        print("team-guard: all sealed tests unchanged")
 
 
 def cmd_list():
-    _, git_dir = repo_paths()
+    _, git_dir = require_repo()
     print(json.dumps(load_lock(git_dir), indent=2))
 
 
-def holdout_path(cwd=None):
-    top, _ = repo_paths(cwd)
-    branch = git("rev-parse", "--abbrev-ref", "HEAD", cwd=cwd).stdout.strip().replace("/", "-")
-    return os.path.join(HOLDOUT_ROOT, os.path.basename(top), branch)
-
+# --- holdouts ---------------------------------------------------------------
 
 def cmd_holdout_path():
-    path = holdout_path()
+    cwd = os.getcwd()
+    ws = resolve_workspace(cwd)
+    if ws and ws[0] == "dangling":
+        die(f"the workspace pointer here is dangling: {ws[1]} has no {WS_FILE}")
+    if ws:
+        feature = os.path.basename(ws[1])
+        path = os.path.join(holdout_root(), feature)
+        if under(path, ws[1]):
+            die(f"the holdout root {holdout_root()} is inside the workspace dir {ws[1]}; set TEAM_HOLDOUT_ROOT elsewhere")
+        marker = os.path.join(path, HOLDOUT_MARKER)
+        if os.path.isdir(path) and not os.path.exists(marker) and os.listdir(path):
+            die(f"{path} exists without a workspace marker and collides with a holdout directory of that name")
+        os.makedirs(path, exist_ok=True)
+        if not os.path.exists(marker):
+            with open(marker, "w") as f:
+                json.dump({"feature": feature, "workspace": ws[1]}, f)
+        print(path)
+        return
+    r = repo_for_path(cwd)
+    if not r:
+        die("not a git repository")
+    branch = git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip().replace("/", "-")
+    path = os.path.join(holdout_root(real=False), os.path.basename(r[0]), branch)
     os.makedirs(path, exist_ok=True)
     print(path)
 
@@ -180,30 +514,48 @@ def cmd_hook_pretool():
     cwd = event.get("cwd") or os.getcwd()
     paths = [os.path.realpath(os.path.join(cwd, p)) for p in paths]
 
-    holdout = os.path.realpath(HOLDOUT_ROOT)
-    if tool in READ_TOOLS | EDIT_TOOLS and agent in HOLDOUT_BLIND and any(p.startswith(holdout) for p in paths):
+    holdout = holdout_root()
+    if agent in HOLDOUT_BLIND and (
+            (tool in READ_TOOLS | EDIT_TOOLS and any(under(p, holdout) for p in paths))
+            or (tool in READ_TOOLS and any(under(holdout, p) for p in paths))):
         return deny("Holdout scenarios are hidden from the engineer by design. Work from the spec and the sealed tests.")
 
     if tool not in EDIT_TOOLS or agent in TEST_OWNERS:
         return
-    try:
-        top, git_dir = repo_paths(cwd)
-    except subprocess.CalledProcessError:
-        return
-    sealed = load_lock(git_dir)["files"]
-    hits = [os.path.relpath(p, os.path.realpath(top)) for p in paths]
-    hits = [h for h in hits if h in sealed]
+    # The repo and its seals come from each target path, never from the event's cwd.
+    by_dir, locks, hits = {}, {}, []
+    cwd_real = realpath(cwd)
+    for p in paths:
+        d = nearest_existing_dir(p)
+        if d not in by_dir:
+            by_dir[d] = repo_for_path(d)
+        repo = by_dir[d]
+        if not repo:
+            continue
+        top, git_dir = repo
+        if git_dir not in locks:
+            locks[git_dir] = load_lock(git_dir)["files"]
+        r = os.path.relpath(p, top)
+        if r in locks[git_dir]:
+            hits.append(r if under(cwd_real, top) else f"{os.path.basename(top)}:{r}")
     if hits:
         deny(f"{', '.join(hits)} {'is' if len(hits) == 1 else 'are'} sealed by the tester. Don't change sealed tests: "
              "if you believe one is wrong, report the failing assertion and why the spec supports your reading.")
 
 
+def hook_violations(event):
+    """Violation lines for a stop or task event, or [] when there is nothing to report."""
+    try:
+        return guard_scope(event.get("cwd") or os.getcwd())[0]
+    except NoRepo:
+        return []
+    except WorkspaceFileError as e:
+        return [f"can't read {e.path} (missing or not valid JSON)"]
+
+
 def cmd_hook_stop():
     event = json.load(sys.stdin)
-    try:
-        bad = violations(event.get("cwd"))
-    except subprocess.CalledProcessError:
-        return
+    bad = hook_violations(event)
     if not bad:
         return
     msg = "Sealed tests were modified:\n  " + "\n  ".join(bad)
@@ -217,10 +569,7 @@ def cmd_hook_stop():
 
 def cmd_hook_task():
     event = json.load(sys.stdin)
-    try:
-        bad = violations(event.get("cwd"))
-    except subprocess.CalledProcessError:
-        return  # not in a git repo: nothing sealed here
+    bad = hook_violations(event)
     if bad:
         print("Sealed tests were modified, so this task can't complete:\n  " + "\n  ".join(bad)
               + "\nRestore them (git checkout <sealed commit> -- <file>) or ask the tester to review and reseal.",
@@ -228,77 +577,812 @@ def cmd_hook_task():
         sys.exit(2)
 
 
-def hook_paths():
-    hooks = git("rev-parse", "--git-path", "hooks").stdout.strip()
-    hook = os.path.join(os.path.abspath(hooks), "pre-commit")
+# --- git hooks --------------------------------------------------------------
+
+def hook_paths(name, cwd=None):
+    hooks = git("rev-parse", "--git-path", "hooks", cwd=cwd).stdout.strip()
+    hook = os.path.join(os.path.abspath(os.path.join(cwd or ".", hooks)), name)
     return hook, hook + CHAINED_SUFFIX
 
 
-def hook_state():
-    hook, _ = hook_paths()
+def hook_state(name="pre-commit", cwd=None):
+    hook, _ = hook_paths(name, cwd)
     if not os.path.exists(hook):
         return "missing"
     with open(hook, errors="replace") as f:
         return "installed" if HOOK_MARKER in f.read() else "foreign"
 
 
-def install_hook():
-    hook, chained = hook_paths()
-    state = hook_state()
+def hook_script(name, guard):
+    if name == "pre-push":
+        # git feeds the ref list on stdin: keep it for the chained hook, hide it from ours.
+        return f"""#!/bin/sh
+{HOOK_MARKER}; the previous hook, if any, runs after it from pre-push{CHAINED_SUFFIX}
+input=$(cat)
+"{guard}" pre-push "$@" </dev/null || exit 1
+chained="$(dirname "$0")/pre-push{CHAINED_SUFFIX}"
+if [ -x "$chained" ]; then
+  if [ -n "$input" ]; then printf '%s\\n' "$input" | "$chained" "$@"; else "$chained" "$@" </dev/null; fi
+  exit $?
+fi
+"""
+    return f"""#!/bin/sh
+{HOOK_MARKER}; the previous hook, if any, runs after it from {name}{CHAINED_SUFFIX}
+"{guard}" {name} || exit 1
+chained="$(dirname "$0")/{name}{CHAINED_SUFFIX}"
+if [ -x "$chained" ]; then exec "$chained" "$@"; fi
+"""
+
+
+def install_hook(name="pre-commit"):
+    hook, chained = hook_paths(name)
+    state = hook_state(name)
     if state == "installed":
-        print("team-guard: pre-commit hook already installed")
+        print(f"team-guard: {name} hook already installed")
         return
     os.makedirs(os.path.dirname(hook), exist_ok=True)
     if state == "foreign":
         os.replace(hook, chained)  # keep the existing hook (e.g. lefthook) and run it after ours
     guard = os.path.realpath(sys.argv[0])
     with open(hook, "w") as f:
-        f.write(f"""#!/bin/sh
-{HOOK_MARKER}; the previous hook, if any, runs after it from pre-commit{CHAINED_SUFFIX}
-"{guard}" pre-commit || exit 1
-chained="$(dirname "$0")/pre-commit{CHAINED_SUFFIX}"
-if [ -x "$chained" ]; then exec "$chained" "$@"; fi
-""")
+        f.write(hook_script(name, guard))
     os.chmod(hook, os.stat(hook).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-    print("team-guard: installed pre-commit hook" + (" (chaining the existing one)" if state == "foreign" else ""))
+    print(f"team-guard: installed {name} hook" + (" (chaining the existing one)" if state == "foreign" else ""))
 
 
-def uninstall_hook():
-    hook, chained = hook_paths()
-    if hook_state() != "installed":
-        print("team-guard: pre-commit hook is not team-guard's; left alone")
+def uninstall_hook(name="pre-commit"):
+    hook, chained = hook_paths(name)
+    if hook_state(name) != "installed":
+        print(f"team-guard: {name} hook is not team-guard's; left alone")
         return
     os.remove(hook)
     if os.path.exists(chained):
         os.replace(chained, hook)
-    print("team-guard: removed pre-commit hook" + (" and restored the previous one" if os.path.exists(hook) else ""))
+    print(f"team-guard: removed {name} hook" + (" and restored the previous one" if os.path.exists(hook) else ""))
 
 
 def cmd_git_hook(args):
     action = args[0] if args else "status"
-    if action == "install":
-        install_hook()
-    elif action == "uninstall":
-        uninstall_hook()
-    elif action == "status":
-        print(hook_state())
-    else:
+    which = args[1] if len(args) > 1 else None
+    if action not in ("install", "uninstall", "status") or which not in (None, *HOOK_NAMES):
         sys.exit(__doc__)
+    require_repo()
+    if action == "install":
+        for name in HOOK_NAMES:
+            install_hook(name)
+    elif action == "uninstall":
+        for name in HOOK_NAMES:
+            uninstall_hook(name)
+    else:
+        print(hook_state(which or "pre-commit"))
 
 
 def cmd_pre_commit():
-    top, git_dir = repo_paths()
-    sealed = load_lock(git_dir)["files"]
-    staged = git("diff", "--cached", "--name-only", "--no-renames", cwd=top).stdout.split("\n")
+    top, git_dir = require_repo()
+    lock = load_lock(git_dir)
+    sealed, blobs = lock["files"], lock.get("blobs") or {}
+    staged = [f for f in git("diff", "--cached", "--name-only", "--no-renames", "-z", cwd=top).stdout.split("\0") if f]
+    staged = [f for f in staged if f in sealed]
+    index = {}
+    hashed = [f for f in staged if f in blobs]
+    if hashed:
+        for entry in git("ls-files", "-s", "-z", "--", *hashed, cwd=top).stdout.split("\0"):
+            meta, _, path = entry.partition("\t")
+            parts = meta.split()
+            if path and len(parts) == 3 and parts[2] == "0":
+                index[path] = parts[1]
     # A staged change that makes the file match its sealed version again is a restore, not a change.
-    hits = sorted(f for f in staged if f in sealed
-                  and git("diff", "--cached", "--quiet", sealed[f], "--", f, cwd=top, check=False).returncode)
+    hits = sorted(f for f in staged
+                  if (index.get(f) != blobs[f] if f in blobs else
+                      git("diff", "--cached", "--quiet", sealed[f], "--", f, cwd=top, check=False).returncode))
     if hits:
         print("team-guard: this commit changes sealed tests:\n  " + "\n  ".join(hits)
               + "\nSealed tests define done and can't change in place. If one is wrong, the tester unseals it "
               "(`team-guard unseal <file>`, logged for the reviewer), fixes it, commits, and reseals.",
               file=sys.stderr)
         sys.exit(1)
+
+
+def cmd_pre_push(args):
+    r = repo_for_path(os.getcwd())
+    if not r:
+        die("not in a git repository")
+    bad = violations_in(*r)
+    if bad:
+        print("team-guard: push refused: sealed tests were modified:\n  " + "\n  ".join(bad), file=sys.stderr)
+        sys.exit(1)
+
+
+# --- argument parsing -------------------------------------------------------
+
+class UsageError(Exception):
+    pass
+
+
+class Parser(argparse.ArgumentParser):
+    def error(self, message):
+        raise UsageError(message)
+
+
+def parse_or_exit(parser, args):
+    try:
+        return parser.parse_args(args)
+    except UsageError as e:
+        print(f"team-guard: {parser.prog}: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+# --- workspace status -------------------------------------------------------
+
+def repo_ok(path):
+    return os.path.isdir(path) and git("rev-parse", "--git-dir", cwd=path, check=False).returncode == 0
+
+
+def rev_parse(repo, ref):
+    r = git("rev-parse", "--verify", "-q", ref, cwd=repo, check=False)
+    return r.stdout.strip() if r.returncode == 0 else None
+
+
+def base_refs(source, base):
+    refs = ["refs/heads/" + base]
+    out = git("for-each-ref", "--format=%(refname)", "refs/remotes", cwd=source, check=False).stdout.split()
+    refs += [r for r in out if r.endswith("/" + base) and not r.endswith("/HEAD")]
+    return refs
+
+
+def entry_merged(e):
+    tip = rev_parse(e["source"], "refs/heads/" + e["branch"])
+    if tip is None:
+        return True
+    if tip == e.get("start"):
+        return False
+    for ref in base_refs(e["source"], e["base"]):
+        if git("merge-base", "--is-ancestor", tip, ref, cwd=e["source"], check=False).returncode == 0:
+            return True
+    return False
+
+
+def activity_time(wsdir, data):
+    newest = 0.0
+    for dirpath, dirnames, filenames in os.walk(wsdir):
+        if dirpath == wsdir and "repos" in dirnames:
+            dirnames.remove("repos")
+        for f in filenames:
+            try:
+                st = os.lstat(os.path.join(dirpath, f))
+            except OSError:
+                continue
+            if stat.S_ISREG(st.st_mode):
+                newest = max(newest, st.st_mtime)
+    for e in data["repos"]:
+        r = git("log", "-1", "--format=%ct", "refs/heads/" + e["branch"], cwd=e["source"], check=False)
+        if r.returncode == 0 and r.stdout.strip().isdigit():
+            newest = max(newest, float(r.stdout.strip()))
+    return newest
+
+
+def workspace_status(wsdir, data, stale_days):
+    """(status, missing source paths)."""
+    missing = [e["source"] for e in data["repos"] if not repo_ok(e["source"])]
+    if missing:
+        return "stale", missing
+    if data["repos"] and all(entry_merged(e) for e in data["repos"]):
+        return "merged", missing
+    if time.time() - activity_time(wsdir, data) >= stale_days * DAY:
+        return "stale", missing
+    return "active", missing
+
+
+def created_time(wsdir, data):
+    t = parse_ts(data.get("created"))
+    if t is not None:
+        return t
+    try:
+        return os.path.getmtime(os.path.join(wsdir, WS_FILE))
+    except OSError:
+        return time.time()
+
+
+def age_days(t):
+    return max(0, int((time.time() - t) // DAY))
+
+
+def dir_size(path):
+    total = 0
+    for dirpath, dirnames, filenames in os.walk(path):
+        for n in filenames + dirnames:
+            try:
+                total += os.lstat(os.path.join(dirpath, n)).st_size
+            except OSError:
+                pass
+    return total
+
+
+def fmt_size(n):
+    v, i = float(n), 0
+    while v >= 1024 and i < 4:
+        v /= 1024
+        i += 1
+    return f"{int(v)}B" if i == 0 else f"{v:.1f}{'BKMGT'[i]}"
+
+
+def workspace_dirs():
+    root = ws_root()
+    if not os.path.isdir(root):
+        return []
+    return [(n, os.path.join(root, n)) for n in sorted(os.listdir(root))
+            if not n.startswith(".") and os.path.isdir(os.path.join(root, n))]
+
+
+# --- workspace commands -----------------------------------------------------
+
+def cmd_ws_new(a):
+    feature = a.feature
+    if not valid_feature(feature):
+        die(f"invalid feature name '{feature}'")
+    branch = a.branch if a.branch is not None else f"feat/{feature}"
+    if branch.startswith("-") or git("check-ref-format", "--branch", branch, check=False).returncode:
+        die(f"invalid branch name '{branch}'")
+    root = ws_root()
+    wsdir = os.path.join(root, feature)
+    if os.path.lexists(wsdir):
+        die(f"workspace {feature} already exists at {wsdir}")
+    os.makedirs(root, exist_ok=True)
+    try:
+        os.mkdir(wsdir)
+        os.mkdir(os.path.join(wsdir, "repos"))
+        write_json_atomic(os.path.join(wsdir, WS_FILE), {
+            "version": 1, "feature": feature, "branch": branch, "created": utc_now(), "repos": []})
+    except OSError as e:
+        shutil.rmtree(wsdir, ignore_errors=True)
+        die(f"can't create workspace {feature}: {e}")
+    print(f"team-guard: created workspace {feature} at {wsdir}")
+    try:
+        n = 0
+        stale_days = int_setting(None, "TEAM_STALE_DAYS", 30, "--stale-days")
+        for name, d in workspace_dirs():
+            if name == feature:
+                continue
+            if workspace_status(d, load_workspace(d), stale_days)[0] in ("merged", "stale"):
+                n += 1
+        if n:
+            print(f"team-guard: hint: {n} stale workspace(s); run `team-guard gc` to review them", file=sys.stderr)
+    except BaseException as e:  # the hint must never change the outcome
+        if isinstance(e, KeyboardInterrupt):
+            raise
+
+
+def worktree_holders(source):
+    """Map of refs/heads name -> worktree path for every worktree of the repo."""
+    holders, path = {}, None
+    for line in git("worktree", "list", "--porcelain", cwd=source, check=False).stdout.splitlines():
+        if line.startswith("worktree "):
+            path = line[len("worktree "):]
+        elif line.startswith("branch "):
+            holders[line[len("branch "):]] = path
+    return holders
+
+
+def main_worktree(d):
+    for line in git("worktree", "list", "--porcelain", cwd=d, check=False).stdout.splitlines():
+        if line.startswith("worktree "):
+            return realpath(line[len("worktree "):])
+    return None
+
+
+def cmd_ws_attach(a):
+    if a.feature:
+        wsdir = named_workspace_or_die(a.feature)
+    else:
+        wsdir = current_workspace_or_die()
+    try:
+        data = load_workspace(wsdir)
+    except WorkspaceFileError as e:
+        workspace_file_die(e)
+    feature = os.path.basename(wsdir)
+    if data.get("closing"):
+        die(f"workspace {feature} is being closed")
+
+    d = nearest_existing_dir(a.repo_path) if os.path.exists(a.repo_path) else None
+    if d is None or git("rev-parse", "--git-dir", cwd=d, check=False).returncode:
+        if d is not None and git("rev-parse", "--is-bare-repository", cwd=d, check=False).stdout.strip() == "true":
+            die(f"{a.repo_path}: bare repositories are not supported")
+        die(f"{a.repo_path} is not a git repository")
+    if git("rev-parse", "--is-bare-repository", cwd=d, check=False).stdout.strip() == "true":
+        die("bare repositories are not supported")
+    source = main_worktree(d)
+    if not source or not os.path.isdir(source):
+        die(f"{a.repo_path} is not a git repository")
+    name = os.path.basename(source)
+    for e in data["repos"]:
+        if e["source"] == source:
+            die(f"{source} is already attached to {feature} at {e['worktree']}")
+    for e in data["repos"]:
+        if e["name"] == name:
+            die(f"can't attach {source} as {name}: {e['source']} is already attached as {name}")
+    wt = os.path.join(wsdir, "repos", name)
+    if os.path.lexists(wt):
+        die(f"can't attach {source} as {name}: {wt} already exists")
+
+    branch = data["branch"]
+    base = a.base
+    if not base:
+        head = git("symbolic-ref", "-q", "refs/remotes/origin/HEAD", cwd=source, check=False)
+        target = head.stdout.strip()
+        base = target[len("refs/remotes/origin/"):] if target.startswith("refs/remotes/origin/") else "main"
+    start_ref = next((r for r in ("refs/heads/" + base, "refs/remotes/origin/" + base) if rev_parse(source, r)), None)
+    if not start_ref:
+        die(f"base branch {base} not found in {source}")
+    existing = rev_parse(source, "refs/heads/" + branch)
+    if existing:
+        holder = worktree_holders(source).get("refs/heads/" + branch)
+        if holder:
+            die(f"branch {branch} is already checked out in {realpath(holder)}")
+    start = existing or rev_parse(source, start_ref)
+
+    undo = []
+    try:
+        os.makedirs(os.path.join(wsdir, "repos"), exist_ok=True)
+        cmd = ["git", "-c", "core.hooksPath=/dev/null", "-C", source, "worktree", "add"]
+        cmd += [wt, branch] if existing else ["--no-track", "-b", branch, wt, start_ref]
+        if not existing:
+            undo.append(lambda: subprocess.run(["git", "-C", source, "branch", "-D", branch],
+                                               capture_output=True, stdin=subprocess.DEVNULL))
+        undo.append(lambda: subprocess.run(["git", "-C", source, "worktree", "prune"],
+                                           capture_output=True, stdin=subprocess.DEVNULL))
+        undo.append(lambda: shutil.rmtree(wt, ignore_errors=True))
+        undo.append(lambda: subprocess.run(["git", "-C", source, "worktree", "remove", "--force", wt],
+                                           capture_output=True, stdin=subprocess.DEVNULL))
+        r = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+        if r.returncode:
+            raise RuntimeError("git worktree add failed: " + r.stderr.strip())
+        git_dir = realpath(git("rev-parse", "--absolute-git-dir", cwd=wt).stdout.strip())
+        pointer = os.path.join(git_dir, POINTER_NAME)
+        with open(pointer + ".tmp", "w") as f:
+            f.write(wsdir + "\n")
+        os.replace(pointer + ".tmp", pointer)
+        data["repos"].append({
+            "name": name, "source": source, "worktree": realpath(wt), "branch": branch, "base": base,
+            "start": start, "reused": bool(existing), "attached": utc_now(), "git_dir": git_dir})
+        save_workspace(wsdir, data)
+    except BaseException as e:
+        # Undo in reverse order; the worktree comes off before the branch it holds.
+        for fn in reversed(undo):
+            try:
+                fn()
+            except Exception:
+                pass
+        if isinstance(e, KeyboardInterrupt):
+            raise
+        die(f"can't attach {source}: {e}")
+    if existing:
+        print(f"team-guard: reused existing branch {branch} at {existing[:12]}")
+    print(f"team-guard: attached {name} at {realpath(wt)} on {branch} from {base}")
+
+
+def cmd_ws_list(a):
+    stale_days = int_setting(a.stale_days, "TEAM_STALE_DAYS", 30, "--stale-days")
+    code = 0
+    for feature, d in workspace_dirs():
+        if empty_leftover(d):
+            continue  # what an interrupted close leaves; `close` or `gc` finishes it
+        try:
+            data = load_workspace(d)
+        except WorkspaceFileError as e:
+            print(f"{feature}\tinvalid\t-\t-")
+            print(f"team-guard: can't read {e.path} (missing or not valid JSON)", file=sys.stderr)
+            code = 1
+            continue
+        status, _ = workspace_status(d, data, stale_days)
+        print(f"{feature}\t{status}\t{age_days(created_time(d, data))}d\t{fmt_size(dir_size(d))}")
+    sys.stdout.flush()
+    if code:
+        sys.exit(code)
+
+
+def cmd_ws_show(a):
+    wsdir = named_workspace_or_die(a.feature) if a.feature else current_workspace_or_die()
+    try:
+        data = load_workspace(wsdir)
+    except WorkspaceFileError as e:
+        workspace_file_die(e)
+    print(f"workspace: {wsdir}")
+    print(f"feature: {data.get('feature', os.path.basename(wsdir))}")
+    print(f"branch: {data.get('branch', '')}")
+    for e in data["repos"]:
+        print(f"repo {e['name']} source={e['source']} worktree={e['worktree']} base={e['base']}")
+
+
+def copy_if_exists(src, dst):
+    if os.path.isfile(src):
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copy2(src, dst)
+
+
+def move_into(src, dst):
+    """Move src to dst; when both are directories, merge."""
+    if os.path.isdir(src) and not os.path.islink(src) and os.path.isdir(dst):
+        for n in os.listdir(src):
+            move_into(os.path.join(src, n), os.path.join(dst, n))
+        os.rmdir(src)
+        return
+    if os.path.lexists(dst):
+        if os.path.isdir(dst) and not os.path.islink(dst):
+            shutil.rmtree(dst)
+        else:
+            os.remove(dst)
+    shutil.move(src, dst)
+
+
+def registered_worktrees(src):
+    """Realpaths of every worktree the source repo lists."""
+    out = git("worktree", "list", "--porcelain", cwd=src, check=False).stdout.splitlines()
+    return {realpath(l[len("worktree "):]) for l in out if l.startswith("worktree ")}
+
+
+def owns_checkout(wt, entry):
+    """True when wt/.git is a gitfile naming the git dir recorded at attach time."""
+    try:
+        with open(os.path.join(wt, ".git")) as f:
+            line = f.readline().strip()
+    except OSError:
+        return False
+    return line.startswith("gitdir:") and bool(entry.get("git_dir")) \
+        and realpath(line[len("gitdir:"):].strip()) == realpath(entry["git_dir"])
+
+
+class CloseRefused(Exception):
+    def __init__(self, header, problems, force_hint):
+        super().__init__(header)
+        self.header, self.problems, self.force_hint = header, problems, force_hint
+
+
+def close_workspace(feature, force=False, cwd=None):
+    """Close a workspace: archive artifacts, remove worktrees and holdouts. Raises CloseRefused; exits on failure."""
+    wsdir = os.path.join(ws_root(), feature)
+    try:
+        data = load_workspace(wsdir)
+    except WorkspaceFileError as e:
+        workspace_file_die(e)
+    recorded = [realpath(e["worktree"]) for e in data["repos"]]
+    cwd = cwd if cwd is not None else safe_cwd()
+    if cwd and (under(cwd, wsdir) or any(under(cwd, w) for w in recorded)):
+        raise CloseRefused(f"can't close {feature} from inside it; run it from elsewhere", None, False)
+
+    problems, discard = [], []
+    repos_dir = os.path.join(wsdir, "repos")
+    blocking = []
+    real_repos = os.path.join(realpath(wsdir), "repos")
+    expected = {n: os.path.join(real_repos, n) for n in (e["name"] for e in data["repos"])}
+    if os.path.lexists(repos_dir):
+        for n in sorted(os.listdir(repos_dir)):
+            if n not in expected:
+                blocking.append((None, f"unrecorded entry in repos/: {n}"))
+    for e in data["repos"]:
+        wt, src = e["worktree"], e["source"]
+        if realpath(wt) != expected[e["name"]]:
+            blocking.append((None, f"worktree outside workspace: {realpath(wt)}"))
+            continue
+        if os.path.isfile(os.path.join(wsdir, e["name"])):
+            blocking.append((os.path.join(wsdir, e["name"]), "an artifact file has the name of an attached repo"))
+        if not os.path.isdir(wt):
+            continue
+        if not repo_ok(src):
+            if not owns_checkout(wt, e):
+                blocking.append((None, f"worktree outside workspace: {realpath(wt)}"))
+                continue
+            problems.append((wt, "source repository missing"))
+            continue
+        if realpath(wt) not in registered_worktrees(src):
+            blocking.append((None, f"worktree outside workspace: {realpath(wt)}"))
+            continue
+        if git("status", "--porcelain", cwd=wt, check=False).stdout.strip():
+            problems.append((wt, "uncommitted changes"))
+        refs = ["HEAD"]
+        if rev_parse(src, "refs/heads/" + e["branch"]):
+            refs.append("refs/heads/" + e["branch"])
+        r = git("rev-list", "-1", *refs, "--not", "--remotes", cwd=wt, check=False)
+        if r.returncode == 0 and r.stdout.strip():
+            problems.append((wt, "unpushed commits"))
+    if blocking or (problems and not force):
+        shown = blocking + ([] if force else problems)
+        raise CloseRefused(f"can't close {feature}:", shown, bool(problems) and not force)
+    discard = list(problems)
+
+    closing = data.get("closing")
+    if closing and closing.get("archive"):
+        archive = closing["archive"]
+    else:
+        base = os.path.join(archive_root(), feature)
+        archive, n = base, 1
+        while os.path.lexists(archive):
+            n += 1
+            archive = f"{base}+{n}"
+        closing = None
+    os.makedirs(archive, exist_ok=True)
+    if not closing:
+        shutil.copy2(os.path.join(wsdir, WS_FILE), os.path.join(archive, WS_FILE))
+        data["closing"] = {"archive": archive, "started": utc_now(), "forced": bool(force)}
+        save_workspace(wsdir, data)
+
+    reasons = {}
+    for wt, reason in discard:
+        reasons.setdefault(wt, []).append(reason)
+    for e in list(data["repos"]):
+        wt, src, name = e["worktree"], e["source"], e["name"]
+        gd = e.get("git_dir") or ""
+        copy_if_exists(os.path.join(gd, LOCK_NAME), os.path.join(archive, name, LOCK_NAME))
+        copy_if_exists(os.path.join(gd, "jev-decisions.md"), os.path.join(archive, name, "jev-decisions.md"))
+        if os.path.isdir(wt) and not repo_ok(src):
+            shutil.rmtree(wt)  # forced: nothing but the checkout is left to remove
+            print(f"team-guard: removed worktree {wt}")
+            for reason in reasons.get(wt, []):
+                print(f"team-guard: discarded {reason} in {wt}")
+        elif os.path.isdir(wt):
+            for line in git("status", "--porcelain", "--ignored", cwd=wt, check=False).stdout.splitlines():
+                if line.startswith("!! "):
+                    print(f"team-guard: deleting ignored: {name}/{line[3:]}")
+            r = subprocess.run(["git", "-C", src, "worktree", "remove", *(["--force"] if force else []), wt],
+                               capture_output=True, text=True, stdin=subprocess.DEVNULL)
+            if r.returncode:
+                print(f"team-guard: git worktree remove failed for {wt}", file=sys.stderr)
+                print(r.stderr.strip(), file=sys.stderr)
+                sys.exit(1)
+            print(f"team-guard: removed worktree {wt}")
+            for reason in reasons.get(wt, []):
+                extra = f" (branch {e['branch']} kept)" if reason == "unpushed commits" else ""
+                print(f"team-guard: discarded {reason} in {wt}{extra}")
+        elif repo_ok(src):
+            git("worktree", "prune", cwd=src, check=False)
+            print(f"team-guard: pruned missing worktree {wt}")
+        else:
+            warn(f"source repo {src} is missing; skipped {name}")
+        data["repos"] = [x for x in data["repos"] if x["name"] != name]
+        save_workspace(wsdir, data)
+
+    hp = os.path.join(holdout_root(), feature)
+    marker = os.path.join(hp, HOLDOUT_MARKER)
+    if os.path.isdir(hp):
+        info = None
+        try:
+            with open(marker) as f:
+                info = json.load(f)
+        except (OSError, ValueError):
+            pass
+        if not isinstance(info, dict):
+            warn(f"{hp} is not this workspace's holdout directory; left in place")
+        elif info.get("feature") == feature and isinstance(info.get("workspace"), str) \
+                and realpath(info["workspace"]) == realpath(wsdir):
+            shutil.rmtree(hp)
+        else:
+            warn(f"holdout {hp} belongs to another workspace root")
+
+    for n in sorted(os.listdir(wsdir)):
+        if n in ("repos", WS_FILE, WS_FILE + ".tmp"):
+            continue
+        move_into(os.path.join(wsdir, n), os.path.join(archive, n))
+    meta = {"feature": feature, "closed": utc_now(), "workspace": wsdir, "forced": bool(force),
+            "discarded": [{"worktree": wt, "reason": r} for wt, rs in reasons.items() for r in rs]}
+    write_json_atomic(os.path.join(archive, "archive.json"), meta)
+    # repos/ first, the workspace dir (which holds the `closing` marker) last, so a failure stays resumable.
+    if os.path.lexists(repos_dir):
+        os.rmdir(repos_dir)
+    for n in (WS_FILE, WS_FILE + ".tmp"):
+        if os.path.lexists(os.path.join(wsdir, n)):
+            os.remove(os.path.join(wsdir, n))
+    os.rmdir(wsdir)
+    print(f"team-guard: closed {feature}; artifacts archived at {archive}")
+
+
+def empty_leftover(wsdir):
+    """True for an entirely empty, direct child of the workspace root: what an interrupted close leaves."""
+    root = ws_root()
+    return (os.path.isdir(wsdir) and not os.path.islink(wsdir) and os.path.dirname(realpath(wsdir)) == root
+            and not os.path.basename(wsdir).startswith(".") and not os.listdir(wsdir))
+
+
+def safe_cwd():
+    try:
+        return realpath(os.getcwd())
+    except OSError:
+        return None
+
+
+def cmd_ws_close(a):
+    wsdir = named_workspace_or_die(a.feature)
+    if empty_leftover(wsdir):
+        os.rmdir(wsdir)
+        print(f"team-guard: closed {a.feature}; finished an interrupted close")
+        return
+    try:
+        close_workspace(a.feature, a.force)
+    except CloseRefused as e:
+        if e.problems is None:
+            die(e.header)
+        lines = [f"team-guard: {e.header}"] + [f"  {p}: {why}" if p else f"  {why}" for p, why in e.problems]
+        if e.force_hint:
+            lines.append("use --force to remove them anyway (branches are kept)")
+        print("\n".join(lines), file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_workspace(args):
+    sub = args[0] if args else ""
+    rest = args[1:]
+    p = Parser(prog=f"workspace {sub}", add_help=False)
+    if sub == "new":
+        p.add_argument("feature")
+        p.add_argument("--branch")
+    elif sub == "attach":
+        p.add_argument("repo_path")
+        p.add_argument("--base")
+        p.add_argument("--feature")
+    elif sub == "list":
+        p.add_argument("--stale-days", type=int)
+    elif sub == "show":
+        p.add_argument("feature", nargs="?")
+    elif sub == "close":
+        p.add_argument("feature")
+        p.add_argument("--force", action="store_true")
+    else:
+        print("team-guard: workspace: expected new|attach|list|show|close\n" + __doc__, file=sys.stderr)
+        sys.exit(1)
+    a = parse_or_exit(p, rest)
+    {"new": cmd_ws_new, "attach": cmd_ws_attach, "list": cmd_ws_list,
+     "show": cmd_ws_show, "close": cmd_ws_close}[sub](a)
+
+
+def cmd_workspace_path(args):
+    parse_or_exit(Parser(prog="workspace-path", add_help=False), args)
+    ws = resolve_workspace(os.getcwd())
+    if ws is None:
+        die("not inside a workspace")
+    if ws[0] == "dangling":
+        die(f"the workspace pointer here is dangling: {ws[1]} has no {WS_FILE}")
+    if not os.path.isfile(os.path.join(ws[1], WS_FILE)):
+        die(f"can't read {os.path.join(ws[1], WS_FILE)} (missing)")
+    print(ws[1])
+
+
+# --- gc ---------------------------------------------------------------------
+
+def newest_mtime(path):
+    newest = os.lstat(path).st_mtime
+    for dirpath, dirnames, filenames in os.walk(path):
+        for n in dirnames + filenames:
+            try:
+                newest = max(newest, os.lstat(os.path.join(dirpath, n)).st_mtime)
+            except OSError:
+                pass
+    return newest
+
+
+def holdout_orphaned(path, name):
+    """A marked holdout is orphaned when the workspace that created it no longer has a workspace.json."""
+    try:
+        with open(os.path.join(path, HOLDOUT_MARKER)) as f:
+            owner = json.load(f).get("workspace")
+    except (OSError, ValueError, AttributeError):
+        owner = None
+    if isinstance(owner, str) and owner:
+        return not os.path.isfile(os.path.join(owner, WS_FILE))
+    return not os.path.isdir(os.path.join(ws_root(), name))
+
+
+def cmd_gc(args):
+    p = Parser(prog="gc", add_help=False)
+    p.add_argument("--apply", action="store_true")
+    p.add_argument("--stale-days", type=int)
+    p.add_argument("--retention-days", type=int)
+    a = parse_or_exit(p, args)
+    stale_days = int_setting(a.stale_days, "TEAM_STALE_DAYS", 30, "--stale-days")
+    retention = int_setting(a.retention_days, "TEAM_ARCHIVE_RETENTION_DAYS", 180, "--retention-days")
+    t = time.time()
+    code = 0
+    items = []  # (order, text, action)
+
+    # Expired archives.
+    ar = archive_root()
+    if os.path.isdir(ar):
+        for n in sorted(os.listdir(ar)):
+            d = os.path.join(ar, n)
+            meta_path = os.path.join(d, "archive.json")
+            if not os.path.isfile(meta_path):
+                continue
+            try:
+                with open(meta_path) as f:
+                    closed = parse_ts(json.load(f).get("closed"))
+            except (OSError, ValueError, AttributeError):
+                closed = None
+            if closed is None:
+                closed = os.path.getmtime(d)
+            if t - closed >= retention * DAY:
+                items.append((0, f"would delete archive {d} ({int((t - closed) // DAY)}d old)",
+                              lambda d=d: (shutil.rmtree(d), print(f"team-guard: deleted {d}"))))
+    # Legacy holdouts, then orphaned workspace holdouts.
+    ho = holdout_root()
+    legacy, orphans = [], []
+    if os.path.isdir(ho):
+        for n in sorted(os.listdir(ho)):
+            pa = os.path.join(ho, n)
+            if os.path.islink(pa) or not os.path.isdir(pa):
+                continue
+            if os.path.isfile(os.path.join(pa, HOLDOUT_MARKER)):
+                if holdout_orphaned(pa, n):
+                    orphans.append(pa)
+                continue
+            for b in sorted(os.listdir(pa)):
+                pb = os.path.join(pa, b)
+                if os.path.islink(pb) or not os.path.isdir(pb):
+                    continue
+                untouched = t - newest_mtime(pb)
+                if untouched >= retention * DAY:
+                    legacy.append((pa, pb, int(untouched // DAY)))
+    for pa, pb, days in legacy:
+        def drop(pa=pa, pb=pb):
+            shutil.rmtree(pb)
+            if not os.listdir(pa):
+                os.rmdir(pa)
+            print(f"team-guard: deleted {pb}")
+        items.append((1, f"would delete legacy holdout {pb} ({days}d untouched)", drop))
+    for pa in orphans:
+        items.append((2, f"would remove orphan holdout {pa} (no workspace)",
+                      lambda pa=pa: (shutil.rmtree(pa), print(f"team-guard: removed {pa}"))))
+    # Workspaces.
+    for feature, d in workspace_dirs():
+        if empty_leftover(d):
+            items.append((3, f"would remove empty leftover of a closed workspace {d}",
+                          lambda d=d: (os.rmdir(d), print(f"team-guard: removed {d}"))))
+            continue
+        try:
+            data = load_workspace(d)
+        except WorkspaceFileError as e:
+            print(f"team-guard: can't read {e.path} (missing or not valid JSON); leaving {feature} alone", file=sys.stderr)
+            code = 1
+            continue
+        for e in data["repos"]:
+            if not repo_ok(e["source"]):
+                warn(f"source repo {e['source']} is missing (workspace {feature})")
+        age = age_days(created_time(d, data))
+        if data.get("closing"):
+            text = f"would resume closing {feature}"
+        elif data["repos"] and not any(os.path.isdir(e["worktree"]) for e in data["repos"]):
+            text = f"would close orphan workspace {feature} (worktrees missing)"
+        else:
+            status, _ = workspace_status(d, data, stale_days)
+            if status not in ("merged", "stale"):
+                continue
+            text = f"would close {feature} ({status}, {age}d)"
+        items.append((3, text, lambda feature=feature: gc_close(feature)))
+
+    if not items:
+        print("team-guard: nothing to collect")
+        sys.exit(code)
+    for _, text, action in sorted(items, key=lambda i: i[0]):
+        if not a.apply:
+            print(text)
+            continue
+        try:
+            action()
+        except SystemExit as e:
+            if e.code not in (0, None):
+                code = 1
+        except Exception as e:  # one item's failure doesn't stop the rest
+            print(f"team-guard: gc: {e}", file=sys.stderr)
+            code = 1
+        sys.stdout.flush()
+    sys.exit(code)
+
+
+def gc_close(feature):
+    try:
+        close_workspace(feature, force=False)
+    except CloseRefused as e:
+        if e.problems is None:
+            print(f"skipped {feature}: the current directory is inside it")
+        else:
+            for path, why in e.problems:
+                print(f"skipped {feature}: {path}: {why}" if path else f"skipped {feature}: {why}")
 
 
 def main():
@@ -311,10 +1395,20 @@ def main():
         "list": cmd_list, "holdout-path": cmd_holdout_path,
         "hook-pretool": cmd_hook_pretool, "hook-task": cmd_hook_task, "hook-stop": cmd_hook_stop,
         "pre-commit": cmd_pre_commit, "git-hook": lambda: cmd_git_hook(args),
+        "workspace": lambda: cmd_workspace(args), "workspace-path": lambda: cmd_workspace_path(args),
+        "gc": lambda: cmd_gc(args), "pre-push": lambda: cmd_pre_push(args),
     }
     if cmd not in commands or (cmd in ("seal", "unseal") and not args):
         sys.exit(__doc__)
-    commands[cmd]()
+    try:
+        commands[cmd]()
+    except WorkspaceFileError as e:
+        workspace_file_die(e)
+    except subprocess.CalledProcessError as e:
+        die(f"git {' '.join(e.cmd[1:])} failed: {(e.stderr or '').strip()}")
+    except OSError as e:
+        label = f"workspace {args[0]}" if cmd == "workspace" and args else cmd
+        die(f"{label}: {e}" + ("; fix the cause and rerun to resume" if label in ("workspace close", "gc") else ""))
 
 
 if __name__ == "__main__":

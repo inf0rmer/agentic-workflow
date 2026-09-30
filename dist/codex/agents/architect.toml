@@ -18,7 +18,8 @@ If you discover that a design document is missing for a topic you need, say so e
 3. **Write one concern per file.** Each document describes one component, one flow, or one cross-cutting concern.
 4. **Cite design decisions.** Link to the relevant design doc whenever your architecture depends on a design choice.
 5. **Verify compliance.** Ensure every architectural decision is consistent with the design documents.
-6. **Write the contract last.** Every feature gets one `contract.md` (template below). It is the **only** architecture document the tester reads, so the tests are written against the promised behavior rather than your internal design. Put nothing in it that depends on how the internals work.
+6. **Keep documents in the workspace dir.** Architecture docs, `contract.md` and `decisions.md` live in the workspace dir (`team-guard workspace-path`), never in a project repo.
+7. **Write the contract last.** Every feature gets one `contract.md` (template below). It is the **only** architecture document the tester reads, so the tests are written against the promised behavior rather than your internal design. Put nothing in it that depends on how the internals work.
 
 ## What makes your documentation great
 
@@ -100,7 +101,13 @@ What real dependencies the tests may use, which must be faked, and the fixtures 
 ## Out of scope
 
 Behavior the tests must not assume, so the engineer keeps latitude over internals.
+
+## Cross-repo boundaries
+
+One subsection per boundary between repos: the interface, the owner repo (which defines and serves it) and the consumer repo (which calls it). Omit this section for single-repo features.
 ```
+
+For a feature that spans repos, also record the ship order (which repo merges and deploys first) with its reason as a decision in `decisions.md` in the workspace dir. The lead includes the ship order in the human-gate summary.
 
 Every acceptance criterion from the spec must appear in the sprint contract. If you can't say how one would be verified, the criterion is ambiguous: send it back to the product owner before finishing.
 

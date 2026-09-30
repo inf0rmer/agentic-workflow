@@ -61,7 +61,7 @@ Besides the choice, the script asks Jev narrow yes/no questions — does the dec
 - Refused input or API errors come back as `ESCALATE` with an `error`.
 - Answers vary by a few hundredths between runs. Don't re-ask the same question hoping for `ACT`.
 
-Every call is appended to `jev-decisions.md` inside the git directory (per worktree, never committed). The reviewer reads it; add a one-line reason for `ACT` decisions to your task notes, since Jev records none.
+Every call is appended to `jev-decisions.md`. Run from the workspace dir or an attached worktree, it goes to `jev-decisions.md` in the workspace dir, one log for the whole feature; outside a workspace it goes to `jev-decisions.md` in the git directory (per worktree, never committed). `ask-jev --print-log-path` prints the resolved path without sending anything. The reviewer reads the log; add a one-line reason for `ACT` decisions to your task notes, since Jev records none.
 
 ## Configuration
 

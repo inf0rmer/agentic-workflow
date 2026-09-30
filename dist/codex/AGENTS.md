@@ -39,9 +39,19 @@ Scale the team to the task — a small bug fix might only need an engineer + tes
 
 Projects can override these by placing project-specific versions in `.codex/agents/`.
 
+### Workspaces
+
+Every feature gets one **workspace**, at `~/.agentic-workflow/work/<feature>/` (override the root with `TEAM_WORKSPACE_ROOT`). The workspace dir holds `workspace.json`, the workflow artifacts (spec, briefs, ADRs, `contract.md`, review packets, the decision log), and `repos/<repo>/`, one attached worktree per repo the feature touches, all on the same branch name. Workflow artifacts are kept in the workspace dir and **never in a project repo**; only the project's own code, tests and user-facing docs go in a repo.
+
+- `team-guard workspace new <feature>` creates the workspace dir. Run it from anywhere.
+- `team-guard workspace attach <repo-path>` adds a git worktree of that repo under `repos/`, on branch `feat/<feature>` (override with `--branch` on `new`, `--base` on `attach`). Run it from the workspace dir, or pass `--feature`.
+- `team-guard workspace-path` prints the workspace dir from the workspace dir or any attached worktree, and fails elsewhere. `team-guard workspace show` lists the attached repos.
+- Launch the team from the workspace dir. Seal, `team-guard list` and commit from inside an attached worktree, because seals are per repo. `team-guard verify` from the workspace dir covers every attached repo.
+- A repo that isn't attached to a workspace behaves as it always did.
+
 ### Worktree-first workflow
 
-**All agents must work in the same worktree directory.** Before spawning any agent, set up a single worktree for the feature branch (`git worktree add`) and start Codex from inside it, so every subagent inherits it as its working directory.
+**All agents share one workspace dir.** Before spawning any agent, run `team-guard workspace new <feature>`, then `team-guard workspace attach <repo-path>` from the workspace dir for each repo the feature touches. Each attached worktree is on the same branch name in its repo. Start Codex from the workspace dir so every subagent inherits it as its working directory; each agent edits code inside `repos/<repo>/`, and the workflow artifacts stay in the workspace dir.
 
 ### Phased execution
 
@@ -57,8 +67,8 @@ Codex has no task dependencies, so you enforce phase ordering as the lead. Agent
   2. tester runs `mutation-check` and kills or justifies surviving mutants (Phase B hardening).
   3. A **fresh** reviewer reviews the diff against the spec. Fix and repeat — **at most two rounds**; blockers after round 2 go to the human.
   4. The final round's reviewer also runs the holdout scenarios and reports satisfaction.
-- **Phase 4 — Human gate:** summary, review report, holdout satisfaction, and decision log to the human before any push.
-- **Phase 5 — Docs & Close-out** (parallel): doc-writer, product-owner
+- **Phase 4 — Human gate:** summary, review report, holdout satisfaction, decision log, and (for a feature spanning repos) the ship order with its reason, to the human before any push. The architect records the ship order in the workspace dir.
+- **Phase 5 — Docs & Close-out** (parallel): doc-writer, product-owner. After the human merges, the product-owner runs `team-guard workspace close <feature>` from outside the workspace: it archives the artifacts, removes the attached worktrees and holdouts, and keeps every branch. `team-guard gc` lists (and with `--apply` collects) stale workspaces, orphan holdouts and expired archives.
 
 ### Keep the loop running with `/goal`
 
@@ -78,13 +88,13 @@ Separation between agents only helps if their contexts stay separate. Shared con
 
 - **Tester spawn prompt:** only the paths to the spec and `contract.md`, and the task. Never paste design notes, implementation plans, or engineer output into it.
 - **Reviewer spawn prompt:** the spec, `contract.md`, and the base branch. Spawn a **new** reviewer each round, passing the previous round's report, not the engineer's explanations.
-- **Holdout scenarios** live outside the repo (`~/.codex/team/bin/team-guard holdout-path`). Never mention their content to the engineer.
+- **Holdout scenarios** live outside the repo and the workspace dir (`~/.codex/team/bin/team-guard holdout-path`). Never mention their content to the engineer.
 
 ### Guard rails
 
 Tooling lives in `~/.codex/team/bin/`:
 
-- `team-guard seal|unseal|verify|list` — the tester seals committed tests; `verify` fails if any sealed file changed since its sealed commit. Sealing installs a git `pre-commit` hook (chaining any existing one) that refuses commits changing sealed tests, whatever tool makes them. A `PreToolUse` hook blocks subagents other than the tester from `apply_patch` edits to sealed files, and a `SubagentStop` hook sends a subagent back to work while a sealed test is modified.
+- `team-guard seal|unseal|verify|list` — the tester seals committed tests; `verify` fails if any sealed file's content changed since it was sealed (inside a workspace it checks every attached repo). Sealing installs git `pre-commit` and `pre-push` hooks (chaining any existing ones) that refuse commits and pushes changing sealed tests, whatever tool makes them. A `PreToolUse` hook blocks subagents other than the tester from `apply_patch` edits to sealed files (in whichever attached repo the file lives), and a `SubagentStop` hook sends a subagent back to work while a sealed test is modified.
 - `mutation-check --base <branch>` — mutation-tests only changed code (Go via gremlins, TypeScript via Stryker) and lists surviving mutants on changed lines.
 
 Deterministic checks (tests, `team-guard verify`, mutation results, lint) come before any LLM judgment, including Jev's and the reviewer's.
@@ -108,5 +118,9 @@ Small decisions shouldn't wait on a full research pass or block a phase. Any tea
 - **Never use Jev** for open-ended design, security fixes, or anything that can't be described without PII, customer or tenant data, secrets, or source code. Jev is a third-party service.
 - **Jev never judges work.** Not code, tests, diffs, or whether a task is done. It gates small decisions and escalates; it is never the final arbiter, and no agent iterates until Jev approves.
 
-The reviewer reads the decision log (`jev-decisions.md` in the git directory) as part of every review.
+`jev-decide` logs to `jev-decisions.md` in the workspace dir when it runs from the workspace dir or an attached worktree, and to the git directory outside a workspace. The reviewer reads that log as part of every review.
+
+### Commit messages and PRs
+
+Commit messages and PR descriptions must read as ordinary project changes. Don't use workflow jargon in them: no "sealed", "holdout", "Jev", or "mutation survivors". Describe what changed and why, in the project's own terms.
 

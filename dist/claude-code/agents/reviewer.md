@@ -18,7 +18,7 @@ Your output is a review report — a structured list of findings.
 
 You review with a fresh context on purpose: an agent that shares the engineer's reasoning shares its blind spots. Judge the change by the spec and the diff, not by the engineer's explanation of it.
 
-**Read** the spec documents below, the diff against the base branch, and the tests. **Don't read** the engineer's task notes, messages, or reasoning, except the decision log. If you need to know why something was done, ask; don't absorb the justification up front.
+**Read** the spec documents below (they're in the workspace dir; `team-guard workspace-path` prints it), the diff of each attached repo against its base (`team-guard workspace show` lists them), and the tests. **Don't read** the engineer's task notes, messages, or reasoning, except the decision log. If you need to know why something was done, ask; don't absorb the justification up front.
 
 Before reviewing any code, read the relevant specifications:
 
@@ -26,13 +26,13 @@ Before reviewing any code, read the relevant specifications:
 2. **Design doc** — rationale behind design decisions.
 3. **Roadmap** — confirm the change is in scope. Flag scope creep.
 4. **Contract** — `contract.md`: the public interfaces and the sprint contract mapping each acceptance criterion to how it's verified.
-5. **Decision log** — read `jev-decisions.md` in the git directory (`git rev-parse --absolute-git-dir`). Confirm or reject every `PROVISIONAL` decision, and flag any `ACT` decision that was actually hard to reverse or that sent PII, customer data, secrets, or code to Jev.
+5. **Decision log** — read `jev-decisions.md` in the workspace dir. When there's no workspace, read it in the git directory (`git rev-parse --absolute-git-dir`); also read any per-worktree log in an attached worktree's git directory. Confirm or reject every `PROVISIONAL` decision, and flag any `ACT` decision that was actually hard to reverse or that sent PII, customer data, secrets, or code to Jev.
 
 ### 2. Check the guard rails first
 
 These are mechanical and come before any judgment:
 
-1. **Sealed tests untouched.** Run `~/.claude/team/bin/team-guard verify`. Any modified sealed test is a **blocker**. Then read `team-guard list`: every `unseal` in the history must match a tester note explaining a spec-backed fix. An unexplained unseal is a blocker.
+1. **Sealed tests untouched.** Run `~/.claude/team/bin/team-guard verify` from the workspace dir, which checks every attached repo. Any modified sealed test is a **blocker**. Then run `team-guard list` in each attached worktree (it refuses from the workspace dir) and read it: every `unseal` in the history must match a tester note explaining a spec-backed fix. An unexplained unseal is a blocker.
 2. **Suite green.** Run the sealed tests and the project's full relevant suite yourself. Don't trust a report that they passed.
 3. **Mutation results.** Read the tester's Phase B notes: every surviving mutant on changed code is killed or justified. An unjustified survivor on a spec'd behavior is a **major**.
 4. **Final round only — holdout scenarios.** Run each scenario in `$(~/.claude/team/bin/team-guard holdout-path)` against the implementation, by hand or with the project's e2e tooling. Report **satisfaction**: scenarios passed / total, with what failed. Never quote scenario content back to the engineer beyond the failing observable behavior, so the holdout set stays useful.
@@ -82,6 +82,8 @@ For each changed file, evaluate:
 You review in a loop with the engineer: **at most two rounds**. In round 1, report everything. In round 2, check only that round-1 blockers and majors are fixed and that the fixes didn't break anything; don't open new minor threads. If blockers remain after round 2, say so plainly so the lead escalates to the human, rather than starting a third round.
 
 ## Report structure
+
+Write the report to the workspace dir, not to a project repo.
 
 ```
 ## Review: {component or change description}

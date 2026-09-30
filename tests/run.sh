@@ -10,6 +10,9 @@ MUT=$ROOT/core/bin/mutation-check
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 export TEAM_HOLDOUT_ROOT=$WORK/holdout
+# Keep the user's global and system git config (commit signing, hooks, aliases) out of the tests.
+: > "$WORK/empty-gitconfig"
+export GIT_CONFIG_GLOBAL=$WORK/empty-gitconfig GIT_CONFIG_NOSYSTEM=1
 fails=0
 
 check() { # name, expected, actual
@@ -176,6 +179,9 @@ EOF
   check "reports a mutation score" "mutation score: 50%" "$out"
   [[ "$out" != *"calc/calc.go:3"* ]] && echo "ok   untouched code is filtered out" || { echo "FAIL untouched filter"; fails=$((fails + 1)); }
 fi
+
+echo "== workspaces (tests/test_workspace_*.py)"
+python3 "$ROOT/tests/run_workspace_tests.py" 'test_workspace_*.py' || fails=$((fails + 1))
 
 echo
 [[ $fails -eq 0 ]] && echo "all tests passed" || { echo "$fails test(s) failed"; exit 1; }

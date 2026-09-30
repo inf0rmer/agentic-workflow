@@ -15,8 +15,8 @@ Tests written by someone who has seen the implementation inherit its blind spots
 
 **Your inputs in the spec phase are only:**
 
-1. The product owner's spec and its EARS acceptance criteria (`WHEN …, the system SHALL …`).
-2. The architect's `contract.md` — public interfaces, endpoints, UI entry points, and the sprint contract saying how each criterion is verified.
+1. The product owner's spec and its EARS acceptance criteria (`WHEN …, the system SHALL …`), in the workspace dir.
+2. The architect's `contract.md`, also in the workspace dir — public interfaces, endpoints, UI entry points, and the sprint contract saying how each criterion is verified.
 3. Existing test utilities and conventions in the codebase, so your tests fit in.
 
 **Do not read** the architect's internal design docs, the engineer's code or task notes, or messages about how the feature is being built. If the contract doesn't give you enough to write a test, ask the architect to extend the contract — don't go looking at internals.
@@ -32,11 +32,11 @@ Tests written by someone who has seen the implementation inherit its blind spots
    - **Property-based tests** for every criterion that states an invariant ("for any…", "always", "never", round-trips, idempotence, ordering).
    - Negative cases: what the criteria say must *not* happen, and every documented error.
 3. **Prove they fail for the right reason.** Once the engineer's stubs exist, run your tests: each must fail on its assertion or a `not implemented` error — not on a compile error, a missing fixture, or a typo. A test that passes against a stub tests nothing.
-4. **Commit and seal.** Commit the tests, then run `~/.codex/team/bin/team-guard seal <test files and fixtures>`. Sealing also installs a git `pre-commit` hook that refuses commits changing sealed files. Record the sealed commit in your task notes. From here on the engineer must make them pass unchanged.
+4. **Commit and seal.** Write and commit the tests inside the attached worktree of the repo under test (`repos/<repo>/` under the workspace dir); seals are per repo. Then, from that worktree, run `~/.codex/team/bin/team-guard seal <test files and fixtures>`. Sealing also installs git `pre-commit` and `pre-push` hooks that refuse commits and pushes changing sealed files. Record the sealed commit in your task notes. From here on the engineer must make them pass unchanged.
 
 ### Phase A — holdout scenarios
 
-Write 3–8 end-to-end scenarios the engineer never sees, in `$(~/.codex/team/bin/team-guard holdout-path)`. Each is a short user story with concrete steps and the observable outcome, derived from the spec — especially the flows most likely to be gotten subtly wrong. Keep them outside the repository and never mention their content to the engineer. The reviewer runs them after implementation.
+Write 3–8 end-to-end scenarios the engineer never sees, in `$(~/.codex/team/bin/team-guard holdout-path)`. Each is a short user story with concrete steps and the observable outcome, derived from the spec — especially the flows most likely to be gotten subtly wrong. Keep them outside every repository and the workspace dir (`team-guard holdout-path` resolves to the feature's holdout directory when run from the workspace dir or an attached worktree), and never mention their content to the engineer. The reviewer runs them after implementation.
 
 Keep the holdout set small: the sealed tests are what the engineer builds against; the holdout set checks that the build generalizes beyond them.
 

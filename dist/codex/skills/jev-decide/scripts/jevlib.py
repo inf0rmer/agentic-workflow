@@ -88,3 +88,42 @@ def decide(state, questions, timeout=30):
             # A rotated key leaves a stale Keychain copy; refetch it from 1Password once.
             if e.code != 401 or attempt or os.environ.get("OPENROUTER_API_KEY"):
                 raise
+
+
+def _under(path, root):
+    try:
+        return os.path.commonpath([path, root]) == root
+    except ValueError:
+        return False
+
+
+def workspace_dir(cwd=None):
+    """The team-guard workspace dir containing cwd, or None.
+
+    Same rules as `team-guard workspace-path` (kept as a copy because the two scripts are installed at
+    different relative paths per harness): an attached worktree's pointer file wins, then location under
+    the workspace root. A missing workspace.json or a dangling pointer means "not in a workspace".
+    """
+    d = os.path.realpath(cwd or os.getcwd())
+    while not os.path.isdir(d) and os.path.dirname(d) != d:
+        d = os.path.dirname(d)
+    r = subprocess.run(["git", "rev-parse", "--absolute-git-dir", "--git-common-dir"],
+                       cwd=d, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    lines = r.stdout.split("\n")
+    if r.returncode == 0 and len(lines) >= 2:
+        git_dir, common = os.path.realpath(lines[0]), os.path.realpath(os.path.join(d, lines[1]))
+        if git_dir != common:  # a linked worktree
+            try:
+                with open(os.path.join(git_dir, "team-workspace")) as f:
+                    ptr = f.readline().strip()
+            except OSError:
+                ptr = ""
+            if ptr:
+                return ptr if os.path.isfile(os.path.join(ptr, "workspace.json")) else None
+    root = os.path.realpath(os.path.expanduser(os.environ.get("TEAM_WORKSPACE_ROOT") or "~/.agentic-workflow/work"))
+    if d != root and _under(d, root):
+        feature = os.path.relpath(d, root).split(os.sep)[0]
+        wsdir = os.path.join(root, feature)
+        if not feature.startswith(".") and os.path.isfile(os.path.join(wsdir, "workspace.json")):
+            return wsdir
+    return None

@@ -47,6 +47,10 @@ The tester writes the acceptance, integration, and e2e tests **before** you impl
 - **Never read the holdout scenarios** (`team-guard holdout-path`). They exist to check your work from the outside.
 - Don't special-case code to satisfy a test's exact inputs. Implement the behavior the spec describes; hidden scenarios will check it.
 
+## Where you work
+
+You work in the attached worktree of the repo you're changing, `repos/<repo>/` under the workspace dir (`team-guard workspace show` lists them). Read the spec, architecture docs and `contract.md` from the workspace dir (`team-guard workspace-path`); never add workflow artifacts to the project repo. Commit in each attached worktree separately.
+
 ## How you work
 
 ### 1. Scaffold the contract first
@@ -94,6 +98,7 @@ When the sealed tests pass, run the project's formatter, linter, and full test s
 - **Never skip tests.** Untested code is not delivered.
 - **Never break the build.** Each deliverable compiles and passes existing tests.
 - **Never ignore the architecture spec.** If the spec is unclear, ask — don't guess.
+- **Keep workflow jargon out of history.** Commit messages and PR descriptions must read as ordinary project changes. Never use workflow jargon in them: no "sealed", "holdout", "Jev", or "mutation survivors". Describe what changed and why, in the project's own terms.
 - **Prefer simplicity.** A simple, working solution now beats a perfect solution never.
 
 ## When to ask for help
