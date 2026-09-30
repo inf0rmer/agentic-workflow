@@ -30,7 +30,7 @@ Workspaces (one per feature, under ~/.agentic-workflow/work/<feature>/):
                                 list (or with --apply, collect) stale workspaces,
                                 orphan holdouts and expired archives
 
-Workflow tooling (not yet implemented; each exits 70):
+Workflow tooling:
   team-guard refs [--base <ref>] [--config <file>]
   team-guard routing record route [--feature F] --proposed V --confirmed V [--answer k=v]... [--override-reason TEXT]
   team-guard routing record step [--feature F] --step SLUG --seconds N
@@ -45,7 +45,7 @@ Hook entry points (read the hook event JSON on stdin):
   team-guard hook-pretool       PreToolUse: deny edits to sealed files and holdout
                                 reads when the agent is identifiable as non-tester
   team-guard hook-task          TaskCompleted (Claude Code): block completion if verify fails
-  team-guard hook-stop          SubagentStop (Codex): send the subagent back if verify fails
+  team-guard hook-stop          SubagentStop (Claude Code and Codex): send the subagent back if verify fails
   team-guard pre-commit         git pre-commit: refuse staged changes to sealed files
 
 Environment: TEAM_LOG_ROOT, TEAM_REFS_CONFIG, TEAM_WORKSPACE_ROOT, TEAM_HOLDOUT_ROOT, TEAM_ARCHIVE_ROOT,
@@ -57,6 +57,7 @@ unsealed (which is logged for the reviewer) before a commit can change it.
 import argparse
 import calendar
 import datetime
+import fcntl
 import json
 import os
 import re
@@ -400,6 +401,17 @@ class NoRepo(Exception):
     pass
 
 
+def hooks_path_warning(top, name=None):
+    """A warning when core.hooksPath hides team-guard's git hooks from a repo with sealed files, else None."""
+    value = git("config", "--get", "core.hooksPath", cwd=top, check=False).stdout.strip()
+    if not value or hook_state("pre-commit", top) == "installed":
+        return None
+    who = "Husky" if ".husky" in value.replace("\\", "/").split("/") else "a tool such as Husky"
+    return ((f"{name}: " if name else "") + f"core.hooksPath is {value}; {who} sets this, and git then ignores "
+            "team-guard's hooks in .git/hooks, so verify and the reviewer are the remaining checks "
+            "(team-guard git-hook install would write into that directory)")
+
+
 def guard_scope(cwd):
     """What verify, hook-task and hook-stop check from cwd.
 
@@ -423,6 +435,8 @@ def guard_scope(cwd):
             if load_lock(ids[1])["files"] and hook_state("pre-commit", wt) != "installed":
                 hook_warnings.append(f"the pre-commit hook is not installed in {name} (another tool may have "
                                      f"replaced it); run `team-guard git-hook install` there")
+            if load_lock(ids[1])["files"] and hooks_path_warning(wt, name):
+                hook_warnings.append(hooks_path_warning(wt, name))
         return lines, len(data["repos"]), True, warnings, hook_warnings
     if ws and ws[0] == "dangling":
         warnings.append(f"the workspace pointer here is dangling ({ws[1]}); checking only this repo")
@@ -433,6 +447,8 @@ def guard_scope(cwd):
     if load_lock(r[1])["files"] and hook_state("pre-commit", r[0]) != "installed":
         hook_warnings.append("the pre-commit hook is not installed (another tool may have replaced it); "
                              "run `team-guard git-hook install`")
+    if load_lock(r[1])["files"] and hooks_path_warning(r[0]):
+        hook_warnings.append(hooks_path_warning(r[0]))
     return violations_in(*r), 1, False, warnings, hook_warnings
 
 
@@ -1396,10 +1412,16 @@ def gc_close(feature):
                 print(f"skipped {feature}: {path}: {why}" if path else f"skipped {feature}: {why}")
 
 
-# --- workflow tooling (scaffold: arguments are parsed, behavior is not implemented) ---
+# --- workflow tooling --------------------------------------------------------
 
-NOT_IMPLEMENTED_EXIT = 70
 VARIANTS = ("chore", "bug-fix", "spike", "standard", "full")
+RANK = {"chore": 0, "bug-fix": 1, "standard": 2, "full": 3}
+ANSWER_KEYS = ("repos", "files", "contract", "persisted", "security", "cross_team", "revertible", "user_visible",
+               "design_question", "repro")
+YES_NO = ("yes", "no", "unknown")
+FILES_BUCKETS = ("<=3", "4-15", ">15", "unknown")
+STEP_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+ROUTING_NOTES = "routing" + ".md"
 
 
 class _ArgError(Exception):
@@ -1415,32 +1437,314 @@ def _parse_or_die(parser, args, label):
     try:
         return parser.parse_args(args)
     except _ArgError as e:
-        print(f"team-guard: {label}: {e}", file=sys.stderr)
-        sys.exit(1)
+        die(f"{label}: {e}")
 
 
-def _not_implemented(label):
-    print(f"team-guard: not implemented: {label}", file=sys.stderr)
-    sys.exit(NOT_IMPLEMENTED_EXIT)
+def tool_targets(base_arg, label):
+    """([(name, top, base)], in_workspace, workspace dir) for the current workspace or repo; exits 1 otherwise."""
+    ws = resolve_workspace(os.getcwd())
+    if ws and ws[0] == "ok":
+        out = []
+        for e in load_workspace(ws[1])["repos"]:
+            wt = e["worktree"]
+            ids = repo_ids(wt) if os.path.isdir(wt) else None
+            if not ids or ids[0] != realpath(wt):
+                die(f"{label}: {e['name']}: repository unavailable: {wt}")
+            out.append((e["name"], ids[0], base_arg or e["base"]))
+        return out, True, ws[1]
+    r = repo_for_path(os.getcwd())
+    if not r:
+        die("not a git repository")
+    if not base_arg:
+        die(f"{label}: --base is required outside a workspace")
+    return [(os.path.basename(r[0]), r[0], base_arg)], False, None
+
+
+def merge_base_or_die(top, base, label, name):
+    ok = git("rev-parse", "--verify", "--quiet", base + "^{commit}", cwd=top, check=False)
+    mb = git("merge-base", base, "HEAD", cwd=top, check=False) if ok.returncode == 0 else None
+    if mb is None or mb.returncode != 0 or not mb.stdout.strip():
+        die(f"{label}: {name}: unknown base {base!r}")
+    return mb.stdout.strip()
+
+
+def glob_re(pattern):
+    out, i = "", 0
+    while i < len(pattern):
+        if pattern.startswith("**/", i):
+            out += "(?:.*/)?"
+            i += 3
+        elif pattern.startswith("**", i):
+            out += ".*"
+            i += 2
+        elif pattern[i] == "*":
+            out += "[^/]*"
+            i += 1
+        elif pattern[i] == "?":
+            out += "[^/]"
+            i += 1
+        else:
+            out += re.escape(pattern[i])
+            i += 1
+    return re.compile("^" + out + "$")
+
+
+# --- refs ---
+
+REF_PATTERNS = (
+    ("criterion-id", r"(?<![a-z0-9])ac[-_]?\d+"),
+    ("section-mark", "§\\s?\\d"),
+    ("workflow-file", r"(?<![a-z0-9])(?:contract|spec|architecture|brief|design-gate|questions|followups|routing)\.md"),
+    ("addendum", r"addendum"),
+    ("review-round", r"(?<![a-z])round[\s_-]?\d"),
+    ("adr-number", r"(?<![a-z0-9])adr[\s-]?\d+"),
+)
+REF_DEFAULT_EXCLUDES = ("docs/**", "**/*.md", "**/*.rst", "**/*.txt", "dist/**")
+REF_CONFIG_KEYS = ("patterns", "disable_patterns", "exclude")
+
+
+def load_refs_config(path):
+    """(patterns, exclude globs) from a config file; exits 1 naming the file on any problem."""
+    builtin = dict(REF_PATTERNS)
+    patterns = [(n, re.compile(r, re.I)) for n, r in REF_PATTERNS]
+    exclude = list(REF_DEFAULT_EXCLUDES)
+    if not path:
+        return patterns, exclude
+
+    def bad(why):
+        die(f"refs: config {path}: {why}")
+
+    try:
+        with open(path, encoding="utf-8") as f:
+            cfg = json.load(f)
+    except OSError as e:
+        bad(f"can't read it ({e.strerror or e})")
+    except ValueError as e:
+        bad(f"not valid JSON ({e})")
+    if not isinstance(cfg, dict):
+        bad("expected a JSON object")
+    for k in cfg:
+        if k not in REF_CONFIG_KEYS:
+            bad(f"unknown key {k!r}")
+    disabled = cfg.get("disable_patterns", [])
+    if not isinstance(disabled, list) or not all(isinstance(x, str) for x in disabled):
+        bad("disable_patterns must be a list of pattern names")
+    for x in disabled:
+        if x not in builtin:
+            bad(f"unknown pattern name {x!r} in disable_patterns")
+    patterns = [(n, r) for n, r in patterns if n not in disabled]
+    extra = cfg.get("patterns", [])
+    if not isinstance(extra, list):
+        bad("patterns must be a list of {name, regex} objects")
+    for item in extra:
+        if (not isinstance(item, dict) or set(item) != {"name", "regex"}
+                or not isinstance(item["name"], str) or not isinstance(item["regex"], str) or not item["name"]):
+            bad("each pattern must be an object with a string name and a string regex")
+        try:
+            patterns.append((item["name"], re.compile(item["regex"], re.I)))
+        except re.error as e:
+            bad(f"bad regex for pattern {item['name']!r}: {e}")
+    if "exclude" in cfg:
+        ex = cfg["exclude"]
+        if not isinstance(ex, list) or not all(isinstance(x, str) for x in ex):
+            bad("exclude must be a list of globs")
+        exclude = ex
+    return patterns, exclude
+
+
+def changed_lines_of(top, mb):
+    """({path: [(line number, text)]} for added lines, set of binary paths) since mb, working tree included."""
+    lines, binary = {}, set()
+    diff = git("-c", "core.quotePath=false", "diff", "-U0", "--no-color", "--no-ext-diff", "--no-textconv", "-M",
+               "--src-prefix=a/", "--dst-prefix=b/", mb, cwd=top).stdout
+    cur, skip, in_hunk, n = None, False, False, 0
+    for line in diff.split("\n"):
+        if line.startswith("diff --git "):
+            cur, skip, in_hunk = None, False, False
+            m = re.match(r"^diff --git a/(.+) b/(.+)$", line)
+            if m and m.group(1) == m.group(2):
+                cur = m.group(2)
+            continue
+        if not in_hunk:
+            if line.startswith("deleted file mode"):
+                skip = True
+            elif line.startswith("rename to "):
+                cur = line[len("rename to "):]
+            elif line.startswith("+++ b/"):
+                cur = line[len("+++ b/"):]
+            elif line.startswith("Binary files "):
+                m = re.match(r"^Binary files (?:/dev/null|a/.+) and (?:/dev/null|b/(.+)) differ$", line)
+                if m and m.group(1):
+                    binary.add(m.group(1))
+                    cur = m.group(1)
+            if cur and not skip:
+                lines.setdefault(cur, [])
+        if line.startswith("@@"):
+            m = re.match(r"^@@ -\S+ \+(\d+)", line)
+            in_hunk, n = True, int(m.group(1)) if m else 0
+        elif in_hunk and line.startswith("+") and cur and not skip:
+            lines.setdefault(cur, []).append((n, line[1:]))
+            n += 1
+    for path in git("ls-files", "--others", "--exclude-standard", "-z", cwd=top).stdout.split("\0"):
+        if not path:
+            continue
+        full = os.path.join(top, path)
+        if not os.path.isfile(full) or os.path.islink(full):
+            continue
+        with open(full, "rb") as f:
+            data = f.read()
+        if b"\0" in data[:8000]:
+            binary.add(path)
+            lines.setdefault(path, [])
+            continue
+        text = data.decode("utf-8", errors="replace")
+        rows = text.split("\n")
+        if rows and rows[-1] == "":
+            rows.pop()
+        lines[path] = list(enumerate(rows, start=1))
+    return lines, binary
 
 
 def cmd_refs(args):
     p = _Parser(prog="team-guard refs", add_help=False)
     p.add_argument("--base")
     p.add_argument("--config")
-    _parse_or_die(p, args, "refs")
-    _not_implemented("refs")
+    a = _parse_or_die(p, args, "refs")
+    patterns, exclude = load_refs_config(a.config or os.environ.get("TEAM_REFS_CONFIG") or None)
+    skips = [glob_re(g) for g in exclude]
+    targets, in_ws, _ = tool_targets(a.base, "refs")
+    findings = []
+    for name, top, base in targets:
+        mb = merge_base_or_die(top, base, "refs", name)
+        lines, binary = changed_lines_of(top, mb)
+        rows = []
+        for path, added in lines.items():
+            if path in binary or any(g.match(path) for g in skips):
+                continue
+            for pname, rx in patterns:
+                if rx.search(path):
+                    rows.append((path, 0, pname, f"{path}: {pname}: file name"))
+            for n, text in added:
+                for pname, rx in patterns:
+                    if rx.search(text):
+                        rows.append((path, n, pname, f"{path}:{n}: {pname}: {text.strip()}"))
+        rows.sort(key=lambda r: r[:3])
+        findings += [(f"{name}: " if in_ws else "") + r[3] for r in rows]
+    if not findings:
+        print("team-guard: refs: no workflow references in changed lines")
+        return
+    print("\n".join(findings) + f"\nteam-guard: refs: {len(findings)} finding(s)", file=sys.stderr)
+    sys.exit(2)
+
+
+# --- the routing log ---
+
+def log_path():
+    return os.path.join(_root("TEAM_LOG_ROOT", "~/.agentic-workflow"), "routing-log.jsonl")
+
+
+def parse_answer_items(items, label):
+    answers = {k: "unknown" for k in ANSWER_KEYS}
+    for item in items:
+        key, sep, value = item.partition("=")
+        if not sep or key not in ANSWER_KEYS:
+            die(f"{label}: unknown answer {item!r}; keys are {', '.join(ANSWER_KEYS)}")
+        if key == "repos":
+            if value != "unknown":
+                if not value.isdigit() or int(value) < 1:
+                    die(f"{label}: repos must be an integer of at least 1 or unknown, not {value!r}")
+                value = int(value)
+        elif key == "files":
+            if value not in FILES_BUCKETS:
+                die(f"{label}: files must be one of {', '.join(FILES_BUCKETS)}, not {value!r}")
+        elif value not in YES_NO:
+            die(f"{label}: {key} must be yes, no or unknown, not {value!r}")
+        answers[key] = value
+    return answers
+
+
+def feature_for(name, label):
+    ws = resolve_workspace(os.getcwd())
+    if not name and ws and ws[0] == "ok":
+        name = load_workspace(ws[1]).get("feature")
+    if not name:
+        die(f"{label}: --feature is required outside a workspace")
+    if not valid_feature(name):
+        die(f"{label}: invalid feature name {name!r}")
+    return name
+
+
+def notes_dir():
+    """Where routing notes go: the workspace dir, else the git dir, else nowhere."""
+    ws = resolve_workspace(os.getcwd())
+    if ws and ws[0] == "ok":
+        return ws[1]
+    r = repo_for_path(os.getcwd())
+    return r[1] if r else None
+
+
+def read_events(raw):
+    """(valid v1 event objects, malformed line count) from the log's bytes."""
+    events, bad = [], 0
+    for line in raw.decode("utf-8", errors="replace").split("\n"):
+        if not line.strip():
+            continue
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            bad += 1
+            continue
+        if not isinstance(obj, dict) or obj.get("v") != 1:
+            bad += 1
+            continue
+        events.append(obj)
+    return events, bad
+
+
+def current_variant(events, feature):
+    cur = None
+    for e in events:
+        if e.get("feature") != feature:
+            continue
+        if e.get("event") == "route":
+            cur = e.get("confirmed")
+        elif e.get("event") == "upgrade":
+            cur = e.get("to")
+    return cur
+
+
+def append_locked(build, notes_line=None):
+    """Append one event under an exclusive lock. build(events) returns the event dict (or exits)."""
+    path = log_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fd = os.open(path, os.O_RDWR | os.O_APPEND | os.O_CREAT, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        size = os.fstat(fd).st_size
+        raw = os.pread(fd, size, 0) if size else b""
+        event = build(read_events(raw)[0])
+        data = (json.dumps(event, ensure_ascii=False) + "\n").encode("utf-8")
+        if raw and not raw.endswith(b"\n"):
+            data = b"\n" + data
+        os.write(fd, data)
+        nd = notes_dir() if notes_line else None
+        if nd:
+            with open(os.path.join(nd, ROUTING_NOTES), "a", encoding="utf-8") as f:
+                f.write(notes_line(event).replace("\r", " ") + "\n")
+        return event
+    finally:
+        os.close(fd)
+
+
+def one_line(text):
+    return " ".join(str(text).split())
 
 
 def cmd_routing(args):
     if args[:1] == ["summary"]:
-        p = _Parser(prog="team-guard routing summary", add_help=False)
-        p.add_argument("--json", action="store_true")
-        _parse_or_die(p, args[1:], "routing summary")
-        _not_implemented("routing summary")
+        return cmd_routing_summary(args[1:])
     if args[:1] != ["record"] or len(args) < 2 or args[1] not in ("route", "step", "upgrade"):
-        print("team-guard: routing: expected `record route|step|upgrade` or `summary`", file=sys.stderr)
-        sys.exit(1)
+        die("routing: expected `record route|step|upgrade` or `summary`")
     kind, label = args[1], "routing record " + args[1]
     p = _Parser(prog="team-guard " + label, add_help=False)
     p.add_argument("--feature")
@@ -1455,8 +1759,191 @@ def cmd_routing(args):
     else:
         p.add_argument("--to", required=True, choices=VARIANTS)
         p.add_argument("--reason", required=True)
-    _parse_or_die(p, args[2:], label)
-    _not_implemented(label)
+    a = _parse_or_die(p, args[2:], label)
+    feature = feature_for(a.feature, label)
+    if kind == "route":
+        answers = parse_answer_items(a.answer, label)
+        if a.confirmed != a.proposed and not a.override_reason:
+            die(f"{label}: --confirmed differs from --proposed, so --override-reason is required")
+
+        def build(events):
+            e = {"v": 1, "ts": utc_now(), "event": "route", "feature": feature, "answers": answers,
+                 "proposed": a.proposed, "confirmed": a.confirmed}
+            if a.override_reason:
+                e["override_reason"] = a.override_reason
+            return e
+
+        def note(e):
+            extra = f" override-reason={one_line(e['override_reason'])!r}" if "override_reason" in e else ""
+            facts = " ".join(f"{k}={e['answers'][k]}" for k in ANSWER_KEYS)
+            return f"- {e['ts']} route {feature}: proposed={e['proposed']} confirmed={e['confirmed']}{extra} {facts}"
+    elif kind == "step":
+        if not STEP_RE.match(a.step):
+            die(f"{label}: --step must be lowercase letters, digits and hyphens, not {a.step!r}")
+        if a.seconds < 0:
+            die(f"{label}: --seconds must be an integer of at least 0")
+
+        def build(events):
+            return {"v": 1, "ts": utc_now(), "event": "step", "feature": feature, "step": a.step,
+                    "seconds": a.seconds}
+
+        def note(e):
+            return f"- {e['ts']} step {feature}: step={e['step']} seconds={e['seconds']}"
+    else:
+        def build(events):
+            cur = current_variant(events, feature)
+            if cur is None:
+                die(f"{label}: no earlier route is recorded for {feature}")
+            if cur not in RANK or a.to not in RANK:
+                die(f"{label}: a spike is never upgraded; re-run as standard or full")
+            if RANK[a.to] <= RANK[cur]:
+                die(f"{label}: {a.to} does not rank above the current variant {cur}; a variant is never downgraded")
+            return {"v": 1, "ts": utc_now(), "event": "upgrade", "feature": feature, "from": cur, "to": a.to,
+                    "reason": a.reason}
+
+        def note(e):
+            return f"- {e['ts']} upgrade {feature}: from={e['from']} to={e['to']} reason={one_line(e['reason'])!r}"
+    append_locked(build, note)
+    print(f"team-guard: recorded {kind} for {feature}")
+
+
+def cmd_routing_summary(args):
+    p = _Parser(prog="team-guard routing summary", add_help=False)
+    p.add_argument("--json", action="store_true")
+    a = _parse_or_die(p, args, "routing summary")
+    try:
+        with open(log_path(), "rb") as f:
+            raw = f.read()
+    except OSError:
+        raw = b""
+    events, bad = read_events(raw)
+    routes, steps, upgrades = {}, {}, {}
+    for e in events:
+        feat, kind = e.get("feature"), e.get("event")
+        if kind == "route":
+            if (not isinstance(feat, str) or e.get("proposed") not in VARIANTS
+                    or e.get("confirmed") not in VARIANTS):
+                bad += 1
+                continue
+            routes[feat] = e
+        elif kind == "step" and isinstance(feat, str) and isinstance(e.get("seconds"), int):
+            steps[feat] = steps.get(feat, 0) + e["seconds"]
+        elif kind == "upgrade" and isinstance(feat, str) and e.get("to") in VARIANTS:
+            upgrades.setdefault(feat, []).append(e["to"])
+    up = down = lateral = 0
+    by_variant = {}
+    for feat, e in routes.items():
+        prop, conf = e["proposed"], e["confirmed"]
+        if prop != conf:
+            if prop == "spike" or conf == "spike":
+                lateral += 1
+            elif RANK[conf] > RANK[prop]:
+                up += 1
+            else:
+                down += 1
+        final = upgrades[feat][-1] if feat in upgrades else conf
+        slot = by_variant.setdefault(final, {"runs": 0, "total_seconds": 0})
+        slot["runs"] += 1
+        slot["total_seconds"] += steps.get(feat, 0)
+    runs = len(routes)
+    upgraded = sum(1 for f in routes if f in upgrades)
+    out = {
+        "runs": runs, "overrides": up + down + lateral, "overrides_up": up, "overrides_down": down,
+        "overrides_lateral": lateral,
+        "override_rate": (up + down + lateral) / runs if runs else None,
+        "upgraded_runs": upgraded, "upgrade_rate": upgraded / runs if runs else None,
+        "time_by_variant": {v: {"runs": by_variant[v]["runs"], "total_seconds": by_variant[v]["total_seconds"],
+                                "mean_seconds": round(by_variant[v]["total_seconds"] / by_variant[v]["runs"], 1)}
+                            for v in VARIANTS if v in by_variant},
+        "malformed_lines": bad,
+    }
+    if a.json:
+        print(json.dumps(out, indent=2))
+        return
+    for k, v in out.items():
+        if isinstance(v, dict):
+            for var, fields in v.items():
+                for f, x in fields.items():
+                    print(f"{k}.{var}.{f}: {x}")
+        else:
+            print(f"{k}: {'n/a' if v is None else v}")
+
+
+# --- risk ---
+
+RISK_CATEGORIES = ("test", "migration_or_schema", "auth_or_security", "config_or_ci", "docs", "other")
+TEST_SEGMENTS = {"test", "tests", "__tests__", "testdata", "spec"}
+AUTH_TOKENS = {"auth", "oauth", "security", "permission", "permissions", "rbac", "secret", "secrets", "crypto"}
+CONFIG_SEGMENTS = {".github", ".circleci", "deploy", "deployment", "deployments", "helm", "k8s", "terraform"}
+CONFIG_EXTS = {".yml", ".yaml", ".toml", ".ini", ".cfg", ".conf", ".env", ".tf"}
+DOC_EXTS = {".md", ".rst", ".txt", ".adoc"}
+RISK_REASONS = {
+    "persisted-data": "changes stored data or its format, which a revert may not undo",
+    "breaking-contract": "may break a public interface that others rely on",
+    "several-repos": "spans several repositories that must ship together",
+    "security": "touches security-sensitive code",
+    "hard-to-revert": "a plain revert may not undo it",
+    "additive-contract": "adds to a public interface that others rely on",
+    "user-visible": "changes behavior users can see",
+    "large-change": "is a large change",
+    "config-or-ci": "changes deploy, CI or configuration files",
+}
+RISK_PROCESS_ONLY = "extra checks during development flagged this change for a closer look"
+RISK_LOW = "docs, tests or an internal change within size limits"
+
+
+def path_category(path):
+    low = path.lower()
+    parts = low.split("/")
+    segs, base = parts[:-1], parts[-1]
+    ext = os.path.splitext(base)[1]
+    if (set(parts) & TEST_SEGMENTS) or base.startswith("test_") or re.search(r"_test\.[^/]*$", base) \
+            or re.search(r"\.(test|spec)\.[^/]*$", base):
+        return "test"
+    if (set(parts) & {"migration", "migrations", "migrate"}) or ext in (".sql", ".proto") or base.startswith("schema"):
+        return "migration_or_schema"
+    if set(t for t in re.split(r"[^a-z0-9]+", low) if t) & AUTH_TOKENS:
+        return "auth_or_security"
+    if (set(segs) & CONFIG_SEGMENTS) or base.startswith(("dockerfile", "docker-compose")) \
+            or base in ("makefile", ".gitlab-ci.yml") or ext in CONFIG_EXTS:
+        return "config_or_ci"
+    if (set(segs) & {"doc", "docs"}) or ext in DOC_EXTS:
+        return "docs"
+    return "other"
+
+
+def repo_change_facts(top, mb):
+    """[(path, added, removed)] for every changed path since mb, working tree and untracked files included."""
+    rows = {}
+    out = git("diff", "--numstat", "-z", "--no-renames", "--no-ext-diff", mb, cwd=top).stdout
+    for rec in out.split("\0"):
+        if not rec:
+            continue
+        add, _, rest = rec.partition("\t")
+        rem, _, path = rest.partition("\t")
+        rows[path] = (int(add) if add.isdigit() else 0, int(rem) if rem.isdigit() else 0)
+    for path in git("ls-files", "--others", "--exclude-standard", "-z", cwd=top).stdout.split("\0"):
+        full = os.path.join(top, path)
+        if not path or not os.path.isfile(full) or os.path.islink(full):
+            continue
+        with open(full, "rb") as f:
+            data = f.read()
+        n = 0 if b"\0" in data[:8000] else data.count(b"\n") + (1 if data and not data.endswith(b"\n") else 0)
+        rows[path] = (n, 0)
+    return [(p, a, r) for p, (a, r) in rows.items()]
+
+
+def latest_answers(feature):
+    try:
+        with open(log_path(), "rb") as f:
+            events = read_events(f.read())[0]
+    except OSError:
+        return {}
+    got = {}
+    for e in events:
+        if e.get("event") == "route" and e.get("feature") == feature and isinstance(e.get("answers"), dict):
+            got = e["answers"]
+    return got
 
 
 def cmd_risk(args):
@@ -1465,21 +1952,196 @@ def cmd_risk(args):
     p.add_argument("--feature")
     p.add_argument("--answer", action="append", default=[])
     p.add_argument("--contract", choices=("none", "additive", "breaking", "unknown"))
-    p.add_argument("--majors-fixed", type=int)
-    p.add_argument("--holdouts-failed", type=int)
-    p.add_argument("--mutation-skipped", choices=("yes", "no", "unknown"))
+    p.add_argument("--majors-fixed", type=int, default=0)
+    p.add_argument("--holdouts-failed", type=int, default=0)
+    p.add_argument("--mutation-skipped", choices=YES_NO, default="no")
     p.add_argument("--human-level", choices=("high", "medium", "low"))
     p.add_argument("--packet", action="store_true")
     p.add_argument("--no-log", action="store_true")
-    _parse_or_die(p, args, "risk")
-    _not_implemented("risk")
+    a = _parse_or_die(p, args, "risk")
+    if a.majors_fixed < 0 or a.holdouts_failed < 0:
+        die("risk: --majors-fixed and --holdouts-failed must be integers of at least 0")
+    overrides = parse_answer_items(a.answer, "risk")
+    given = {k for k in (i.partition("=")[0] for i in a.answer)}
+    targets, in_ws, _ = tool_targets(a.base, "risk")
+    feature = feature_for(a.feature, "risk")
+    answers = {k: "unknown" for k in ANSWER_KEYS}
+    for k, v in latest_answers(feature).items():
+        if k in answers and (v in YES_NO or v in FILES_BUCKETS or isinstance(v, int)):
+            answers[k] = v
+    for k in given:
+        answers[k] = overrides[k]
+
+    cats = {c: 0 for c in RISK_CATEGORIES}
+    files = non_test = changed_repos = unseals = 0
+    for name, top, base in targets:
+        mb = merge_base_or_die(top, base, "risk", name)
+        rows = repo_change_facts(top, mb)
+        if rows:
+            changed_repos += 1
+        for path, add, rem in rows:
+            files += 1
+            cat = path_category(path)
+            cats[cat] += 1
+            if cat != "test":
+                non_test += add + rem
+        ids = repo_ids(top)
+        unseals += sum(1 for h in load_lock(ids[1])["history"] if h.get("action") == "unseal")
+
+    def risky(key, bad=("yes", "unknown")):
+        return answers[key] in bad
+
+    if a.contract:
+        contract = a.contract
+    else:
+        contract = "none" if answers["contract"] == "no" else "unknown"
+    rules = []  # (id, level, is_scope)
+    if risky("persisted") or cats["migration_or_schema"] >= 1:
+        rules.append(("persisted-data", "high", True))
+    if contract in ("breaking", "unknown"):
+        rules.append(("breaking-contract", "high", True))
+    if changed_repos > 1:
+        rules.append(("several-repos", "high", True))
+    if risky("security") or cats["auth_or_security"] >= 1:
+        rules.append(("security", "high", True))
+    if risky("revertible", ("no", "unknown")):
+        rules.append(("hard-to-revert", "high", True))
+    if contract == "additive":
+        rules.append(("additive-contract", "medium", True))
+    if risky("user_visible"):
+        rules.append(("user-visible", "medium", True))
+    if files > 15 or non_test > 500:
+        rules.append(("large-change", "medium", True))
+    if cats["config_or_ci"] >= 1:
+        rules.append(("config-or-ci", "medium", True))
+    if a.majors_fixed >= 1:
+        rules.append(("majors-fixed", "medium", False))
+    if unseals >= 1:
+        rules.append(("unseal", "medium", False))
+    if a.mutation_skipped in ("yes", "unknown"):
+        rules.append(("mutation-skipped", "medium", False))
+    if a.holdouts_failed >= 1:
+        rules.append(("holdouts-failed", "medium", False))
+    level = "high" if any(r[1] == "high" for r in rules) else "medium" if rules else "low"
+    scope = [RISK_REASONS[r[0]] for r in rules if r[1] == level and r[2]]
+    if level == "low":
+        reason = RISK_LOW
+    elif not scope:
+        reason = RISK_PROCESS_ONLY
+    else:
+        reason = "; ".join(scope[:2])
+    lines = [f"Merge risk: {level} (advisory) — {reason}."]
+
+    inputs = dict(answers)
+    inputs.update({"contract": contract, "files": files, "non_test_lines": non_test, "repos_changed": changed_repos,
+                   "unseals": unseals, "majors_fixed": a.majors_fixed, "holdouts_failed": a.holdouts_failed,
+                   "mutation_skipped": a.mutation_skipped})
+    for c, n in cats.items():
+        inputs["category." + c] = n
+    if a.packet:
+        lines.append("")
+        lines += [f"rule {r[0]}: {r[1]}" for r in rules]
+        lines += [f"input {k}: {inputs[k]}" for k in sorted(inputs)]
+    if not a.no_log:
+        def build(events):
+            e = {"v": 1, "ts": utc_now(), "event": "risk", "feature": feature, "level": level,
+                 "rules": [r[0] for r in rules],
+                 "inputs": {"answers": answers, "contract": contract, "files": files, "non_test_lines": non_test,
+                            "repos_changed": changed_repos, "unseals": unseals, "majors_fixed": a.majors_fixed,
+                            "holdouts_failed": a.holdouts_failed, "mutation_skipped": a.mutation_skipped,
+                            "categories": cats}}
+            if a.human_level:
+                e["human_level"] = a.human_level
+            return e
+        append_locked(build)
+    print("\n".join(lines))
+
+
+# --- sign ---
+
+def sign_problem(top, git_dir):
+    """Why this repo can't be re-signed safely, or None."""
+    if any(os.path.exists(os.path.join(git_dir, d)) for d in ("rebase-merge", "rebase-apply")):
+        return "a rebase is in progress"
+    if os.path.exists(os.path.join(git_dir, "MERGE_HEAD")):
+        return "a merge is in progress"
+    if git("symbolic-ref", "-q", "HEAD", cwd=top, check=False).returncode != 0:
+        return "HEAD is detached"
+    if git("status", "--porcelain", "--untracked-files=no", cwd=top).stdout.strip():
+        return "has uncommitted changes to tracked files"
+    return None
+
+
+def sign_repo(name, top, base):
+    """Re-sign base..HEAD in one repo. Returns the success message; exits 1 (branch restored) on failure."""
+    def fail(why):
+        die(f"sign: {name}: {why}")
+
+    def restore(orig):
+        if git("rev-parse", "HEAD", cwd=top).stdout.strip() != orig:
+            git("reset", "--hard", "--quiet", orig, cwd=top, check=False)
+
+    orig = git("rev-parse", "HEAD", cwd=top).stdout.strip()
+    rng = f"{base}..HEAD"
+    if git("rev-parse", "--verify", "--quiet", base + "^{commit}", cwd=top, check=False).returncode != 0:
+        fail(f"unknown base {base!r}")
+    commits = git("rev-list", rng, cwd=top).stdout.split()
+    if not commits:
+        return f"team-guard: sign: {name}: nothing to sign"
+    trees0 = git("log", "--reverse", "--topo-order", "--format=%T", rng, cwd=top).stdout.split()
+    r = git("rebase", "--keep-base", "--rebase-merges", "--empty=keep", "--exec",
+            "git commit --amend --allow-empty --no-edit -S", base, cwd=top, check=False)
+    if r.returncode != 0:
+        git("rebase", "--abort", cwd=top, check=False)
+        restore(orig)
+        detail = " ".join((r.stderr or r.stdout).split())[-300:]
+        fail(f"the signing rebase failed and the branch was restored ({detail})")
+    now_commits = git("rev-list", rng, cwd=top).stdout.split()
+    problem = None
+    if any("\ngpgsig " not in git("cat-file", "commit", c, cwd=top).stdout for c in now_commits):
+        problem = "some commits are still unsigned"
+    elif git("log", "--reverse", "--topo-order", "--format=%T", rng, cwd=top).stdout.split() != trees0 \
+            or len(now_commits) != len(commits):
+        problem = "the rewritten commits differ from the originals"
+    elif git("diff", "--quiet", orig, "HEAD", cwd=top, check=False).returncode != 0:
+        problem = "the rewritten branch differs from the original in content"
+    fmt = git("config", "--get", "gpg.format", cwd=top, check=False).stdout.strip()
+    allowed = git("config", "--get", "gpg.ssh.allowedSignersFile", cwd=top, check=False).stdout.strip()
+    verified = fmt in ("", "openpgp") or (fmt == "ssh" and bool(allowed))
+    if problem is None and verified:
+        marks = git("log", "--format=%G?", rng, cwd=top).stdout.split()
+        if any(m not in ("G", "U") for m in marks):
+            problem = "a signature did not verify"
+    if problem:
+        restore(orig)
+        fail(problem + "; the branch was restored")
+    note = "; signatures present, not verified (set gpg.ssh.allowedSignersFile to verify them)" \
+        if fmt == "ssh" and not allowed else ""
+    return f"team-guard: sign: {name}: signed {len(commits)} commit(s){note}"
 
 
 def cmd_sign(args):
     p = _Parser(prog="team-guard sign", add_help=False)
     p.add_argument("--base")
-    _parse_or_die(p, args, "sign")
-    _not_implemented("sign")
+    a = _parse_or_die(p, args, "sign")
+    targets, _, _ = tool_targets(a.base, "sign")
+    bad = []
+    for name, top, base in targets:
+        why = sign_problem(top, repo_ids(top)[1])
+        if why:
+            bad.append(f"team-guard: sign: {name}: {why}")
+    if bad:
+        print("\n".join(bad), file=sys.stderr)
+        sys.exit(1)
+    for name, top, base in targets:
+        hook, chained = hook_paths("pre-commit", top)
+        state = hook_state("pre-commit", top)
+        other = hook if state == "foreign" else chained if state == "installed" and os.path.exists(chained) else None
+        if other:
+            warn(f"{name}: another pre-commit hook runs on every amend ({other})")
+    for name, top, base in targets:
+        print(sign_repo(name, top, base))
+        sys.stdout.flush()
 
 
 def main():
