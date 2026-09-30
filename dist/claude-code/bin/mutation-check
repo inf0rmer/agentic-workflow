@@ -2,6 +2,9 @@
 """Mutation-test only the code changed on this branch, to find what the tests miss.
 
   mutation-check [--base origin/main] [--go-only | --ts-only] [--dry-run]
+                 [--min-free-gb N] [--max-concurrency N] [--time-box MIN] [--sample N] [--seed S]
+
+(The last five flags are not implemented yet: giving one exits 70.)
 
 Go: gremlins on each changed package, with survivors filtered to changed lines.
     (gremlins v0.5.1's own --diff mode skips every mutant when given a package path,
@@ -111,7 +114,14 @@ def main():
     g.add_argument("--go-only", action="store_true")
     g.add_argument("--ts-only", action="store_true")
     p.add_argument("--dry-run", action="store_true", help="print the commands without running them")
+    for flag, kind in (("--min-free-gb", int), ("--max-concurrency", int), ("--time-box", int),
+                       ("--sample", int), ("--seed", int)):
+        p.add_argument(flag, type=kind, default=None)
     a = p.parse_args()
+    for flag in ("min_free_gb", "max_concurrency", "time_box", "sample", "seed"):
+        if getattr(a, flag) is not None:
+            print(f"mutation-check: not implemented: --{flag.replace('_', '-')}", file=sys.stderr)
+            return 70
 
     top = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True).stdout.strip()
     os.chdir(top)

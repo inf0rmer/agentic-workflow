@@ -30,6 +30,17 @@ Workspaces (one per feature, under ~/.agentic-workflow/work/<feature>/):
                                 list (or with --apply, collect) stale workspaces,
                                 orphan holdouts and expired archives
 
+Workflow tooling (not yet implemented; each exits 70):
+  team-guard refs [--base <ref>] [--config <file>]
+  team-guard routing record route [--feature F] --proposed V --confirmed V [--answer k=v]... [--override-reason TEXT]
+  team-guard routing record step [--feature F] --step SLUG --seconds N
+  team-guard routing record upgrade [--feature F] --to V --reason TEXT
+  team-guard routing summary [--json]
+  team-guard risk [--base R] [--feature F] [--answer k=v]... [--contract none|additive|breaking|unknown]
+                  [--majors-fixed N] [--holdouts-failed N] [--mutation-skipped yes|no|unknown]
+                  [--human-level high|medium|low] [--packet] [--no-log]
+  team-guard sign [--base <ref>]
+
 Hook entry points (read the hook event JSON on stdin):
   team-guard hook-pretool       PreToolUse: deny edits to sealed files and holdout
                                 reads when the agent is identifiable as non-tester
@@ -37,7 +48,7 @@ Hook entry points (read the hook event JSON on stdin):
   team-guard hook-stop          SubagentStop (Codex): send the subagent back if verify fails
   team-guard pre-commit         git pre-commit: refuse staged changes to sealed files
 
-Environment: TEAM_WORKSPACE_ROOT, TEAM_HOLDOUT_ROOT, TEAM_ARCHIVE_ROOT,
+Environment: TEAM_LOG_ROOT, TEAM_REFS_CONFIG, TEAM_WORKSPACE_ROOT, TEAM_HOLDOUT_ROOT, TEAM_ARCHIVE_ROOT,
 TEAM_STALE_DAYS, TEAM_ARCHIVE_RETENTION_DAYS.
 
 The git hooks work with any agent harness, or none: a sealed test has to be
@@ -1385,6 +1396,92 @@ def gc_close(feature):
                 print(f"skipped {feature}: {path}: {why}" if path else f"skipped {feature}: {why}")
 
 
+# --- workflow tooling (scaffold: arguments are parsed, behavior is not implemented) ---
+
+NOT_IMPLEMENTED_EXIT = 70
+VARIANTS = ("chore", "bug-fix", "spike", "standard", "full")
+
+
+class _ArgError(Exception):
+    pass
+
+
+class _Parser(argparse.ArgumentParser):
+    def error(self, message):
+        raise _ArgError(message)
+
+
+def _parse_or_die(parser, args, label):
+    try:
+        return parser.parse_args(args)
+    except _ArgError as e:
+        print(f"team-guard: {label}: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def _not_implemented(label):
+    print(f"team-guard: not implemented: {label}", file=sys.stderr)
+    sys.exit(NOT_IMPLEMENTED_EXIT)
+
+
+def cmd_refs(args):
+    p = _Parser(prog="team-guard refs", add_help=False)
+    p.add_argument("--base")
+    p.add_argument("--config")
+    _parse_or_die(p, args, "refs")
+    _not_implemented("refs")
+
+
+def cmd_routing(args):
+    if args[:1] == ["summary"]:
+        p = _Parser(prog="team-guard routing summary", add_help=False)
+        p.add_argument("--json", action="store_true")
+        _parse_or_die(p, args[1:], "routing summary")
+        _not_implemented("routing summary")
+    if args[:1] != ["record"] or len(args) < 2 or args[1] not in ("route", "step", "upgrade"):
+        print("team-guard: routing: expected `record route|step|upgrade` or `summary`", file=sys.stderr)
+        sys.exit(1)
+    kind, label = args[1], "routing record " + args[1]
+    p = _Parser(prog="team-guard " + label, add_help=False)
+    p.add_argument("--feature")
+    if kind == "route":
+        p.add_argument("--proposed", required=True, choices=VARIANTS)
+        p.add_argument("--confirmed", required=True, choices=VARIANTS)
+        p.add_argument("--answer", action="append", default=[])
+        p.add_argument("--override-reason")
+    elif kind == "step":
+        p.add_argument("--step", required=True)
+        p.add_argument("--seconds", required=True, type=int)
+    else:
+        p.add_argument("--to", required=True, choices=VARIANTS)
+        p.add_argument("--reason", required=True)
+    _parse_or_die(p, args[2:], label)
+    _not_implemented(label)
+
+
+def cmd_risk(args):
+    p = _Parser(prog="team-guard risk", add_help=False)
+    p.add_argument("--base")
+    p.add_argument("--feature")
+    p.add_argument("--answer", action="append", default=[])
+    p.add_argument("--contract", choices=("none", "additive", "breaking", "unknown"))
+    p.add_argument("--majors-fixed", type=int)
+    p.add_argument("--holdouts-failed", type=int)
+    p.add_argument("--mutation-skipped", choices=("yes", "no", "unknown"))
+    p.add_argument("--human-level", choices=("high", "medium", "low"))
+    p.add_argument("--packet", action="store_true")
+    p.add_argument("--no-log", action="store_true")
+    _parse_or_die(p, args, "risk")
+    _not_implemented("risk")
+
+
+def cmd_sign(args):
+    p = _Parser(prog="team-guard sign", add_help=False)
+    p.add_argument("--base")
+    _parse_or_die(p, args, "sign")
+    _not_implemented("sign")
+
+
 def main():
     if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
         print(__doc__)
@@ -1397,6 +1494,8 @@ def main():
         "pre-commit": cmd_pre_commit, "git-hook": lambda: cmd_git_hook(args),
         "workspace": lambda: cmd_workspace(args), "workspace-path": lambda: cmd_workspace_path(args),
         "gc": lambda: cmd_gc(args), "pre-push": lambda: cmd_pre_push(args),
+        "refs": lambda: cmd_refs(args), "routing": lambda: cmd_routing(args),
+        "risk": lambda: cmd_risk(args), "sign": lambda: cmd_sign(args),
     }
     if cmd not in commands or (cmd in ("seal", "unseal") and not args):
         sys.exit(__doc__)
