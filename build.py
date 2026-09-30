@@ -79,18 +79,21 @@ BUILDERS = {"claude-code": build_claude_code, "codex": build_codex}
 
 def copy_skills(vars_, out):
     skills = os.path.join(ROOT, "core", "skills")
-    for dirpath, dirs, files in os.walk(skills):
-        dirs[:] = [d for d in dirs if d != "__pycache__"]
-        for name in files:
-            if name.endswith(".pyc"):
-                continue
-            src = os.path.join(dirpath, name)
-            dst = os.path.join(out, "skills", os.path.relpath(src, skills))
-            if name == "SKILL.md":
-                write(dst, render(load(os.path.relpath(src, ROOT)), vars_, os.path.relpath(src, ROOT)))
-            else:
-                os.makedirs(os.path.dirname(dst), exist_ok=True)
-                shutil.copy2(src, dst)
+    # Only a directory with a SKILL.md is a skill; UPSTREAM.json and patches/ are bookkeeping and never ship.
+    shipped = sorted(d for d in os.listdir(skills) if os.path.isfile(os.path.join(skills, d, "SKILL.md")))
+    for skill in shipped:
+        for dirpath, dirs, files in os.walk(os.path.join(skills, skill)):
+            dirs[:] = [d for d in dirs if d != "__pycache__"]
+            for name in files:
+                if name.endswith(".pyc"):
+                    continue
+                src = os.path.join(dirpath, name)
+                dst = os.path.join(out, "skills", os.path.relpath(src, skills))
+                if name == "SKILL.md":
+                    write(dst, render(load(os.path.relpath(src, ROOT)), vars_, os.path.relpath(src, ROOT)))
+                else:
+                    os.makedirs(os.path.dirname(dst), exist_ok=True)
+                    shutil.copy2(src, dst)
 
 
 def build(harness, out):

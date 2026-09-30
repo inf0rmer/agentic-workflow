@@ -1,0 +1,66 @@
+diff --git a/skills/engineering/tdd/SKILL.md b/core/skills/tdd-inner-loop/SKILL.md
+similarity index 62%
+rename from skills/engineering/tdd/SKILL.md
+rename to core/skills/tdd-inner-loop/SKILL.md
+index 250871c..6bb7454 100644
+--- a/skills/engineering/tdd/SKILL.md
++++ b/core/skills/tdd-inner-loop/SKILL.md
+@@ -1,13 +1,13 @@
+ ---
+-name: tdd
+-description: Test-driven development. Use when the user wants to build features or fix bugs test-first, mentions "red-green-refactor", or wants integration tests.
++name: tdd-inner-loop
++description: The software-engineer's inner loop for making sealed tests pass with unit tests the engineer owns. Loaded by name from the software-engineer role only.
+ ---
+ 
+ # Test-Driven Development
+ 
+ TDD is the red → green loop. This skill is the reference that makes that loop produce tests worth keeping: what a good test is, where tests go, the anti-patterns, and the rules of the loop. Every section applies on every cycle: consult them before and during the loop, not after.
+ 
+-When exploring the codebase, read `GLOSSARY.md` (if it exists) so test names and interface vocabulary match the project's domain language, and respect ADRs in the area you're touching.
++When exploring the codebase, read the optional `GLOSSARY.md` in `$(team-guard workspace-path)` so test names and interface vocabulary match the project's domain language, and respect the ADRs in its `adr/` directory.
+ 
+ ## What a good test is
+ 
+@@ -19,11 +19,11 @@ See [tests.md](tests.md) for examples and [mocking.md](mocking.md) for mocking g
+ 
+ A **seam** is the public boundary you test at: the interface where you observe behavior without reaching inside. Tests live at seams, never against internals.
+ 
+-**Test only at pre-agreed seams.** Before writing any test, write down the seams under test and confirm them with the user. No test is written at an unconfirmed seam. You can't test everything, so agreeing the seams up front is how testing effort lands on the critical paths and complex logic instead of every edge case.
++The seams come from `contract.md` and the sealed tests, which the tester wrote at those seams from the spec. You do not choose or confirm them. The sealed tests are the definition of done: make them pass.
+ 
+-Ask: "What's the public interface, and which seams should we test?"
++Your own unit tests sit underneath those seams. For each failing sealed test, write one failing unit test for the smallest internal piece, make it pass, repeat, and record the internal seams you choose in your task notes. Unit tests are yours: they are not sealed, and they are not evidence that a criterion is met.
+ 
+-When the shape of that interface is itself in question (how deep the module is, where the seam belongs, what the interface should expose), call the Skill tool with "codebase-design" for the vocabulary. It is the shared source of the module, interface, depth, seam, adapter, leverage and locality terms, and it is a reference to consult, not a session to run.
++When the shape of an interface is itself in question, {{skill_call}} `{{skill_sigil}}codebase-design` for the shared vocabulary (module, interface, depth, seam, adapter, leverage, locality). It is a reference to consult, not a session to run.
+ 
+ ## Anti-patterns
+ 
+@@ -36,3 +36,5 @@ When the shape of that interface is itself in question (how deep the module is,
+ - **Red before green.** Write the failing test first, then only enough code to pass it. Don't anticipate future tests or add speculative features.
+ - **One slice at a time.** One seam, one test, one minimal implementation per cycle.
+ - **Refactoring is not part of the loop.** It belongs to the review stage (see the `code-review` skill), not the red → green implementation cycle.
++- **Sealed tests are fixed.** You never edit, delete, skip or weaken a sealed test, or the fixtures it depends on.
++- **A wrong sealed test is reported, not fixed.** If a sealed test looks wrong, report the failing assertion and why the spec supports your reading to the lead, who relays it to the tester.
+diff --git a/skills/engineering/tdd/agents/openai.yaml b/core/skills/tdd-inner-loop/agents/openai.yaml
+similarity index 66%
+rename from skills/engineering/tdd/agents/openai.yaml
+rename to core/skills/tdd-inner-loop/agents/openai.yaml
+index 651b838..5410e88 100644
+--- a/skills/engineering/tdd/agents/openai.yaml
++++ b/core/skills/tdd-inner-loop/agents/openai.yaml
+@@ -1,3 +1,5 @@
+ interface:
+   display_name: "TDD"
+   short_description: "Test-driven red-green-refactor"
++policy:
++  allow_implicit_invocation: false
+diff --git a/skills/engineering/tdd/mocking.md b/core/skills/tdd-inner-loop/mocking.md
+similarity index 100%
+rename from skills/engineering/tdd/mocking.md
+rename to core/skills/tdd-inner-loop/mocking.md
+diff --git a/skills/engineering/tdd/tests.md b/core/skills/tdd-inner-loop/tests.md
+similarity index 100%
+rename from skills/engineering/tdd/tests.md
+rename to core/skills/tdd-inner-loop/tests.md

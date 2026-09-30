@@ -1,0 +1,23 @@
+diff --git a/skills/productivity/handoff/SKILL.md b/core/skills/handoff/SKILL.md
+similarity index 72%
+rename from skills/productivity/handoff/SKILL.md
+rename to core/skills/handoff/SKILL.md
+index 2eb98a5..e68a8d4 100644
+--- a/skills/productivity/handoff/SKILL.md
++++ b/core/skills/handoff/SKILL.md
+@@ -5,9 +5,9 @@ argument-hint: "What will the next session be used for?"
+ disable-model-invocation: true
+ ---
+ 
+-Write a handoff document summarising the current conversation so a fresh agent can continue the work. Save to the temporary directory of the user's OS - not the current workspace.
++Write a handoff document summarising the current conversation so a fresh agent can continue the work. Save it to `handoff-<slug>.md` (slug from the topic) in `$(team-guard workspace-path)`, never in a project repo, and report the path.
+ 
+-Include a "suggested skills" section in the document, naming which skills the next agent should call the Skill tool for.
++Include a "suggested skills" section in the document, naming which skills the next agent should load, written like {{skill_call}} `{{skill_sigil}}diagnosing-bugs`.
+ 
+ Do not duplicate content already captured in other artifacts (specs, plans, ADRs, issues, commits, diffs). Reference them by path or URL instead.
+ 
+diff --git a/skills/productivity/handoff/agents/openai.yaml b/core/skills/handoff/agents/openai.yaml
+similarity index 100%
+rename from skills/productivity/handoff/agents/openai.yaml
+rename to core/skills/handoff/agents/openai.yaml

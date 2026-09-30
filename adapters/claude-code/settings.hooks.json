@@ -2,7 +2,7 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Read|Grep|Glob",
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Read|Grep|Glob|Skill",
         "hooks": [
           { "type": "command", "command": "~/.claude/team/bin/team-guard hook-pretool", "timeout": 10 }
         ]

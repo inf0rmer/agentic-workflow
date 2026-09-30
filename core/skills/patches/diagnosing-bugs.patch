@@ -1,0 +1,30 @@
+diff --git a/skills/engineering/diagnosing-bugs/SKILL.md b/core/skills/diagnosing-bugs/SKILL.md
+similarity index 93%
+rename from skills/engineering/diagnosing-bugs/SKILL.md
+rename to core/skills/diagnosing-bugs/SKILL.md
+index 1b929e2..a41e6ff 100644
+--- a/skills/engineering/diagnosing-bugs/SKILL.md
++++ b/core/skills/diagnosing-bugs/SKILL.md
+@@ -3,6 +3,14 @@ name: diagnosing-bugs
+ description: Diagnosis loop for hard bugs and performance regressions. Use when the user says "diagnose"/"debug this", or reports something broken/throwing/failing/slow.
+ ---
+ 
++## In the Bug fix variant
++
++The phases below are split between two roles. The **tester** builds the feedback loop (Phase 1), reproduces and minimises (Phase 2), and turns the minimised repro into the one regression test, which it seals. The tester never edits production code.
++
++The **engineer** hypothesises, instruments and fixes (Phases 3 to 5), then cleans up (Phase 6). The sealed regression test is never edited: if it looks wrong, report the failing assertion to the lead rather than changing it.
++
++Throwaway loop scripts and captured artifacts go under `$(team-guard workspace-path)`, never in a project repo.
++
+ # Diagnosing Bugs
+ 
+ A discipline for hard bugs. Skip phases only when explicitly justified.
+diff --git a/skills/engineering/diagnosing-bugs/agents/openai.yaml b/core/skills/diagnosing-bugs/agents/openai.yaml
+similarity index 100%
+rename from skills/engineering/diagnosing-bugs/agents/openai.yaml
+rename to core/skills/diagnosing-bugs/agents/openai.yaml
+diff --git a/skills/engineering/diagnosing-bugs/scripts/hitl-loop.template.sh b/core/skills/diagnosing-bugs/scripts/hitl-loop.template.sh
+similarity index 100%
+rename from skills/engineering/diagnosing-bugs/scripts/hitl-loop.template.sh
+rename to core/skills/diagnosing-bugs/scripts/hitl-loop.template.sh
