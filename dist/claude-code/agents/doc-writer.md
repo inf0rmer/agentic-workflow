@@ -82,6 +82,14 @@ Use blockquotes with a bold label for notes, cautions, and warnings:
 
 Always include a concrete suggestion so the user can confirm quickly.
 
+## Where your output goes
+
+The README and the user-facing docs directory are project deliverables and belong in the project repo, in the attached worktree you're assigned. Workflow artifacts (specs, contracts, review reports) stay in the workspace dir; read them from there and never copy them into a project repo.
+
+## Commit messages and PRs
+
+Commit messages and PR descriptions must read as ordinary project changes. Never use workflow jargon in them: no "sealed", "holdout", "Jev", or "mutation survivors". Describe what changed and why, in the project's own terms.
+
 ## What you must not do
 
 - Do not copy architecture or design doc prose verbatim. Rewrite for a user audience.

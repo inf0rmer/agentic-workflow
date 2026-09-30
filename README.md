@@ -40,6 +40,46 @@ Phase 4  human gate
 Phase 5  doc-writer + product-owner
 ```
 
+## Workspaces
+
+Workflow artifacts (spec, ADRs, `contract.md`, review reports, the Jev log) never land in a project repo. Each feature gets a **workspace** instead, and a feature can span several repos:
+
+```
+~/.agentic-workflow/work/<feature>/     workspace dir (TEAM_WORKSPACE_ROOT)
+  workspace.json                        feature, branch, attached repos
+  jev-decisions.md                      Jev decision log
+  spec.md, contract.md, ...             workflow artifacts
+  repos/<repo>/                         one git worktree per attached repo, all on feat/<feature>
+~/.agentic-workflow/holdout/<feature>/  holdout scenarios (TEAM_HOLDOUT_ROOT), outside the workspace dir
+~/.agentic-workflow/archive/<feature>/  what `workspace close` keeps (TEAM_ARCHIVE_ROOT)
+```
+
+```bash
+team-guard workspace new payments                 # from anywhere
+cd ~/.agentic-workflow/work/payments
+team-guard workspace attach ~/code/api            # worktree at repos/api on feat/payments, from the default branch
+team-guard workspace attach ~/code/web --base develop
+team-guard workspace show                         # repos, source paths, worktrees, bases
+team-guard workspace-path                         # the workspace dir, from it or any attached worktree
+```
+
+Start the team from the workspace dir. Each attached worktree points back at its workspace through a file in its git admin dir (`team-workspace`); nothing is written to a source repo's config, working tree or tracked files. A repo that isn't attached to a workspace behaves exactly as before.
+
+- **Seals are per repo** and record the file's content hash as well as the commit, so a rebase or squash of the sealed commit doesn't break `verify`. Older locks without hashes keep working against their commit.
+- **`team-guard verify`, and the task and stop hooks, check every attached repo** when run inside a workspace, and name the repo in each violation. `hook-pretool` finds the repo from each edited file's path, not from the working directory.
+- **Sealing installs `pre-commit` and `pre-push` hooks.** `pre-push` refuses a push while the repo's sealed files differ from their seals, and chains any hook that was already there.
+- **`team-guard workspace list`** prints each workspace's age, size and status: `merged` (every attached branch merged into its base, or deleted), `stale` (idle for `TEAM_STALE_DAYS`, default 30, or a source repo is missing) or `active`.
+- **`team-guard workspace close <feature>`**, run from outside the workspace after the human merges, archives the artifacts (and each repo's seal lock) under the archive root, then removes the attached worktrees and the holdouts. Branches are never deleted. It refuses while a worktree has uncommitted changes or commits on no remote-tracking branch; `--force` discards them.
+- **`team-guard gc`** lists stale workspaces, orphaned holdouts, expired archives and legacy holdouts idle longer than `TEAM_ARCHIVE_RETENTION_DAYS` (default 180). It changes nothing until you add `--apply`, which closes workspaces without `--force`. `workspace new` prints a hint when something is stale. Nothing runs in the background.
+
+| Variable | Default |
+|---|---|
+| `TEAM_WORKSPACE_ROOT` | `~/.agentic-workflow/work` |
+| `TEAM_HOLDOUT_ROOT` | `~/.agentic-workflow/holdout` |
+| `TEAM_ARCHIVE_ROOT` | `~/.agentic-workflow/archive` |
+| `TEAM_STALE_DAYS` | `30` |
+| `TEAM_ARCHIVE_RETENTION_DAYS` | `180` |
+
 ## Layout
 
 | Path | What |
@@ -47,7 +87,7 @@ Phase 5  doc-writer + product-owner
 | `core/instructions.md` | Global instructions, including the team workflow and Jev decision protocol |
 | `core/roles/*.md` | Role prose, harness-neutral |
 | `core/team.json` | Each role's description and model tier (`strong`, `standard`, `fast`) |
-| `core/bin/team-guard` | Seal/verify tests, holdout path, and hook entry points |
+| `core/bin/team-guard` | Seal/verify tests, workspaces, holdout path, `gc`, and hook entry points |
 | `core/bin/mutation-check` | Mutation-test changed code only (Go: gremlins; TypeScript: Stryker) |
 | `adapters/<harness>/adapter.json` | Tier → model mapping and values for the `{{placeholders}}` in core |
 | `adapters/<harness>/install.sh` | Installs that harness's build |
@@ -91,12 +131,16 @@ It installs `~/.codex/AGENTS.md`, one `~/.codex/agents/<role>.toml` per role, th
 | Tool permissions | allow rules in `settings.json` | `prefix_rule`s in `~/.codex/rules/` |
 | Skills | `~/.claude/skills/` | `~/.agents/skills/` (`$jev-decide`) |
 
-Both harnesses share the holdout directory (`~/.agentic-workflow/holdout`), so a team can mix them.
+Both harnesses share the workspace, holdout and archive directories under `~/.agentic-workflow/`, so a team can mix them.
 
 ## Known limits
 
-- **Three layers, from strongest to weakest.** (1) `team-guard verify` compares sealed files with the commit they were sealed at, so tampering is always *detected*, by any tool, at `TaskCompleted` and in review. (2) A git `pre-commit` hook, installed on first seal, *refuses* commits that change sealed tests in any harness; `--no-verify` bypasses it, which layer 1 still catches. (3) Harness hooks block edits *before* they happen, but only where the harness identifies the agent: Claude Code passes `agent_type` inside subagents, but documents no equivalent for agent-team teammates, and teammates don't apply a definition's frontmatter `hooks`.
+- **Three layers, from strongest to weakest.** (1) `team-guard verify` compares sealed files with the content hash recorded when they were sealed, so tampering is always *detected*, by any tool, at `TaskCompleted` and in review. (2) Git `pre-commit` and `pre-push` hooks, installed on first seal, *refuse* commits and pushes that change sealed tests in any harness; `--no-verify` bypasses them, which layer 1 still catches. (3) Harness hooks block edits *before* they happen, but only where the harness identifies the agent: Claude Code passes `agent_type` inside subagents, but documents no equivalent for agent-team teammates, and teammates don't apply a definition's frontmatter `hooks`.
 - **Other tools can replace the git hook.** Running `lefthook install` (as Grafana's `make lefthook-install` does) overwrites it; `team-guard verify` warns when that happens, and `team-guard git-hook install` re-chains it.
+- **Workspaces are per feature and local.** `team-guard` doesn't push, open PRs or enforce a ship order across repos; the order is recorded as a decision only. It isn't safe to run several `team-guard` commands against one workspace at once, and a repo can't be detached from a live workspace.
+- **Squash merges aren't detected.** A squash-merged branch isn't an ancestor of its base, so the workspace stays `active` until it goes stale; `workspace close` is the primary cleanup and `gc` the backstop.
+- **`pre-push` checks the working tree, not the pushed commits**, like `verify`. The git hooks live in the source repo's shared hooks dir and stay after `close`; they do nothing without a lock.
+- **Closing loses no audit trail**, but a worktree's seal lock lives in its git dir and is copied to the archive before the worktree is removed. Legacy holdouts (`<repo>/<branch>`) are collected by age, not by whether their repo still exists.
 - **An engineer can still run `team-guard unseal`.** It's logged, and the reviewer treats any unseal without a matching tester note as a blocker.
 - **Holdout isolation is by path.** Engineers are denied reads of the holdout directory where identifiable and told not to look; a `Bash` `cat` isn't intercepted.
 - **gremlins v0.5.1's `--diff` mode** skips every mutant when given a package path, so `mutation-check` runs gremlins per changed package and filters survivors to changed lines itself. Cost scales with package size.

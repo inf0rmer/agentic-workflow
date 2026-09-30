@@ -132,7 +132,11 @@ def evaluate(a):
 
 
 def default_log_path():
-    # Inside the git dir: per-worktree, readable by the whole team, never committed.
+    # Inside a workspace: one log for the whole feature, kept with the other workflow artifacts.
+    ws = jevlib.workspace_dir()
+    if ws:
+        return os.path.join(ws, "jev-decisions.md")
+    # Otherwise inside the git dir: per-worktree, readable by the whole team, never committed.
     try:
         git_dir = subprocess.run(
             ["git", "rev-parse", "--absolute-git-dir"], check=True, capture_output=True, text=True
@@ -170,14 +174,16 @@ def append_log(path, d, result):
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("file", nargs="?", help="decision JSON file (default: stdin)")
-    p.add_argument("--log", help="decision log path (default: <git-dir>/jev-decisions.md)")
+    p.add_argument("--log", help="decision log path (default: jev-decisions.md in the workspace dir when run "
+                   "inside a workspace, else <git-dir>/jev-decisions.md)")
     p.add_argument("--no-log", action="store_true")
     p.add_argument("--print-log-path", action="store_true", help="print the resolved log path and exit")
     p.add_argument("--raw", action="store_true", help="also print Jev's raw answers")
     args = p.parse_args()
     if args.print_log_path:
-        print("ask-jev: not implemented: --print-log-path", file=sys.stderr)
-        sys.exit(70)
+        log = None if args.no_log else (args.log or default_log_path())
+        print(os.path.abspath(log) if log else "")
+        return
 
     d = {}
     try:
@@ -205,8 +211,11 @@ def main():
 
     log = None if args.no_log else (args.log or default_log_path())
     if log:
-        append_log(log, d, result)
-        result["log"] = log
+        try:
+            append_log(log, d, result)
+            result["log"] = log
+        except OSError as e:  # fail closed is about verdicts, not logs
+            result["log_error"] = f"{type(e).__name__}: {e}"
     print(json.dumps(result, indent=2))
 
 

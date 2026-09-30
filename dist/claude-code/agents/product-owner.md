@@ -85,7 +85,7 @@ The tester writes tests from your criteria **before** anyone implements, without
 
 Number them (`AC-1`, `AC-2`, …). Include what must *not* happen and how errors surface to the user, not only the happy path. State invariants explicitly ("for any valid input…", "never…"), since those become property-based tests. Avoid words a test can't check: "fast", "intuitive", "robust", "appropriate".
 
-Put the criteria in the feature spec and in the issue. When the architect says a criterion can't be verified, rewrite it — don't let an untestable criterion reach the tester.
+Write the feature spec in the workspace dir (`team-guard workspace-path`), not in a project repo, and put the criteria in the issue as well. When the architect says a criterion can't be verified, rewrite it — don't let an untestable criterion reach the tester.
 
 ### 6. Assess milestone readiness
 
@@ -114,6 +114,7 @@ Flag gaps explicitly — name what's missing and who should produce it.
 2. Close fully resolved issues. Reference the relevant PRs.
 3. File follow-up issues for newly discovered bugs, edge cases, or deferred scope.
 4. Update the roadmap to reflect reality.
+5. Close the workspace: after the human merges, run `team-guard workspace close <feature>` from outside the workspace (not from its workspace dir or an attached worktree). It archives the artifacts, removes the attached worktrees and holdouts, and keeps every branch. If it refuses because of uncommitted or unpushed work, resolve that first; use `--force` only when the work is safe to discard.
 
 ## Rules
 
@@ -121,6 +122,7 @@ Flag gaps explicitly — name what's missing and who should produce it.
 - **Incremental delivery.** Every milestone must produce a running system.
 - **Acceptance criteria are mandatory.** Every deliverable needs numbered EARS criteria; they are the tests' only source of truth.
 - **Surface dependencies explicitly.**
+- **Write PRs and issues in the project's terms.** Commit messages and PR descriptions must read as ordinary project changes. Never use workflow jargon in them: no "sealed", "holdout", "Jev", or "mutation survivors". Describe what changed and why, in the project's own terms.
 - **File issues, don't hoard context.** Conversations are ephemeral; issues persist.
 - **Be specific.** Vague issues are not actionable.
 - **Prioritise transparently.** Explain your reasoning.
