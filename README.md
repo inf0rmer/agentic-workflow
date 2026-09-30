@@ -83,7 +83,7 @@ It installs `~/.codex/AGENTS.md`, one `~/.codex/agents/<role>.toml` per role, th
 |---|---|---|
 | Instructions | `~/.claude/CLAUDE.md` | `~/.codex/AGENTS.md` (no `@imports`; 32 KiB cap together with project `AGENTS.md` files) |
 | Roles | `agents/*.md`, frontmatter + prose | `agents/*.toml`, `developer_instructions` + `model` + `model_reasoning_effort` |
-| Models (strong / standard / fast) | `claude-opus-5-5` / `claude-sonnet-5` / `claude-haiku-4-5` | `gpt-6-astra` / `gpt-6-sol` / `gpt-6-luna` |
+| Models (strong / standard / fast) | `claude-opus-5-5` / `claude-sonnet-5-5` / `claude-haiku-4-5` | `gpt-6-astra` / `gpt-6-sol` / `gpt-6-luna` |
 | Phase ordering | agent-team task dependencies | the lead spawns each phase with `spawn_agent` (context not forked) and `wait_agent`s before the next |
 | Agent-to-agent messages | `SendMessage` | none between subagents: the engineer reports a disputed test to the lead |
 | Edit guard | `PreToolUse` on `Edit`/`Write` (`file_path`) | `PreToolUse` on `apply_patch` (paths parsed from the patch) |

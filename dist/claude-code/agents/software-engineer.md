@@ -1,6 +1,6 @@
 ---
 name: software-engineer
-model: claude-sonnet-5
+model: claude-sonnet-5-5
 description: Build production-ready code aligned with the project's roadmap and architecture. Delivers small, incremental, testable units. Implements components based on architecture specifications.
 ---
 

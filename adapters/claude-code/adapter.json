@@ -2,7 +2,7 @@
   "harness": "claude-code",
   "models": {
     "strong": "claude-opus-5-5",
-    "standard": "claude-sonnet-5",
+    "standard": "claude-sonnet-5-5",
     "fast": "claude-haiku-4-5-20251001"
   },
   "vars": {

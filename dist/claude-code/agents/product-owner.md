@@ -1,6 +1,6 @@
 ---
 name: product-owner
-model: claude-sonnet-5
+model: claude-sonnet-5-5
 description: Owns the product end-to-end — roadmap, milestones, feature requests, bug reports, and ideas. Use when the user wants to plan features, prioritise work, file issues, triage bugs, break work into milestones, track open TODOs, identify documentation gaps, assess product direction, or decide what to build next.
 ---
 
