@@ -1421,7 +1421,7 @@ ANSWER_KEYS = ("repos", "files", "contract", "persisted", "security", "cross_tea
 YES_NO = ("yes", "no", "unknown")
 FILES_BUCKETS = ("<=3", "4-15", ">15", "unknown")
 STEP_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
-ROUTING_NOTES = "routing" + ".md"
+ROUTING_NOTES = "routing.md"
 
 
 class _ArgError(Exception):
@@ -1499,7 +1499,8 @@ REF_PATTERNS = (
     ("review-round", r"(?<![a-z])round[\s_-]?\d"),
     ("adr-number", r"(?<![a-z0-9])adr[\s-]?\d+"),
 )
-REF_DEFAULT_EXCLUDES = ("docs/**", "**/*.md", "**/*.rst", "**/*.txt", "dist/**")
+REF_DEFAULT_EXCLUDES = ("docs/**", "**/*.md", "**/*.rst", "**/*.txt", "dist/**", "**/go.sum", "**/package-lock.json",
+                        "**/pnpm-lock.yaml", "**/yarn.lock", "**/*.lock")
 REF_CONFIG_KEYS = ("patterns", "disable_patterns", "exclude")
 
 
@@ -1967,7 +1968,13 @@ def cmd_risk(args):
     feature = feature_for(a.feature, "risk")
     answers = {k: "unknown" for k in ANSWER_KEYS}
     for k, v in latest_answers(feature).items():
-        if k in answers and (v in YES_NO or v in FILES_BUCKETS or isinstance(v, int)):
+        if k == "repos":
+            ok = v == "unknown" or (type(v) is int and v >= 1)
+        elif k == "files":
+            ok = isinstance(v, str) and v in FILES_BUCKETS
+        else:
+            ok = isinstance(v, str) and v in YES_NO
+        if k in answers and ok:
             answers[k] = v
     for k in given:
         answers[k] = overrides[k]
@@ -2128,6 +2135,8 @@ def cmd_sign(args):
     bad = []
     for name, top, base in targets:
         why = sign_problem(top, repo_ids(top)[1])
+        if not why and git("rev-parse", "--verify", "--quiet", base + "^{commit}", cwd=top, check=False).returncode != 0:
+            why = f"unknown base {base!r}"
         if why:
             bad.append(f"team-guard: sign: {name}: {why}")
     if bad:

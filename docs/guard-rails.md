@@ -168,7 +168,7 @@ Survivors — each is a behavior change no test noticed:
 `mutation-check` exits 0 whether or not mutants survive.
 It exits 3 when it refuses to start because the repo or the temp dir has too little free disk, and it starts nothing.
 It exits 4 when the time box ends the run: it prints the counts so far and `INCOMPLETE: time box of 15 minutes reached`.
-A run interrupted by SIGINT or SIGTERM exits 130 or 143.
+A run interrupted by SIGINT, SIGHUP or SIGTERM exits 130, 129 or 143.
 For each survivor that matters, the tester either writes a test that kills it, or records why it's equivalent (it can't change observable behavior) or irrelevant.
 New tests from this step get sealed too.
 
@@ -196,7 +196,7 @@ Comments, docstrings, test names and file names describe behavior and never cite
 | `review-round` | Review rounds such as `round 2` |
 | `adr-number` | ADR numbers such as `ADR 0007` |
 
-`team-guard refs` skips deleted and binary files, `docs/**`, `**/*.md`, `**/*.rst`, `**/*.txt` and `dist/**`.
+`team-guard refs` skips deleted and binary files, `docs/**`, `**/*.md`, `**/*.rst`, `**/*.txt`, `dist/**`, and lockfiles and dependency sums (`go.sum`, `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `*.lock`).
 It exits 2 when it finds something (one line per line and pattern on stderr, then `team-guard: refs: N finding(s)`), 0 when nothing is found, and 1 for a bad config, an unknown base, or a missing `--base` outside a workspace.
 Inside a workspace it scans every attached repo against its recorded base, and prefixes each finding with the repo name.
 
@@ -219,8 +219,8 @@ Unknown keys and names are errors, and nothing is scanned.
 The log is only ever appended to.
 
 ```bash
-team-guard routing record route --proposed standard --confirmed full --override-reason "touches stored data" \
-  --answer repos=1 --answer files=4-15 --answer persisted=yes
+team-guard routing record route --proposed standard --confirmed standard \
+  --answer repos=1 --answer files=4-15 --answer persisted=no
 team-guard routing record step --step build --seconds 1800
 team-guard routing record upgrade --to full --reason "a second repo is needed"
 team-guard routing summary --json

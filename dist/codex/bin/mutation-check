@@ -21,7 +21,7 @@ Limits (a flag beats its environment variable, which beats the default):
   --sample N           mutate at most N changed lines   MUTATION_SAMPLE, default 50, 0 is off
   --seed S             which lines are sampled, repeatably, default 1
 Each run keeps its temp files in <tmp>/mutation-check-<pid> and removes them, and any tool
-process it started, on every exit. Interrupted runs exit 130 (SIGINT) or 143 (SIGTERM).
+process it started, on every exit. Interrupted runs exit 130 (SIGINT), 129 (SIGHUP) or 143 (SIGTERM).
 """
 
 import argparse
@@ -301,12 +301,13 @@ def main():
     code, state = 0, GoState()
 
     def on_signal(signum, frame):
-        raise Interrupted(130 if signum == signal.SIGINT else 143)
+        raise Interrupted({signal.SIGINT: 130, signal.SIGHUP: 129}.get(signum, 143))
 
     try:
         if not a.dry_run:
             signal.signal(signal.SIGINT, on_signal)
             signal.signal(signal.SIGTERM, on_signal)
+            signal.signal(signal.SIGHUP, on_signal)
             remove_stale_run_dirs(tmp)
             os.makedirs(run_dir, exist_ok=True)
             runner.env.update({"TMPDIR": run_dir, "TMP": run_dir, "TEMP": run_dir, "GOTMPDIR": run_dir})
@@ -344,6 +345,7 @@ def main():
     finally:
         signal.signal(signal.SIGINT, signal.SIG_IGN)
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        signal.signal(signal.SIGHUP, signal.SIG_IGN)
         runner.kill_group(runner.current)
         if not a.dry_run:
             shutil.rmtree(run_dir, ignore_errors=True)
