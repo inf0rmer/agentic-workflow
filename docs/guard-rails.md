@@ -244,16 +244,20 @@ The level and rule ids go to the routing log unless you pass `--no-log`; the log
 
 ## Re-sign the branch
 
-Agents commit unsigned, so the human re-signs the branch once, after the code review and before anything is pushed:
+Agents commit unsigned, so the lead runs `team-guard sign` once, after the human approves the code review and before anything is pushed:
 
 ```bash
 team-guard sign          # from the workspace dir, or a repo with --base <ref>
 ```
 
-When the human runs it, `team-guard sign` checks every repo first and refuses a checkout with uncommitted changes to tracked files, a rebase or merge in progress, or a detached HEAD.
+`team-guard sign` checks every repo first and refuses a checkout with uncommitted changes to tracked files, a rebase or merge in progress, or a detached HEAD.
 It then rebases the branch onto its own base with an amend that signs each commit, checks that every commit is signed and that the trees are unchanged, and restores the branch if anything fails.
 It warns when another pre-commit hook runs on every amend.
 Without `gpg.ssh.allowedSignersFile` git can't verify an SSH signature, so it says the signatures are present but not verified.
+
+It signs with the human's key, through the signer they configured (`gpg.ssh.program`), and never changes that configuration.
+Whether the human sees a prompt depends on the signer's approval settings, not on `team-guard`.
+With 1Password, open **Settings → Developer → SSH Agent** and check "Ask approval for each new…" and how long approvals are remembered: 1Password remembers an approval per application, so a run that signs many commits usually prompts at most once, and sometimes not at all.
 
 ## Run a design gate
 

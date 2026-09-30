@@ -208,7 +208,7 @@ It removes its temp files on every exit.
 - **Subagents by default.** The lead starts one subagent per step. Agent-team teammates are used only for parallel work within one step.
 - **Scope stays fixed.** A finding that is neither a blocker nor security goes to `followups.md`, not into the current run.
 - **Warm environment.** The dev or e2e environment stays running between rounds and restarts only when its config changes.
-- **Unsigned commits, re-signed once.** Agents commit unsigned with `git -c commit.gpgsign=false commit …`, a per-command setting that writes no config. After you approve the code review and before anything is pushed, the human (you) runs `team-guard sign` to re-sign every commit on the branch in every attached repo. The lead prepares the command and never runs it.
+- **Unsigned commits, re-signed once.** Agents commit unsigned with `git -c commit.gpgsign=false commit …`, a per-command setting that writes no config. After you approve the code review and before anything is pushed, the lead runs `team-guard sign` to re-sign every commit on the branch in every attached repo, with the human's key through their configured signer. Whether that prompts you depends on the signer's approval settings; see [Re-sign the branch](./guard-rails.md#re-sign-the-branch).
 
 ## Human gate
 
