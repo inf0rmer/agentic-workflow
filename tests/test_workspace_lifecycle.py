@@ -1,4 +1,4 @@
-"""Workspace lifecycle: list status, close, gc (spec section I)."""
+"""Workspace lifecycle: list status, close, gc."""
 
 import json
 import os
@@ -58,7 +58,7 @@ class LifecycleCase(WSTestCase):
 
 class TestListStatus(LifecycleCase):
 
-    def test_ac74_merged_single_repo(self):
+    def test_status_merged_single_repo(self):
         ws, repos, wts = self.pushed_ws("f", "A")
         self.assertEqual(self.status_of("f")[0], "active", "a just-attached branch is not merged")
         self.sb.commit_file(wts["A"], "pkg/new.go", "package pkg\n", "work")
@@ -68,7 +68,7 @@ class TestListStatus(LifecycleCase):
         self.assertEqual(status, "merged", self.show(r))
         self.code(r, 0)
 
-    def test_ac74_merged_via_remote_tracking_base(self):
+    def test_status_merged_via_remote_tracking_base(self):
         ws, repos, wts = self.pushed_ws("f", "A")
         self.sb.commit_file(wts["A"], "pkg/new.go", "package pkg\n", "work")
         self.sb.git(wts["A"], "push", "-q", "origin", "feat/f:main")
@@ -76,19 +76,19 @@ class TestListStatus(LifecycleCase):
         self.assertNotEqual(self.sb.git(repos["A"], "rev-parse", "main"), self.sb.git(wts["A"], "rev-parse", "HEAD"))
         self.assertEqual(self.status_of("f")[0], "merged")
 
-    def test_ac74_deleted_branch_counts_as_merged(self):
+    def test_status_deleted_branch_counts_as_merged(self):
         ws, repos, wts = self.pushed_ws("f", "A")
         self.sb.git(repos["A"], "update-ref", "-d", "refs/heads/feat/f")
         self.assertEqual(self.status_of("f")[0], "merged")
 
-    def test_ac74_partly_merged_is_not_merged(self):
+    def test_status_partly_merged_is_not_merged(self):
         ws, repos, wts = self.pushed_ws("g", "A", "B")
         for n in ("A", "B"):
             self.sb.commit_file(wts[n], "pkg/new.go", "package pkg\n", "work")
         self.sb.git(repos["A"], "merge", "-q", "feat/g")
         self.assertEqual(self.status_of("g")[0], "active")
 
-    def test_ac74_missing_source_is_stale(self):
+    def test_status_missing_source_is_stale(self):
         ws, repos, wts = self.pushed_ws("g", "A", "B")
         shutil.move(str(repos["B"]), str(self.sb.tmp / "B-moved"))
         status, r = self.status_of("g")
@@ -104,7 +104,7 @@ class TestListStatus(LifecycleCase):
 
 class TestClose(LifecycleCase):
 
-    def test_ac75_to_ac78_ac87_successful_close(self):
+    def test_close_removes_worktrees_and_archives_artifacts(self):
         A = self.sb.new_repo("A")
         B = self.sb.new_repo("B")
         self.sb.add_remote(A)
@@ -115,9 +115,9 @@ class TestClose(LifecycleCase):
         wtB = self.attach(B)
         ho = Path(self.ok(self.sb.tg("holdout-path", cwd=ws)).out.strip())
         (ho / "s.md").write_text("scenario\n")
-        (ws / "spec.md").write_text("# spec\n")
+        (ws / "plan.md").write_text("# plan\n")
         (ws / "adr").mkdir()
-        (ws / "adr" / "1.md").write_text("# adr 1\n")
+        (ws / "adr" / "1.md").write_text("# decision 1\n")
         wj = (ws / "workspace.json").read_bytes()
         refs_before = {n: self.sb.refs(p) for n, p in (("A", A), ("B", B))}
         cfg_before = {n: read_bytes(p / ".git" / "config") for n, p in (("A", A), ("B", B))}
@@ -130,21 +130,21 @@ class TestClose(LifecycleCase):
         self.has(r.out, "team-guard: removed worktree %s" % realpath(wtB), r)
         self.has(r.out, "team-guard: closed f; artifacts archived at %s" % archive, r)
         for n, p in (("A", A), ("B", B)):
-            # AC-75
+            # The worktree and its admin dir are gone.
             self.assertEqual(self.sb.worktrees(p), [realpath(p)])
             self.assertEqual(self.admin_entries(p), [], "no admin dir (and so no pointer) left for %s" % n)
-            # AC-77
+            # Branches survive the close.
             self.assertEqual(self.sb.refs(p), refs_before[n])
             self.assertIn("refs/heads/feat/f", self.sb.refs(p))
-            # AC-78
+            # The source checkout is as it was before attach.
             self.assertEqual(read_bytes(p / ".git" / "config"), cfg_before[n])
             self.assertEqual(self.sb.source_state(p), pre_attach[n])
-        # AC-76
+        # The holdout dir is removed.
         self.assertFalse(ho.exists())
-        # AC-87
+        # The workspace dir is archived, artifacts included.
         self.assertFalse(ws.exists())
-        self.assertEqual(Path(archive, "spec.md").read_text(), "# spec\n")
-        self.assertEqual(Path(archive, "adr", "1.md").read_text(), "# adr 1\n")
+        self.assertEqual(Path(archive, "plan.md").read_text(), "# plan\n")
+        self.assertEqual(Path(archive, "adr", "1.md").read_text(), "# decision 1\n")
         self.assertEqual(Path(archive, "workspace.json").read_bytes(), wj)
         meta = json.loads(Path(archive, "archive.json").read_text())
         self.assertEqual(meta["feature"], "f")
@@ -154,7 +154,7 @@ class TestClose(LifecycleCase):
         self.assertRegex(meta["closed"], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
         self.assertFalse(Path(archive, "repos").exists())
 
-    def test_ac87_archive_name_collision(self):
+    def test_close_archive_name_collision_gets_suffix(self):
         self.new_ws("f")
         self.ok(self.close("f"))
         self.new_ws("f")
@@ -165,10 +165,10 @@ class TestClose(LifecycleCase):
         self.assertEqual(Path(second, "notes.md").read_text(), "second\n")
         self.assertTrue((self.sb.ar_root / "f" / "archive.json").exists())
 
-    def test_ac79_uncommitted_changes_refused(self):
+    def test_close_refuses_uncommitted_changes(self):
         ws, repos, wts = self.pushed_ws("f", "A", "B")
         self.ok(self.sb.tg("holdout-path", cwd=ws))
-        (ws / "spec.md").write_text("# spec\n")
+        (ws / "plan.md").write_text("# plan\n")
         for kind in ("untracked", "modified"):
             with self.subTest(kind=kind):
                 if kind == "untracked":
@@ -186,7 +186,7 @@ class TestClose(LifecycleCase):
                 self.sb.git(wts["A"], "checkout", "-q", "--", ".")
                 self.sb.git(wts["A"], "clean", "-qfd")
 
-    def test_ac80_unpushed_commits_refused(self):
+    def test_close_refuses_unpushed_commits(self):
         ws, repos, wts = self.pushed_ws("f", "A")
         self.sb.commit_file(wts["A"], "pkg/new.go", "package pkg\n", "unpushed")
         before = self.everything(repos["A"])
@@ -198,7 +198,7 @@ class TestClose(LifecycleCase):
         self.sb.git(wts["A"], "push", "-q", "origin", "feat/f")
         self.ok(self.close("f"))
 
-    def test_ac80_no_remotes_means_unpushed(self):
+    def test_close_treats_no_remotes_as_unpushed(self):
         ws, repos, wts = self.pushed_ws("f", "C", remotes=False)
         before = self.everything(repos["C"])
         r = self.close("f")
@@ -206,7 +206,7 @@ class TestClose(LifecycleCase):
         self.has(r.err, "  %s: unpushed commits" % realpath(wts["C"]), r)
         self.assertEqual(self.everything(repos["C"]), before)
 
-    def test_ac81_every_unsafe_worktree_listed(self):
+    def test_close_lists_every_unsafe_worktree(self):
         ws, repos, wts = self.pushed_ws("f", "A", "B")
         (wts["A"] / "scratch.txt").write_text("wip\n")
         self.sb.commit_file(wts["B"], "pkg/new.go", "package pkg\n", "unpushed")
@@ -218,7 +218,7 @@ class TestClose(LifecycleCase):
         self.has(r.err, "  %s: unpushed commits" % realpath(wts["B"]), r)
         self.assertEqual(self.everything(repos["A"], repos["B"]), before)
 
-    def test_ac82_force(self):
+    def test_close_force_discards_unsafe_work(self):
         ws, repos, wts = self.pushed_ws("f", "A", "B")
         ho = Path(self.ok(self.sb.tg("holdout-path", cwd=ws)).out.strip())
         (wts["A"] / "scratch.txt").write_text("wip\n")
@@ -238,7 +238,7 @@ class TestClose(LifecycleCase):
         self.assertIn((realpath(wts["A"]), "uncommitted changes"), reasons)
         self.assertIn((realpath(wts["B"]), "unpushed commits"), reasons)
 
-    def test_ac83_unknown_feature(self):
+    def test_close_unknown_feature_fails(self):
         self.pushed_ws("f", "A")
         before = self.sb.roots_snapshot()
         r = self.close("nope")
@@ -246,7 +246,7 @@ class TestClose(LifecycleCase):
         self.has(r.err, "no workspace named nope", r)
         self.assertEqual(self.sb.roots_snapshot(), before)
 
-    def test_ac84_refuses_from_inside(self):
+    def test_close_refuses_from_inside_the_workspace(self):
         ws, repos, wts = self.pushed_ws("f", "A")
         (ws / "notes").mkdir()
         before = self.everything(repos["A"])
@@ -267,11 +267,11 @@ class TestClose(LifecycleCase):
             with self.subTest(extra=extra):
                 r = self.close("f", *extra)
                 self.code(r, 1)
-                # contract-addendum-round1 R1-1 replaces contract §3's "‹path›: not an attached worktree".
+                # An unrecorded entry is named as such, not as "‹path›: not an attached worktree".
                 self.has(r.err, "unrecorded entry in repos/: X", r)
                 self.assertEqual(self.everything(repos["A"]), before)
 
-    def test_ac85_worktree_already_gone(self):
+    def test_close_prunes_worktree_already_gone(self):
         ws, repos, wts = self.pushed_ws("f", "A")
         shutil.rmtree(wts["A"])
         r = self.close("f")
@@ -281,7 +281,7 @@ class TestClose(LifecycleCase):
         self.assertEqual(self.admin_entries(repos["A"]), [])
         self.assertFalse(ws.exists())
 
-    def test_ac85_worktree_and_source_gone(self):
+    def test_close_handles_worktree_and_source_gone(self):
         ws, repos, wts = self.pushed_ws("g", "A", "B")
         shutil.rmtree(wts["B"])
         shutil.rmtree(repos["B"])
@@ -304,10 +304,10 @@ class TestClose(LifecycleCase):
         self.has(r.out, "discarded source repository missing in %s" % realpath(wts["A"]), r)
         self.assertFalse(ws.exists())
 
-    def test_ac86_partial_failure_and_rerun(self):
+    def test_close_partial_failure_then_rerun_completes(self):
         ws, repos, wts = self.pushed_ws("f", "A", "B")
         ho = Path(self.ok(self.sb.tg("holdout-path", cwd=ws)).out.strip())
-        (ws / "spec.md").write_text("# spec\n")
+        (ws / "plan.md").write_text("# plan\n")
         self.sb.git(repos["B"], "worktree", "lock", str(wts["B"]))
         r = self.close("f")
         self.code(r, 1)
@@ -318,7 +318,7 @@ class TestClose(LifecycleCase):
         self.assertEqual([e["name"] for e in data["repos"]], ["B"])
         self.assertIn("closing", data)
         self.assertTrue(ho.exists(), "holdouts are untouched until every worktree is gone")
-        self.assertTrue((ws / "spec.md").exists(), "artifacts are untouched until every worktree is gone")
+        self.assertTrue((ws / "plan.md").exists(), "artifacts are untouched until every worktree is gone")
         g = self.gc()
         self.has(g.out, "would resume closing f", g)
         C = self.sb.new_repo("C")
@@ -330,11 +330,11 @@ class TestClose(LifecycleCase):
         self.ok(r)
         self.has(r.out, "artifacts archived at %s" % realpath(self.sb.ar_root / "f"), r)
         self.assertFalse((self.sb.ar_root / "f+2").exists())
-        self.assertEqual((self.sb.ar_root / "f" / "spec.md").read_text(), "# spec\n")
+        self.assertEqual((self.sb.ar_root / "f" / "plan.md").read_text(), "# plan\n")
         self.assertFalse(ws.exists())
         self.assertFalse(ho.exists())
 
-    def test_ac88_lock_and_jev_logs_archived(self):
+    def test_close_archives_lock_and_jev_logs(self):
         ws, repos, wts = self.pushed_ws("f", "A")
         self.ok(self.sb.tg("seal", "pkg/a_test.go", cwd=wts["A"]))
         gd = Path(self.sb.git(wts["A"], "rev-parse", "--absolute-git-dir"))
@@ -354,7 +354,7 @@ class TestClose(LifecycleCase):
 
 class TestGc(LifecycleCase):
 
-    def test_ac89_dry_run_changes_nothing(self):
+    def test_gc_dry_run_changes_nothing(self):
         env = {"TEAM_STALE_DAYS": "0"}
         ws, repos, wts = self.pushed_ws("f", "A")
         wsg = self.new_ws("g")
@@ -367,14 +367,14 @@ class TestGc(LifecycleCase):
         self.has(r.out, "would remove orphan holdout %s (no workspace)" % realpath(hog), r)
         self.assertEqual(self.everything(repos["A"]), before)
 
-    def test_ac90_stale_is_merged_or_idle(self):
+    def test_gc_stale_is_merged_or_idle(self):
         old = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(time.time() - 40 * 86400)) + " +0000"
         wsm, rm, wm = self.pushed_ws("m", "M")
         self.sb.commit_file(wm["M"], "pkg/new.go", "package pkg\n", "work")
         self.sb.git(rm["M"], "merge", "-q", "feat/m")
         wsi, ri, wi = self.pushed_ws("i", "I", commit_date=old)
-        (wsi / "spec.md").write_text("# spec\n")
-        backdate_tree(wsi / "spec.md", 40)
+        (wsi / "plan.md").write_text("# plan\n")
+        backdate_tree(wsi / "plan.md", 40)
         backdate_tree(wsi / "workspace.json", 40)
         wsn, rn, wn = self.pushed_ws("n", "N")
         r = self.ok(self.gc())
@@ -393,7 +393,7 @@ class TestGc(LifecycleCase):
         self.assertEqual(self.status_of("i", env={"TEAM_STALE_DAYS": "100"})[0], "active")
         self.assertEqual(self.sb.tg("workspace", "list", "--stale-days", "100").code, 0)
 
-    def test_ac90_recent_commit_is_activity(self):
+    def test_gc_recent_commit_is_activity(self):
         old = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(time.time() - 40 * 86400)) + " +0000"
         ws, repos, wts = self.pushed_ws("i", "I", commit_date=old)
         self.sb.commit_file(wts["I"], "pkg/new.go", "package pkg\n", "fresh work")
@@ -412,7 +412,7 @@ class TestGc(LifecycleCase):
                 self.has(r.err, "invalid", r)
                 self.has(r.err, name, r)
 
-    def test_ac91_orphan_workspace(self):
+    def test_gc_finds_orphan_workspace(self):
         env = {"TEAM_STALE_DAYS": "0"}
         ws, repos, wts = self.pushed_ws("h", "A", "B")
         shutil.rmtree(wts["A"])
@@ -422,13 +422,13 @@ class TestGc(LifecycleCase):
         self.lacks(r.out, "would close h (", r)
         self.assertEqual(r.out.count(" h "), 1, self.show(r))
 
-    def test_ac91_one_missing_worktree_is_not_an_orphan(self):
+    def test_gc_one_missing_worktree_is_not_an_orphan(self):
         ws, repos, wts = self.pushed_ws("h", "A", "B")
         shutil.rmtree(wts["A"])
         r = self.ok(self.gc())
         self.lacks(r.out, "orphan workspace h", r)
 
-    def test_ac91_legacy_holdout_by_age(self):
+    def test_gc_legacy_holdout_by_age(self):
         r_repo = self.sb.new_repo("r", branch="feat/x")
         legacy = Path(self.ok(self.sb.tg("holdout-path", cwd=r_repo)).out.strip())
         (legacy / "s.md").write_text("old scenario\n")
@@ -445,7 +445,7 @@ class TestGc(LifecycleCase):
         self.assertFalse(legacy.exists())
         self.assertFalse(legacy.parent.exists(), "the now-empty <HO>/<repo>/ goes too")
 
-    def test_ac91_legacy_holdout_retention_zero(self):
+    def test_gc_legacy_holdout_retention_zero(self):
         repo = self.sb.new_repo("r2")
         legacy = Path(self.ok(self.sb.tg("holdout-path", cwd=repo)).out.strip())
         (legacy / "s.md").write_text("fresh\n")
@@ -454,7 +454,7 @@ class TestGc(LifecycleCase):
         r = self.ok(self.gc(env={"TEAM_ARCHIVE_RETENTION_DAYS": "0"}))
         self.has(r.out, "would delete legacy holdout %s" % realpath(legacy), r)
 
-    def test_ac91_legacy_parent_with_other_branches_is_kept(self):
+    def test_gc_legacy_parent_with_other_branches_is_kept(self):
         repo = self.sb.new_repo("r3", branch="feat/old")
         old = Path(self.ok(self.sb.tg("holdout-path", cwd=repo)).out.strip())
         (old / "s.md").write_text("old\n")
@@ -492,7 +492,7 @@ class TestGc(LifecycleCase):
         r = self.ok(self.gc("--apply", env=env))
         self.has(r.out, "deleted %s" % realpath(self.sb.ar_root / "f"), r)
 
-    def test_ac92_non_orphans_left_alone(self):
+    def test_gc_leaves_non_orphans_alone(self):
         wsf, repos, wts = self.pushed_ws("f", "A")
         hof = Path(self.ok(self.sb.tg("holdout-path", cwd=wsf)).out.strip())
         (hof / "old").mkdir()
@@ -519,7 +519,7 @@ class TestGc(LifecycleCase):
         self.assertEqual(r.out, "team-guard: nothing to collect\n", self.show(r))
         self.assertEqual((self.everything(repos["A"]), tree_snapshot(other)), before)
 
-    def test_ac93_apply_closes_without_force(self):
+    def test_gc_apply_closes_without_force(self):
         env = {"TEAM_STALE_DAYS": "0"}
         ws1, r1, w1 = self.pushed_ws("s1", "A")
         ws2, r2, w2 = self.pushed_ws("s2", "B")
@@ -535,7 +535,7 @@ class TestGc(LifecycleCase):
         self.assertTrue((w2["B"] / "scratch.txt").exists())
         self.assertEqual((ws2 / "workspace.json").read_bytes(), wj2)
 
-    def test_ac93_apply_skips_the_workspace_containing_cwd(self):
+    def test_gc_apply_skips_the_workspace_containing_cwd(self):
         env = {"TEAM_STALE_DAYS": "0"}
         ws1, r1, w1 = self.pushed_ws("s1", "A")
         ws3 = self.new_ws("s3")
@@ -545,7 +545,7 @@ class TestGc(LifecycleCase):
         self.has(r.out, "skipped s3", r)
         self.assertTrue(ws3.exists())
 
-    def test_ac94_hand_deleted_worktrees(self):
+    def test_gc_apply_closes_hand_deleted_worktrees(self):
         ws, repos, wts = self.pushed_ws("h", "A", "B")
         shutil.rmtree(wts["A"])
         shutil.rmtree(wts["B"])
@@ -558,7 +558,7 @@ class TestGc(LifecycleCase):
         self.assertTrue((self.sb.ar_root / "h" / "archive.json").exists())
         self.assertFalse(ws.exists())
 
-    def test_ac95_orphan_holdout_removal_only(self):
+    def test_gc_removes_only_orphan_holdouts(self):
         wsf, repos, wts = self.pushed_ws("f", "A")
         hof = Path(self.ok(self.sb.tg("holdout-path", cwd=wsf)).out.strip())
         (hof / "s.md").write_text("live\n")
@@ -576,7 +576,7 @@ class TestGc(LifecycleCase):
         self.assertEqual({p: tree_snapshot(p) for p in keep}, keep)
         self.assertTrue(wsf.exists())
 
-    def test_ac96_moved_source(self):
+    def test_gc_survives_moved_source(self):
         wsf, rf, wf = self.pushed_ws("f", "A")
         wsg, rg, wg = self.pushed_ws("g", "B")
         moved = self.sb.tmp / "A-moved"
@@ -593,7 +593,7 @@ class TestGc(LifecycleCase):
         self.has(r.out, "closed g", r)
         self.assertFalse(wsg.exists())
 
-    def test_ac97_second_run_has_nothing_to_do(self):
+    def test_gc_second_run_has_nothing_to_do(self):
         env = {"TEAM_STALE_DAYS": "0"}
         self.pushed_ws("s1", "A")
         wsh, rh, wh = self.pushed_ws("h", "B")
@@ -611,7 +611,7 @@ class TestGc(LifecycleCase):
             r = self.ok(self.gc("--apply", env=env))
             self.assertEqual(r.out, "team-guard: nothing to collect\n", self.show(r))
 
-    def test_ac97_only_skipped_items_remain(self):
+    def test_gc_only_skipped_items_remain(self):
         env = {"TEAM_STALE_DAYS": "0"}
         self.pushed_ws("s1", "A")
         ws2, r2, w2 = self.pushed_ws("s2", "B")
@@ -627,7 +627,7 @@ class TestGc(LifecycleCase):
         for line in [l for l in r.out.splitlines() if l.strip()]:
             self.has(line, "skipped s2", r)
 
-    def test_ac98_new_hint(self):
+    def test_new_hints_at_stale_workspaces(self):
         self.new_ws("a")
         r = self.sb.tg("workspace", "new", "g", env={"TEAM_STALE_DAYS": "0"})
         self.ok(r)
@@ -636,7 +636,7 @@ class TestGc(LifecycleCase):
         self.has(hint_lines[0], "team-guard: hint: 1 stale workspace(s)", r)
         self.assertTrue(self.sb.ws_dir("g").exists())
 
-    def test_ac98_no_hint_when_nothing_stale(self):
+    def test_new_no_hint_when_nothing_stale(self):
         r = self.sb.tg("workspace", "new", "first", env={"TEAM_STALE_DAYS": "0"})
         self.ok(r)
         self.assertEqual(r.err, "", "the new workspace itself doesn't count")
@@ -644,7 +644,7 @@ class TestGc(LifecycleCase):
         self.ok(r)
         self.assertEqual(r.err, "")
 
-    def test_ac99_no_background_processes(self):
+    def test_no_background_processes(self):
         env = dict(self.sb.env, TEAM_STALE_DAYS="0")
         self.pushed_ws("f", "A")
         self.pushed_ws("g", "B")
@@ -664,7 +664,7 @@ class TestGc(LifecycleCase):
                         if len(l.split()) > 1 and l.split()[0] == str(p.pid) and l.split()[1] != str(p.pid)]
                 self.assertEqual(left, [], "processes left behind by %s" % (args,))
 
-    def test_ac101_no_network(self):
+    def test_status_and_gc_make_no_network_call(self):
         env = {"TEAM_STALE_DAYS": "0"}
         ws, repos, wts = self.pushed_ws("f", "A")
         self.sb.git(repos["A"], "remote", "set-url", "origin", "https://invalid.invalid/x.git")
@@ -675,11 +675,11 @@ class TestGc(LifecycleCase):
         self.has(g.out, "would close f (stale", g)
         c = self.close("f")
         self.ok(c)
-        # A hang guard only (AC-101 states no time bound); test_ac101_no_connection_to_the_remote
+        # A hang guard only (no time bound is promised); test_no_connection_to_the_remote
         # is the deterministic check.
         self.assertLess(time.time() - start, 120, "lifecycle commands must not wait on the network")
 
-    def test_ac101_no_connection_to_the_remote(self):
+    def test_no_connection_to_the_remote(self):
         # Deterministic variant: the remote and every proxy point at a local tripwire.
         net = Tripwire()
         self.addCleanup(net.close)
@@ -698,7 +698,7 @@ class TestGc(LifecycleCase):
         self.sb.git(repos_g["B"], "fetch", "-q", "origin", check=False, env=net.proxy_env())
         self.assertGreaterEqual(net.connections, 1)
 
-    def test_ac101_remote_tracking_refs_decide_unpushed(self):
+    def test_remote_tracking_refs_decide_unpushed(self):
         ws, repos, wts = self.pushed_ws("f", "A")
         self.sb.commit_file(wts["A"], "pkg/new.go", "package pkg\n", "work")
         # the commit is on the bare remote, but no remote-tracking ref knows yet

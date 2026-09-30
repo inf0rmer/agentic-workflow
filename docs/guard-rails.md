@@ -1,6 +1,6 @@
 # Guard rails
 
-Sealed tests, three layers of enforcement, and mutation testing keep the engineer's definition of done fixed and honest.
+Sealed tests, three layers of enforcement, mutation testing, design-gate approvals, and a few checks on what the workflow leaves in a repo keep the engineer's definition of done fixed and honest.
 
 ## Seal tests
 
@@ -54,7 +54,7 @@ flowchart TD
 
 | Layer | Where it runs | What it does | Gaps |
 |---|---|---|---|
-| 1. Content check | `team-guard verify`, the `TaskCompleted` hook (Claude Code), the `SubagentStop` hook (Codex) | Detects any change to a sealed file, by any tool | None: it's the backstop |
+| 1. Content check | `team-guard verify`, the `SubagentStop` and `TaskCompleted` hooks (Claude Code), the `SubagentStop` hook (Codex) | Detects any change to a sealed file, by any tool | None: it's the backstop |
 | 2. Git hooks | `pre-commit` and `pre-push` in the repo's shared hooks dir | Refuses commits that stage a change to a sealed file, and pushes while a sealed file differs | `--no-verify`, or a tool like `lefthook install` overwriting the hook |
 | 3. Harness hooks | `PreToolUse` in Claude Code and Codex | Denies edits to sealed files by any identified agent other than the tester | Shell edits, and agents the harness doesn't identify |
 
@@ -130,7 +130,10 @@ The reviewer treats any unseal without a matching tester note as a blocker.
 
 ## Harden tests with mutation testing
 
-Once the sealed tests pass, the tester runs `mutation-check` from inside the repo:
+Mutation testing is off by default in every variant.
+In Full it is opt-in for risk-flagged modules, and then it is sampled and time-boxed.
+Python has no supported mutation path.
+When it is opted in and the sealed tests pass, the tester runs `mutation-check` from inside the repo:
 
 ```bash
 mutation-check --base main
@@ -140,8 +143,15 @@ mutation-check --base main
 |---|---|
 | `--base <branch>` | Compare against the merge base with this branch. Default: `origin/main`. |
 | `--go-only`, `--ts-only` | Mutate only one language. |
-| `--dry-run` | Print the commands without running them. |
+| `--dry-run` | Print the free disk, the sampling line and the commands without running them. |
+| `--min-free-gb N` | Refuse to start below N GB free (10^9 bytes) in the repo and the temp dir. Default: 20. `0` turns it off. Env: `MUTATION_MIN_FREE_GB`. |
+| `--max-concurrency N` | Workers for gremlins (`--workers`) and Stryker (`--concurrency`). Default: 2, minimum 1. Env: `MUTATION_MAX_CONCURRENCY`. |
+| `--time-box MIN` | Stop after MIN minutes. Default: 15. `0` turns it off. Env: `MUTATION_TIME_BOX_MIN`. |
+| `--sample N` | Mutate at most N changed lines. Default: 50. `0` turns it off. Env: `MUTATION_SAMPLE`. |
+| `--seed S` | Choose which lines are sampled. The same seed picks the same lines. Default: 1. |
 
+A flag beats its environment variable, which beats the default.
+A value that isn't an integer, or is negative, stops the run with exit 1 before anything starts.
 It mutates only files changed since the merge base, skipping tests and generated code.
 Go runs through gremlins per changed package, with survivors filtered to changed lines.
 TypeScript runs through Stryker's jest runner on the changed files.
@@ -156,13 +166,151 @@ Survivors — each is a behavior change no test noticed:
 ```
 
 `mutation-check` exits 0 whether or not mutants survive.
-For each survivor, the tester either writes a test that kills it, or records why it's equivalent (it can't change observable behavior) or irrelevant.
-New tests from this phase get sealed too.
+It exits 3 when it refuses to start because the repo or the temp dir has too little free disk, and it starts nothing.
+It exits 4 when the time box ends the run: it prints the counts so far and `INCOMPLETE: time box of 15 minutes reached`.
+A run interrupted by SIGINT, SIGHUP or SIGTERM exits 130, 129 or 143.
+For each survivor that matters, the tester either writes a test that kills it, or records why it's equivalent (it can't change observable behavior) or irrelevant.
+New tests from this step get sealed too.
 
-The bar is that every surviving mutant on changed code is killed or justified.
+Sampling works on changed lines.
+When there are more than N changed lines, `mutation-check` prints `sampled N of M changed lines (seed S)`, runs gremlins only for packages that hold a sampled line, and reports at most one Go mutant per sampled line.
+For TypeScript it passes Stryker line ranges that cover exactly the sampled lines.
+For Go, sampling limits which packages run, not the mutants inside one package, so the time box is what bounds a large package.
+Only one tool process runs at a time, in its own process group.
+Each run keeps its temp files in `<tmp>/mutation-check-<pid>` and removes them, any `.stryker-tmp` it created, and its tool processes on every exit.
 Line coverage is a secondary signal only.
 
 > **Note:** The TypeScript path assumes a jest setup that Stryker's jest runner can discover. Expect to tune it on first use in a large monorepo.
+
+## Keep workflow references out of code
+
+`team-guard refs [--base <ref>]` scans the lines added since the merge base, plus new file names, for citations of workflow artifacts.
+Comments, docstrings, test names and file names describe behavior and never cite them.
+
+| Pattern | Finds |
+|---|---|
+| `criterion-id` | Criterion numbers such as `AC-12` or `test_ac12_creates_file` |
+| `section-mark` | Section marks such as `§4` |
+| `workflow-file` | Names of planning files such as `contract.md` |
+| `addendum` | The word addendum |
+| `review-round` | Review rounds such as `round 2` |
+| `adr-number` | ADR numbers such as `ADR 0007` |
+
+`team-guard refs` skips deleted and binary files, `docs/**`, `**/*.md`, `**/*.rst`, `**/*.txt`, `dist/**`, and lockfiles and dependency sums (`go.sum`, `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `*.lock`).
+It exits 2 when it finds something (one line per line and pattern on stderr, then `team-guard: refs: N finding(s)`), 0 when nothing is found, and 1 for a bad config, an unknown base, or a missing `--base` outside a workspace.
+Inside a workspace it scans every attached repo against its recorded base, and prefixes each finding with the repo name.
+
+Point `--config <file>` (or `TEAM_REFS_CONFIG`) at a JSON file to change the scan:
+
+```json
+{
+  "patterns": [{"name": "ticket", "regex": "TICKET-\\d+"}],
+  "disable_patterns": ["section-mark"],
+  "exclude": ["vendor/**"]
+}
+```
+
+`patterns` adds to the built-in set, `disable_patterns` names built-in patterns to drop, and `exclude` replaces the default path skips.
+Unknown keys and names are errors, and nothing is scanned.
+
+## Record routing and merge risk
+
+`team-guard routing record` appends what the lead proposes, what the human confirms and how long each step took to `$TEAM_LOG_ROOT/routing-log.jsonl` (default `~/.agentic-workflow/routing-log.jsonl`), and a matching line to `routing.md` in the workspace dir, or in the git directory outside a workspace.
+The log is only ever appended to.
+
+```bash
+team-guard routing record route --proposed standard --confirmed standard \
+  --answer repos=1 --answer files=4-15 --answer persisted=no
+team-guard routing record step --step build --seconds 1800
+team-guard routing record upgrade --to full --reason "a second repo is needed"
+team-guard routing summary --json
+```
+
+The `--answer` keys are `repos`, `files`, `contract`, `persisted`, `security`, `cross_team`, `revertible`, `user_visible`, `design_question` and `repro`; an omitted key is stored as `unknown`.
+A variant never goes down, and a Spike is never upgraded.
+`team-guard routing summary` reports overrides and their direction, upgrades and time per final variant, and counts lines it can't read.
+
+`team-guard risk` computes the merge-risk level and prints the footer line for the PR:
+
+```bash
+team-guard risk --feature payments --majors-fixed 1 --packet
+# Merge risk: high (advisory) — changes stored data or its format, which a revert may not undo.
+```
+
+It reads the routing answers, the changed files and lines in every attached repo, the unseals in the lock history, and the flags `--contract`, `--majors-fixed`, `--holdouts-failed` and `--mutation-skipped`.
+An unknown input counts as risky, and a file path can raise the level (a migration, or an auth or security path) but never lower it.
+`--packet` adds the rules that fired and every input for the human's review packet.
+The level and rule ids go to the routing log unless you pass `--no-log`; the log holds enums and counts, never file names.
+
+## Re-sign the branch
+
+Agents commit unsigned, so the lead runs `team-guard sign` once, after the human approves the code review and before anything is pushed:
+
+```bash
+team-guard sign          # from the workspace dir, or a repo with --base <ref>
+```
+
+`team-guard sign` checks every repo first and refuses a checkout with uncommitted changes to tracked files, a rebase or merge in progress, or a detached HEAD.
+It then rebases the branch onto its own base with an amend that signs each commit, checks that every commit is signed and that the trees are unchanged, and restores the branch if anything fails.
+It warns when another pre-commit hook runs on every amend.
+Without `gpg.ssh.allowedSignersFile` git can't verify an SSH signature, so it says the signatures are present but not verified.
+
+It signs with the human's key, through the signer they configured (`gpg.ssh.program`), and never changes that configuration.
+Whether the human sees a prompt depends on the signer's approval settings, not on `team-guard`.
+With 1Password, open **Settings → Developer → SSH Agent** and check "Ask approval for each new…" and how long approvals are remembered: 1Password remembers an approval per application, so a run that signs many commits usually prompts at most once, and sometimes not at all.
+
+## Run a design gate
+
+The lead runs each design gate with four commands, from the workspace dir or an attached worktree.
+Crit runs locally with `-o <workspace>/.crit`, in its own session, with `CRIT_NO_UPDATE_CHECK=1`, `CRIT_PLAN_REVIEW=off` and an empty `CRIT_SHARE_URL`.
+The tool never uses Crit's `share`, `push`, `pull` or `--pr`, and never changes Crit's config.
+`CRIT_BIN` names the executable (default `crit`).
+
+| Command | What it does |
+|---|---|
+| `team-guard gate review <gate> [<file>...] [--new] [--no-open]` | Starts a review (or continues the unfinished one), streams Crit's output, and exports the round to `reviews/<gate>-round<N>.json` when it starts and when it ends. It ends with `gate <gate> round <N>: approved=<true or false> comments=<K>` and exits 0 for either verdict. |
+| `team-guard gate reply <gate> --file <json> --author <role>` | Posts a JSON array of `{reply_to, body}` entries to the review's Crit session, exactly as written (Crit reads the file's bytes on stdin), then re-exports the round. It refuses a round that is still running, needs the session's daemon to be alive (otherwise re-run `gate review`), exits 1 for every failure including an unavailable Crit, and never resolves a thread. |
+| `team-guard gate record <gate> [<file>...] (--crit \| --chat "<reply>")` | Appends the approval and the sha256 of each reviewed file to `design-gate.md`. `--crit` uses the files and hashes stored when the review was approved. `--chat` needs the exact reply and works without Crit. |
+| `team-guard gate check [<gate>]` | Compares the files with the latest recorded approval (the named gate, or the last one in the file). |
+
+Crit keys a session on its working directory and files, and refuses `-o` together with `--session`. So every review runs from its own directory, `<workspace>/.crit/<gate>/r<N>`, where N is the round the review was opened at, with absolute file paths, and a re-run from that directory continues the same session. `gate review` also re-exports the round every 60 seconds while Crit runs (`TEAM_GATE_EXPORT_INTERVAL_SEC`), because approval deletes Crit's copy, and it reads Crit's saved `review.json` when the live session is gone. A daemon that shut down before the review finished is treated as no verdict.
+
+Crit approves a round only when no comment is open, so an approved round always reports `comments=0`. The round's export is never changed; if Crit had already deleted the review, so the final export found nothing and the kept file is an earlier copy, `gate review` writes `reviews/<gate>-round<N>.approved.json` beside it to say so. `workspace close` stops this workspace's Crit daemons (SIGTERM, up to 5 seconds, printing `stopped crit daemon <pid> (gate <gate>)`) before archiving, and leaves every other workspace's processes alone.
+
+`gate review` starts Crit detached, so it survives if the waiting process is killed.
+Run it in the background with the harness's longest background timeout, and if the wait is stopped, re-run it: it continues the same session and round, and `--new` starts a fresh review instead.
+An export is never replaced by one with fewer comments, and earlier rounds are never touched, because Crit deletes its data when a review is approved.
+
+`gate review` fails with exit 3, and names the reply that approves the gate, when Crit is unavailable: use the chat fallback.
+The literal replies are `approve design`, `approve D1` and `approve D2`, and nothing else counts.
+`gate check` exits 0 when the recorded hashes still match, and exit 2 means a file changed or is missing, or nothing is recorded: reopen the gate.
+Any other failure exits 1.
+
+The `hook-pretool` hook denies a tester any tool call that reaches `.crit/` or `reviews/`.
+Codex's hook matcher doesn't cover reads, and shell reads aren't covered in either harness, so there the rule rests on the spawn prompt and the reviewer.
+Making `seal` require a matching gate record is planned.
+
+## Keep the tester out of the inner loop
+
+The Skill denial for `tdd-inner-loop` is enforced on Claude Code where the agent is identifiable (the `hook-pretool` matcher includes `Skill`); it is not enforced on Codex, which has no Skill hook, so there the rule rests on the role prose and `allow_implicit_invocation: false`.
+
+## Check the vendored skills
+
+These are [Matt Pocock's skills](https://github.com/mattpocock/skills), MIT licensed, copied into `core/skills/` and pinned at one commit recorded in `core/skills/UPSTREAM.json`.
+The plugin is not installed, and the copies never auto-update, so prompts that run commands can't change under you.
+Every copy carries its `LICENSE` and a provenance line naming the source, the commit and whether it was modified.
+A patched skill is upstream plus a stored patch in `core/skills/patches/`, which keeps workflow files in the workspace dir and never in a project repo.
+
+The set is `grilling`, `codebase-design`, `writing-for-agents`, `domain-modeling`, `handoff`, `to-questionnaire`, `diagnosing-bugs` and `tdd-inner-loop`.
+
+Run `scripts/vendor-check` to see drift: it compares each copy with upstream at the pin plus its patch (`local drift`) and with a newer ref (`upstream changed`, `upstream removed`, or a `patch conflict`), exits 1 on drift and 2 when it can't run, and never changes anything.
+Moving the pin is a person's decision: update the copies and patches, then the pin.
+
+## Watch for `core.hooksPath`
+
+Tools such as Husky set `core.hooksPath`, and git then ignores the hooks in `.git/hooks` where `team-guard` installs its own.
+`team-guard verify` prints a warning that names the setting when a repo with sealed files has one and the hook there isn't team-guard's.
+Nothing else changes: `team-guard git-hook install` would write into that directory, so `verify` and the reviewer are the remaining checks.
 
 ## Next steps
 

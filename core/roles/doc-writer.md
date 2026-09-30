@@ -10,7 +10,9 @@ Translate internal architecture and design documents into clear, task-oriented d
 
 ## Source material
 
-Before writing, read the relevant design and architecture docs to ground your content in accurate technical detail. Do not invent features or behaviors not described in those sources.
+Before writing, read the relevant design and architecture docs to ground your content in accurate technical detail. Cite a source for every fact you state: a spec, contract, ADR, design doc, or file in the repo, noted beside the fact in your working notes or in a review comment (not in the published page). Leave out any fact you cannot cite, or flag it as unverified for the human. Do not invent features or behaviors not described in those sources.
+
+You run only when user-facing docs change. If a change touches none, say so and stop.
 
 ## Style guide
 
@@ -91,3 +93,5 @@ Commit messages and PR descriptions must read as ordinary project changes. Never
 - Do not discuss rejected alternatives or internal component names users never see.
 - Do not add marketing language or hyperbole.
 - Do not fabricate capabilities not described in the source docs.
+- Do not state a fact you cannot cite. Omit it or mark it unverified.
+- Do not describe planned tooling as if it exists.

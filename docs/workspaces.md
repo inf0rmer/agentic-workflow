@@ -59,7 +59,7 @@ team-guard workspace attach ~/code/web --base develop
 `attach` refuses a path that isn't a git repo, a bare repo, a repo already attached here, a second repo with the same name, and a branch checked out elsewhere.
 
 Once every repo is attached, start the team from the workspace dir.
-Each teammate edits code inside `repos/<repo>/` and keeps artifacts in the workspace dir.
+Each agent edits code inside `repos/<repo>/` and keeps artifacts in the workspace dir.
 
 ## Find the workspace
 
@@ -231,5 +231,5 @@ A command-line option beats its variable.
 
 ## Next steps
 
-- Follow the phases in [Workflow](./workflow.md).
+- Follow the steps in [Workflow](./workflow.md).
 - Learn how seals work in [Guard rails](./guard-rails.md).

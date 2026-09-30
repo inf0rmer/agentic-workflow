@@ -23,13 +23,40 @@ sed "s#@HOME@#$HOME#g" "$HERE/team.rules.template" > "$DEST/rules/agentic-workfl
 
 for skill in "$DIST"/skills/*/; do
   name=$(basename "$skill")
-  mkdir -p "$SKILLS/$name"
+  target="$SKILLS/$name"
+  saved_denylist=
+  if [[ "$name" == jev-decide && -f "$target/denylist.txt" ]]; then
+    saved_denylist=$(mktemp)
+    cp -L "$target/denylist.txt" "$saved_denylist"   # follows a symlink to read the real file
+  fi
+  mkdir -p "$BACKUP/skills"
+  if [[ -L "$target" ]]; then
+    # A symlink (for example into a skills.sh store): keep the link itself, and never write through it.
+    cp -P "$target" "$BACKUP/skills/$name"
+    rm "$target"
+    echo "note: $target was a symlink; backed up the link and replaced it with a real directory."
+  elif [[ -e "$target" ]]; then
+    cp -R "$target" "$BACKUP/skills/$name"
+  fi
+  mkdir -p "$target"
   cp -R "$skill". "$SKILLS/$name/"
+  if [[ -n "$saved_denylist" ]]; then
+    cp "$saved_denylist" "$target/denylist.txt"
+    rm -f "$saved_denylist"
+    echo "note: kept your existing jev-decide denylist.txt ($target)."
+  fi
   # The denylist is yours, not the repo's: create it once, never overwrite it.
-  [[ "$name" != jev-decide || -f "$SKILLS/$name/denylist.txt" ]] || printf '%s\n' \
-    "# Names that must never be sent to Jev: one per line, matched case-insensitively as whole words." \
-    > "$SKILLS/$name/denylist.txt"
+  if [[ "$name" == jev-decide && ! -f "$target/denylist.txt" ]]; then
+    printf '%s\n' "# Names that must never be sent to Jev: one per line, matched case-insensitively as whole words." \
+      > "$target/denylist.txt"
+    echo "note: created an empty jev-decide denylist.txt; none existed."
+  fi
 done
+
+if [[ -e "$SKILLS/tdd" || -L "$SKILLS/tdd" ]]; then
+  echo "warning: an upstream 'tdd' skill is installed at $SKILLS/tdd. It has trigger phrases that can fire in the tester." >&2
+  echo "         The workflow uses 'tdd-inner-loop' instead; consider removing 'tdd' (it is not deleted for you)." >&2
+fi
 
 echo
 echo "Installed AGENTS.md, agents, team tools, rules, and skills. Backup: $BACKUP"

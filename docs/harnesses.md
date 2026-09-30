@@ -58,9 +58,43 @@ The build parses each TOML file before writing it, so it fails rather than ship 
 Don't edit it: change `core/` or an adapter, then rebuild.
 `tests/run.sh` checks that every `dist/` is up to date; `tests/run.sh --slow` adds the `mutation-check` test.
 
+## Ship the vendored skills
+
+These are [Matt Pocock's skills](https://github.com/mattpocock/skills), MIT licensed, copied into `core/skills/` and pinned at one commit recorded in `core/skills/UPSTREAM.json`.
+The plugin is not installed, and the copies never auto-update, so prompts that run commands can't change under you.
+Every copy carries its `LICENSE` and a provenance line naming the source, the commit and whether it was modified.
+A patched skill is upstream plus a stored patch in `core/skills/patches/`, which keeps workflow files in the workspace dir and never in a project repo.
+
+| Skill | Status | Used by |
+|---|---|---|
+| `grilling` | as-is | product-owner, for the upfront round of questions |
+| `codebase-design` | as-is | architect, for an options brief |
+| `writing-for-agents` | as-is | whoever edits `core/` |
+| `domain-modeling` | patched | architect: ADRs as `adr/NNNN-<slug>.md` and an optional `GLOSSARY.md`, both in the workspace dir |
+| `handoff` | patched | the human, as a slash command; writes `handoff-<slug>.md` in the workspace dir |
+| `to-questionnaire` | patched | the human, as a slash command; writes `to-questionnaire-<slug>.md` in the workspace dir |
+| `diagnosing-bugs` | patched | Bug fix: the tester builds the feedback loop and the regression test, the engineer fixes |
+| `tdd-inner-loop` | patched (upstream `tdd`) | software-engineer only |
+
+`build.py` ships only the directories of `core/skills/` that hold a `SKILL.md`, so `UPSTREAM.json` and `patches/` stay behind. It renders each `SKILL.md` with the adapter's vars: `skill_call`, `skill_sigil` and `user_skill_sigil` say how a skill names another one (Claude Code calls the Skill tool; Codex mentions `$name`).
+
+Run `scripts/vendor-check` to see drift: it compares each copy with upstream at the pin plus its patch (`local drift`) and with a newer ref (`upstream changed`, `upstream removed`, or a `patch conflict`), exits 1 on drift and 2 when it can't run, and never changes anything.
+Moving the pin is a person's decision: update the copies and patches, then the pin.
+
+The byte-for-byte checks need a local clone of upstream at the pin. Run the suite with `VENDOR_UPSTREAM_CLONE=<path to a clone of mattpocock/skills at the pin> tests/run.sh`; without it those tests skip with that reason, and nothing touches the network.
+
+## Know what is unverified
+
+On Codex, the engineer loads `$tdd-inner-loop` by mentioning it in its developer instructions. The Codex docs say an explicit `$skill` mention still works when implicit invocation is off, but that loading from developer instructions rather than a user turn is unverified.
+If it doesn't load, the lead can put `$tdd-inner-loop` in the engineer's spawn prompt, which is a user turn.
+
 ## Install
 
 Each installer runs `tests/run.sh` first, backs up what it replaces to `backups/agentic-workflow-<timestamp>/` in the harness home, and copies the build.
+That includes every skill directory it is about to write, under `skills/` in the backup.
+If a skill's target is a symlink, for example into a `skills.sh` store, the installer backs up the link itself and replaces it with a real directory, so it never writes through the link.
+The Jev denylist is never emptied: when `jev-decide` is replaced, including through a symlink, the installer reads your existing `denylist.txt` (following the link) and copies it into the new directory, and it creates the empty default only when no denylist existed. It prints a note either way.
+If an upstream `tdd` skill is installed, it warns that its trigger phrases can fire in the tester and suggests removing it; it never deletes it.
 Neither installer edits your settings or merges hooks.
 
 ### Install for Claude Code
@@ -73,7 +107,7 @@ It installs `~/.claude/CLAUDE.md`, `~/.claude/agents/*.md`, the tools in `~/.cla
 Then merge `adapters/claude-code/settings.hooks.json` into `~/.claude/settings.json`:
 
 - Add the `PreToolUse` entry, which runs `team-guard hook-pretool` on `Edit`, `Write`, `MultiEdit`, `NotebookEdit`, `Read`, `Grep`, and `Glob`, alongside your existing entries.
-- Add the `TaskCompleted` hook, which runs `team-guard hook-task`.
+- Add the `SubagentStop` hook, which runs `team-guard hook-stop`, and the `TaskCompleted` hook, which runs `team-guard hook-task` (for agent-team teammates).
 - Add the allow rules for `team-guard` and `mutation-check`.
 
 > **Caution:** The installer overwrites `~/.claude/CLAUDE.md` and the agent files, after backing them up. Make future edits in `core/`, rebuild, and reinstall, or the copies drift.
@@ -97,10 +131,10 @@ Then:
 | | Claude Code | Codex CLI |
 |---|---|---|
 | Instructions | `~/.claude/CLAUDE.md` | `~/.codex/AGENTS.md`, with no `@imports` and a 32 KiB cap together with project `AGENTS.md` files |
-| Phase ordering | Agent-team task dependencies | The lead spawns each phase with `spawn_agent` and waits with `wait_agent` |
+| Step ordering | The lead starts one subagent per step and waits for its report | The lead spawns each step with `spawn_agent` and waits with `wait_agent` |
 | Agent-to-agent messages | `SendMessage` | None between subagents: the engineer reports a disputed test to the lead |
 | Edit guard | `PreToolUse` on `Edit` and `Write` (`file_path`) | `PreToolUse` on `apply_patch`, with paths parsed from the patch |
-| Completion guard | `TaskCompleted`, exit 2 | `SubagentStop`, a JSON `block` decision, once per stop |
+| Completion guard | `SubagentStop` (a JSON `block` decision, once per stop) and `TaskCompleted` (exit 2, agent teams) | `SubagentStop`, a JSON `block` decision, once per stop |
 | Agent identification | `agent_type` inside subagents, none documented for agent-team teammates | `agent_type` for subagents, omitted on the main thread |
 | Tool permissions | Allow rules in `settings.json` | `prefix_rule`s in `~/.codex/rules/` |
 | Skills | `~/.claude/skills/` | `~/.agents/skills/` (`$jev-decide`) |
@@ -118,5 +152,5 @@ Both harnesses share the workspace, holdout, and archive directories under `~/.a
 
 ## Next steps
 
-- Follow the phases in [Workflow](./workflow.md).
+- Follow the steps in [Workflow](./workflow.md).
 - See what the hooks enforce in [Guard rails](./guard-rails.md).

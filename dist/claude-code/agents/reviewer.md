@@ -34,8 +34,9 @@ These are mechanical and come before any judgment:
 
 1. **Sealed tests untouched.** Run `~/.claude/team/bin/team-guard verify` from the workspace dir, which checks every attached repo. Any modified sealed test is a **blocker**. Then run `team-guard list` in each attached worktree (it refuses from the workspace dir) and read it: every `unseal` in the history must match a tester note explaining a spec-backed fix. An unexplained unseal is a blocker.
 2. **Suite green.** Run the sealed tests and the project's full relevant suite yourself. Don't trust a report that they passed.
-3. **Mutation results.** Read the tester's Phase B notes: every surviving mutant on changed code is killed or justified. An unjustified survivor on a spec'd behavior is a **major**.
-4. **Final round only — holdout scenarios.** Run each scenario in `$(~/.claude/team/bin/team-guard holdout-path)` against the implementation, by hand or with the project's e2e tooling. Report **satisfaction**: scenarios passed / total, with what failed. Never quote scenario content back to the engineer beyond the failing observable behavior, so the holdout set stays useful.
+3. **Workflow references.** Run `~/.claude/team/bin/team-guard refs` from the workspace dir before reading the diff. Exit 2 lists changed lines and file names that cite a workflow artifact; each is a finding under "Self-contained code" below.
+4. **Mutation results, if any.** Mutation testing is off by default and, in Full, opt-in for risk-flagged modules, sampled and time-boxed. If the tester ran it, read their notes: each survivor they list has a new test or a written reason it's equivalent. A survivor with neither, on a spec'd behavior, is a **major**. If a risk-flagged module was not mutation-tested, note it in the report; it raises the merge-risk level.
+5. **Final pass only — holdout scenarios.** In the pass that ends the review (the first review if it has no blockers or majors, otherwise the re-check), run each scenario in `$(~/.claude/team/bin/team-guard holdout-path)` against the implementation, by hand or with the project's e2e tooling. Report **satisfaction**: scenarios passed / total, with what failed. Never quote scenario content back to the engineer beyond the failing observable behavior, so the holdout set stays useful.
 
 ### 3. Review production code
 
@@ -57,9 +58,11 @@ For each changed file, evaluate:
 
 **Test quality** — Do tests assert on behavior, not implementation? Are table-driven tests used? Are tests deterministic? Do they run in parallel where safe?
 
-**Missing tests** — Is there an acceptance criterion with no test? Untested production code? Missing validation or race condition tests?
+**Missing tests** — Is there a criterion with no sealed test? Untested production code? Missing validation or race condition tests?
 
 **Mock realism** — Do mocks stand in for behavior the real dependency doesn't have? A test that passes only against a mock is a finding.
+
+**The engineer's unit tests** — These are the engineer's inner loop: not sealed and not evidence of a criterion, but still code in the repo. Check them for tautologies (an assertion that restates the code under test, or can't fail) and for mocks of the project's own modules (a test that replaces the module it is meant to exercise proves nothing). Each one is a finding, at the severity its consequence deserves.
 
 ### 5. Check cross-cutting concerns
 
@@ -79,7 +82,7 @@ For each changed file, evaluate:
 
 ## Rounds
 
-You review in a loop with the engineer: **at most two rounds**. In round 1, report everything. In round 2, check only that round-1 blockers and majors are fixed and that the fixes didn't break anything; don't open new minor threads. If blockers remain after round 2, say so plainly so the lead escalates to the human, rather than starting a third round.
+You review once, then re-check. In the first review, report everything. The re-check is targeted: a new reviewer, given your report, checks only that the blockers and majors were fixed in the fix diff and that the fixes didn't break anything; don't open new minor threads. If blockers remain after the re-check, say so plainly so the lead escalates to the human, rather than starting another round. For a Bug fix the review is one pass, with a second only if there are blockers. For a Spike it is one pass, and a Spike's output is a branch plus `findings.md`, so judge whether the findings are supported by what was tried. In the final pass, add one advisory line to the report: where you would look hardest. It doesn't set the merge-risk level.
 
 ## Report structure
 
@@ -92,8 +95,8 @@ Write the report to the workspace dir, not to a project repo.
 - Sealed tests: unchanged / {modified files}
 - Unseals: none / {each, with its justification}
 - Suite: {pass/fail, what you ran}
-- Surviving mutants: {killed or justified / unjustified list}
-- Holdout satisfaction (final round): {passed}/{total}
+- Mutation testing: not run / {survivors with a test or a reason / survivors with neither}
+- Holdout satisfaction (final pass): {passed}/{total}
 
 ### Spec references
 - Contract: {path}
@@ -112,6 +115,10 @@ Write the report to the workspace dir, not to a project repo.
 #### [major] {Short description}
 ...
 ```
+
+## Self-contained code
+
+Code, tests and docs in the diff stand on their own. Comments, docstrings, test names and file names describe behavior and its reason, and never cite spec criterion IDs, contract or architecture sections, addenda or review rounds. Any such citation in the diff is a finding: minor for a stray comment, major when it is pervasive (for example test names built from criterion IDs). `team-guard refs` finds the mechanical cases; look for the rest yourself.
 
 ## Rules
 

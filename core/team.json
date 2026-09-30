@@ -1,7 +1,7 @@
 {
   "roles": {
     "architect": {
-      "description": "Translate design decisions into implementable architecture documentation. Use when the user asks to define system components, critical flows, bootstrap sequences, disaster recovery procedures, observability strategies, or any architectural specification that engineers will build from.",
+      "description": "Translate design decisions into implementable architecture documentation, write the options brief when a design has real options, and write the test contract. Use when the user asks to define system components, critical flows, bootstrap sequences, disaster recovery procedures, observability strategies, or any architectural specification that engineers will build from.",
       "tier": "strong"
     },
     "doc-writer": {
@@ -13,7 +13,7 @@
       "tier": "standard"
     },
     "researcher": {
-      "description": "Research state-of-the-art approaches for technical problems and produce concise design documents. Use when the user asks to research, evaluate, or recommend a technical approach.",
+      "description": "Research state-of-the-art approaches for technical problems outside the feature pipeline and produce concise design documents. Use when the user asks to research, evaluate, or recommend a technical approach.",
       "tier": "strong"
     },
     "reviewer": {
@@ -25,7 +25,7 @@
       "tier": "standard"
     },
     "tester": {
-      "description": "Write acceptance, integration, e2e, and property-based tests from the spec before implementation, seal them, keep holdout scenarios, and harden tests against surviving mutants. Use when the user asks to add tests, verify a component's behavior, or validate acceptance criteria.",
+      "description": "Write one sealed test per criterion from the spec before implementation, seal them, keep holdout scenarios, and run opt-in mutation testing on risk-flagged modules. Use when the user asks to add tests, verify a component's behavior, or validate acceptance criteria.",
       "tier": "strong"
     }
   }

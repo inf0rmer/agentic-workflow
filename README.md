@@ -12,7 +12,7 @@ git diff 78427bc HEAD -M -- agents CLAUDE.md dist/claude-code
 
 Guides live in [docs/](./docs/README.md):
 
-- [Workflow](./docs/workflow.md): the five phases, the review loop, and the human gate.
+- [Workflow](./docs/workflow.md): the five variants, their steps, the design gate, the review, and the human gate.
 - [Workspaces](./docs/workspaces.md): set up, close, and collect per-feature workspaces.
 - [Guard rails](./docs/guard-rails.md): sealed tests, the three enforcement layers, and mutation testing.
 - [Decisions with Jev](./docs/decisions-with-jev.md): when to ask Jev, and what each verdict means.
@@ -24,31 +24,56 @@ The old workflow had the engineer and tester, on the same model and reading the 
 
 | Change | Evidence |
 |---|---|
-| **Tester writes acceptance/integration/e2e tests first, from the spec only** | TDFlow (2025): 94.3% of SWE-bench Verified solved with human-written tests up front vs 68.0% with self-written tests. AgentCoder: an isolated test designer beat same-context tests on accuracy and coverage. Claude Code best practices: "have one Claude write tests, then another write code to pass them." |
+| **Tester writes one sealed test per criterion first, from the spec only** | TDFlow (2025): 94.3% of SWE-bench Verified solved with human-written tests up front vs 68.0% with self-written tests. AgentCoder: an isolated test designer beat same-context tests on accuracy and coverage. Claude Code best practices: "have one Claude write tests, then another write code to pass them." |
 | **Sealed tests the engineer can't change** | ImpossibleBench (2025): Claude models mostly cheat by editing tests; read-only tests were the best mitigation, especially for Claude. |
-| **Engineer stops writing "ritual" tests** | A 2026 study of six frontier models: agent-written tests didn't raise resolution rates; suppressing them cut tokens 33–49%. |
+| **Engineer's tests become an inner loop under one sealed test per criterion** | The engineer drives each sealed test green with unit tests it owns; they aren't sealed and don't count as evidence. A 2026 study of six frontier models: agent-written tests didn't raise resolution rates; suppressing them cut tokens 33–49%. |
 | **Small holdout set of hidden scenarios** | StrongDM's software factory keeps scenarios outside the codebase as a holdout set. Fully hiding all tests hurts legitimate performance (ImpossibleBench), so the holdout set stays small. |
-| **Mutation score on changed code replaces 80% line coverage** | Meta's ACH (FSE 2025): mutation-guided test generation at scale. Mutants are an objective, LLM-free check on blind spots. |
+| **Sampled mutation testing, opt-in for risk-flagged modules, replaces 80% line coverage** | Meta's ACH (FSE 2025): mutation-guided test generation at scale. Mutants are an objective, LLM-free check on blind spots. It is off by default because full runs on everything took hours and filled disks. |
 | **EARS acceptance criteria, product owner on Sonnet** | AWS Kiro derives property-based tests from EARS criteria. The criteria are now the tests' only source of truth, so they're too important for the cheapest model. |
 | **Architect's `contract.md` with a sprint contract** | Anthropic's long-running-agent harness has generator and evaluator agree on "done" and how it's checked before coding. MAST (NeurIPS 2025): most multi-agent failures are spec ambiguity and weak verification. |
-| **Build ⇄ fresh-context review loop, max two rounds** | Cognition (2026): a context-free reviewer finds ~2 bugs per PR. Stripe Minions cap CI feedback at 1–2 rounds. |
+| **One fresh-context review plus a targeted re-check of the fix diff** | Cognition (2026): a context-free reviewer finds ~2 bugs per PR. Stripe Minions cap CI feedback at 1–2 rounds. |
 | **Reviewer drops "at least one finding"** | Claude Code best practices: a reviewer asked for gaps always finds some, which drives over-engineering. |
 | **Tester on Opus, engineer on Sonnet** | Errors are correlated even across models (ICML 2025); a different *and* stronger test author beats a weaker second opinion (Self-MoA, TMLR 2026). |
 
 ## Workflow
 
 ```
-Phase 1  product-owner (EARS criteria) + researcher
-Phase 2  architect → contract.md
+Variants  Chore | Bug fix | Spike | Standard | Full  (the lead proposes, you confirm)
+Step 1    design: product-owner (upfront questions, EARS criteria), then architect (options brief if needed, contract.md)
+Step 2    design gate: one Crit review, zero comments to pass; nothing is sealed before it
+Step 3    tests in parallel with the scaffold
            ├─ engineer: scaffold contract as failing stubs
-           └─ tester (isolated): spec tests → prove red → commit → seal; holdout scenarios
-Phase 3  engineer makes sealed tests pass
-           → tester: mutation-check, kill or justify survivors
-           → fresh reviewer (guard rails, then review) ⇄ engineer, max 2 rounds
-           → final round: holdout scenarios, satisfaction score
-Phase 4  human gate
-Phase 5  doc-writer + product-owner
+           └─ tester (isolated): one sealed test per criterion → prove red → seal; holdout scenarios
+Step 4    engineer makes sealed tests pass (inner red-green loop)
+Step 5    one fresh reviewer (guard rails, then review) + targeted re-check of the fix diff; holdout satisfaction
+Human gate  review, questions, re-sign the branch, merge-risk footer
+After     doc-writer (only if user-facing docs changed) + product-owner close-out
 ```
+
+## Vendored skills
+
+These are [Matt Pocock's skills](https://github.com/mattpocock/skills), MIT licensed, copied into `core/skills/` and pinned at one commit recorded in `core/skills/UPSTREAM.json`.
+The plugin is not installed, and the copies never auto-update, so prompts that run commands can't change under you.
+Every copy carries its `LICENSE` and a provenance line naming the source, the commit and whether it was modified.
+A patched skill is upstream plus a stored patch in `core/skills/patches/`, which keeps workflow files in the workspace dir and never in a project repo.
+
+| Skill | Status | Used by |
+|---|---|---|
+| `grilling` | as-is | product-owner, for the upfront round of questions |
+| `codebase-design` | as-is | architect, for an options brief |
+| `writing-for-agents` | as-is | whoever edits `core/` |
+| `domain-modeling` | patched | architect: ADRs as `adr/NNNN-<slug>.md` and an optional `GLOSSARY.md`, both in the workspace dir |
+| `handoff` | patched | the human, as a slash command; writes `handoff-<slug>.md` in the workspace dir |
+| `to-questionnaire` | patched | the human, as a slash command; writes `to-questionnaire-<slug>.md` in the workspace dir |
+| `diagnosing-bugs` | patched | Bug fix: the tester builds the feedback loop and the regression test, the engineer fixes |
+| `tdd-inner-loop` | patched (upstream `tdd`) | software-engineer only |
+
+The Skill denial for `tdd-inner-loop` is enforced on Claude Code where the agent is identifiable (the `hook-pretool` matcher includes `Skill`); it is not enforced on Codex, which has no Skill hook, so there the rule rests on the role prose and `allow_implicit_invocation: false`.
+
+Run `scripts/vendor-check` to see drift: it compares each copy with upstream at the pin plus its patch (`local drift`) and with a newer ref (`upstream changed`, `upstream removed`, or a `patch conflict`), exits 1 on drift and 2 when it can't run, and never changes anything.
+Moving the pin is a person's decision: update the copies and patches, then the pin.
+
+The byte-for-byte checks need a local clone of upstream at the pin. Run the suite with `VENDOR_UPSTREAM_CLONE=<path to a clone of mattpocock/skills at the pin> tests/run.sh`; without it those tests skip with that reason, and nothing touches the network.
 
 ## Workspaces
 
@@ -97,11 +122,12 @@ Start the team from the workspace dir. Each attached worktree points back at its
 | `core/instructions.md` | Global instructions, including the team workflow and Jev decision protocol |
 | `core/roles/*.md` | Role prose, harness-neutral |
 | `core/team.json` | Each role's description and model tier (`strong`, `standard`, `fast`) |
-| `core/bin/team-guard` | Seal/verify tests, workspaces, holdout path, `gc`, and hook entry points |
-| `core/bin/mutation-check` | Mutation-test changed code only (Go: gremlins; TypeScript: Stryker) |
+| `core/bin/team-guard` | Seal/verify tests, workspaces, holdout path, `gc`, hook entry points, `refs`, `routing record` / `routing summary`, `risk`, `sign` and `team-guard gate review` / `reply` / `record` / `check` for design gates (see [Guard rails](./docs/guard-rails.md)) |
+| `core/bin/mutation-check` | Mutation-test changed code only (Go: gremlins; TypeScript: Stryker), bounded by `--min-free-gb` (default 20, exit 3), `--max-concurrency` (2), `--time-box` (15 minutes, exit 4) and `--sample` (50 changed lines) |
 | `adapters/<harness>/adapter.json` | Tier → model mapping and values for the `{{placeholders}}` in core |
 | `adapters/<harness>/install.sh` | Installs that harness's build |
-| `core/skills/` | Skills shipped to every harness (`jev-decide`) |
+| `core/skills/` | Skills shipped to every harness: `jev-decide` and the vendored set, with `UPSTREAM.json` and `patches/` (not shipped) |
+| `scripts/vendor-check` | Report drift of the vendored skills from upstream |
 | `dist/<harness>/` | Generated output, committed so diffs stay readable. Don't edit; run `./build.py <harness>` |
 | `build.py` | Renders core through an adapter; `--check` fails if `dist/` is stale |
 | `tests/run.sh` | Self-tests, including that every `dist/` is up to date (`--slow` adds the mutation-check test) |
@@ -112,7 +138,7 @@ Start the team from the workspace dir. Each attached worktree points back at its
 adapters/claude-code/install.sh
 ```
 
-Then merge `adapters/claude-code/settings.hooks.json` into `~/.claude/settings.json`: add the `PreToolUse` entry alongside your existing ones, add the `TaskCompleted` hook, and add the allow rules. The installer doesn't edit settings.
+Then merge `adapters/claude-code/settings.hooks.json` into `~/.claude/settings.json`: add the `PreToolUse` entry alongside your existing ones, add the `SubagentStop` and `TaskCompleted` hooks, and add the allow rules. The installer doesn't edit settings.
 
 The installer overwrites `~/.claude/CLAUDE.md` and the agent files (after backing them up). Make future edits in `core/`, rebuild, and reinstall, or the copies drift.
 
@@ -134,10 +160,10 @@ It installs `~/.codex/AGENTS.md`, one `~/.codex/agents/<role>.toml` per role, th
 | Instructions | `~/.claude/CLAUDE.md` | `~/.codex/AGENTS.md` (no `@imports`; 32 KiB cap together with project `AGENTS.md` files) |
 | Roles | `agents/*.md`, frontmatter + prose | `agents/*.toml`, `developer_instructions` + `model` + `model_reasoning_effort` |
 | Models (strong / standard / fast) | `claude-opus-5-5` / `claude-sonnet-5-5` / `claude-haiku-4-5` | `gpt-6-astra` / `gpt-6-sol` / `gpt-6-luna` |
-| Phase ordering | agent-team task dependencies | the lead spawns each phase with `spawn_agent` (context not forked) and `wait_agent`s before the next |
+| Step ordering | the lead starts one subagent per step and waits for its report | the lead spawns each step with `spawn_agent` (context not forked) and `wait_agent`s before the next |
 | Agent-to-agent messages | `SendMessage` | none between subagents: the engineer reports a disputed test to the lead |
 | Edit guard | `PreToolUse` on `Edit`/`Write` (`file_path`) | `PreToolUse` on `apply_patch` (paths parsed from the patch) |
-| Completion guard | `TaskCompleted`, exit 2 | `SubagentStop`, JSON `block` decision, once per stop |
+| Completion guard | `SubagentStop` (JSON `block` decision, once per stop) and `TaskCompleted` (exit 2, agent teams) | `SubagentStop`, JSON `block` decision, once per stop |
 | Tool permissions | allow rules in `settings.json` | `prefix_rule`s in `~/.codex/rules/` |
 | Skills | `~/.claude/skills/` | `~/.agents/skills/` (`$jev-decide`) |
 
@@ -145,8 +171,11 @@ Both harnesses share the workspace, holdout and archive directories under `~/.ag
 
 ## Known limits
 
-- **Three layers, from strongest to weakest.** (1) `team-guard verify` compares sealed files with the content hash recorded when they were sealed, so tampering is always *detected*, by any tool, at `TaskCompleted` and in review. (2) Git `pre-commit` and `pre-push` hooks, installed on first seal, *refuse* commits and pushes that change sealed tests in any harness; `--no-verify` bypasses them, which layer 1 still catches. (3) Harness hooks block edits *before* they happen, but only where the harness identifies the agent: Claude Code passes `agent_type` inside subagents, but documents no equivalent for agent-team teammates, and teammates don't apply a definition's frontmatter `hooks`.
+- **Three layers, from strongest to weakest.** (1) `team-guard verify` compares sealed files with the content hash recorded when they were sealed, so tampering is always *detected*, by any tool, at `SubagentStop`, `TaskCompleted` and in review. (2) Git `pre-commit` and `pre-push` hooks, installed on first seal, *refuse* commits and pushes that change sealed tests in any harness; `--no-verify` bypasses them, which layer 1 still catches. (3) Harness hooks block edits *before* they happen, but only where the harness identifies the agent: Claude Code passes `agent_type` inside subagents, but documents no equivalent for agent-team teammates, and teammates don't apply a definition's frontmatter `hooks`.
+- **The global Codex `AGENTS.md` is large.** At about 30.8 KB it leaves about 1.2 KB of Codex's 32 KiB cap for project `AGENTS.md` files.
 - **Other tools can replace the git hook.** Running `lefthook install` (as Grafana's `make lefthook-install` does) overwrites it; `team-guard verify` warns when that happens, and `team-guard git-hook install` re-chains it.
+- **The tester's review-data denial has gaps.** `hook-pretool` denies a tester any path tool call into a workspace's `.crit/` and `reviews/`, but Codex's hook matcher doesn't cover reads and shell reads aren't covered in either harness, so there the rule rests on the spawn prompt and the reviewer.
+- **`core.hooksPath` hides the git hooks.** Husky and similar tools set it, and git then ignores `.git/hooks`. `team-guard verify` warns, but `team-guard git-hook install` would write into the tool's directory, so it isn't done for you; `verify` and the reviewer are the remaining checks.
 - **Workspaces are per feature and local.** `team-guard` doesn't push, open PRs or enforce a ship order across repos; the order is recorded as a decision only. It isn't safe to run several `team-guard` commands against one workspace at once, and a repo can't be detached from a live workspace.
 - **Squash merges aren't detected.** A squash-merged branch isn't an ancestor of its base, so the workspace stays `active` until it goes stale; `workspace close` is the primary cleanup and `gc` the backstop.
 - **`pre-push` checks the working tree, not the pushed commits**, like `verify`. The git hooks live in the source repo's shared hooks dir and stay after `close`; they do nothing without a lock.

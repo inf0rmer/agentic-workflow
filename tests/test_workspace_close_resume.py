@@ -1,7 +1,7 @@
-"""Review round 2, N1: close must stay resumable until the workspace dir is gone.
+"""close must stay resumable until the workspace dir is gone.
 
-Architecture §6.2 step 5, AC-85/86/94 and R1-5: `repos/` goes first, the workspace dir
-(which holds the `closing` marker) last, and a rerun of close completes whatever is left.
+`repos/` goes first and the workspace dir (which holds the `closing` marker) last, so a
+rerun of close completes whatever is left after an interruption or a failed step.
 """
 
 import os

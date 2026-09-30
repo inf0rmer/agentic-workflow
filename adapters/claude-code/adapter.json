@@ -6,19 +6,22 @@
     "fast": "claude-haiku-4-5-20251001"
   },
   "vars": {
-    "team_intro": "For significant features or changes that are more than a few lines of code, use [Claude Code agent teams](https://code.claude.com/docs/en/agent-teams) with a structured multi-agent approach.",
-    "guard_hooks": "A `PreToolUse` hook blocks the engineer's edits to sealed files (in whichever attached repo the file lives) and holdout reads where the agent is identifiable, and a `TaskCompleted` hook blocks completing any task while a sealed test is modified.",
+    "team_intro": "For significant features or changes that are more than a few lines of code, run a structured multi-agent workflow. You are the lead: start each role as a subagent using its agent type, and wait for its report before moving to the next step. Claude Code [agent teams](https://code.claude.com/docs/en/agent-teams) are an option only for parallel work within one step.",
+    "guard_hooks": "A `PreToolUse` hook blocks the engineer's edits to sealed files (in whichever attached repo the file lives) and holdout reads where the agent is identifiable, a `SubagentStop` hook sends a subagent back to work while a sealed test is modified, and a `TaskCompleted` hook blocks completing any agent-team task while one is.",
     "bin": "~/.claude/team/bin",
     "agents_dir": "~/.claude/agents",
     "project_agents_dir": ".claude/agents",
     "instructions_file": "CLAUDE.md",
     "jev_skill": "`jev-decide` skill",
-    "worktree_section": "**All teammates share one workspace dir.** Before creating the team, run `team-guard workspace new <feature>`, then `team-guard workspace attach <repo-path>` from the workspace dir for each repo the feature touches. Each attached worktree is on the same branch name in its repo. Create the agent team from the workspace dir so every teammate inherits it as its working directory; each teammate edits code inside `repos/<repo>/`, and the workflow artifacts stay in the workspace dir.",
-    "phase_intro": "### Phased execution with task dependencies\n\nUse task dependencies to enforce phase ordering. Teammates within a phase can work in parallel; cross-phase work is blocked until dependencies complete.",
+    "worktree_section": "**All agents share one workspace dir.** Before starting any agent, run `team-guard workspace new <feature>`, then `team-guard workspace attach <repo-path>` from the workspace dir for each repo the feature touches. Each attached worktree is on the same branch name in its repo. Start the session from the workspace dir so every subagent inherits it as its working directory; each agent edits code inside `repos/<repo>/`, and the workflow artifacts stay in the workspace dir.",
+    "phase_intro": "You enforce step ordering as the lead: start the next step's subagent only after the previous step's report is in and you have checked it. A subagent runs one task, hands back a final report and stops, so there is nothing to poll and no idle teammate to resend to. The harness passes each subagent's `agent_type`, which lets `team-guard` block the engineer's edits to sealed tests before they happen.",
     "agent_ext": ".md",
     "ask_tester": "stop and message the tester",
     "skills_dir": "~/.claude/skills",
-    "goal_mechanics": "Claude Code checks the condition after every turn with a small fast model and keeps working until it's met, judged impossible, or cleared by an error you have to fix. Evaluation waits while subagents or teammates are still running. Run it in auto mode so goal turns don't stop for permission prompts; `/goal` shows status and `/goal clear` stops it."
+    "goal_mechanics": "Claude Code checks the condition after every turn with a small fast model and keeps working until it's met, judged impossible, or cleared by an error you have to fix. Evaluation waits while subagents or teammates are still running. Run it in auto mode so goal turns don't stop for permission prompts; `/goal` shows status and `/goal clear` stops it.",
+    "skill_call": "call the Skill tool with",
+    "skill_sigil": "",
+    "user_skill_sigil": "/"
   },
   "instructions_footer": "@RTK.md\n"
 }

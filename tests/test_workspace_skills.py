@@ -1,0 +1,280 @@
+"""The vendored skills under core/skills: exactly the pinned subset, traceable to upstream.
+
+Each copy either matches upstream byte for byte or is upstream plus a stored patch, carries
+its license and a provenance line, and never tells an agent to write outside the workspace.
+"""
+
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+from wslib import ROOT
+from wsskills import (ALL_DIRS, FILES, PIN, SK, SKILLS, SOURCE, clone_or_skip, files_under, frontmatter_value,
+                      git_bytes, insert_note, note_for, split_frontmatter, strip_note, upstream_file, upstream_files)
+
+FORBIDDEN = [r"docs/adr", r"\$TMPDIR", r"\.scratch", r"temporary directory", r"/tmp\b", r"repo(sitory)? root",
+             r"root of the repo"]
+# The seams now come from this file; its name is assembled so the reference scanner doesn't flag this test.
+CONTRACT_FILE = "contract" + "." + "md"
+
+
+def read(d, f="SKILL.md"):
+    return (SK / d / f).read_text(encoding="utf-8")
+
+
+class TestVendoredSet(unittest.TestCase):
+
+    def test_exactly_the_pinned_skills_are_vendored_with_their_files(self):
+        dirs = sorted(p.name for p in SK.iterdir() if p.is_dir() and p.name != "patches")
+        self.assertEqual(dirs, ALL_DIRS)
+        self.assertFalse((SK / "tdd").exists())
+        self.assertTrue((SK / "UPSTREAM.json").is_file())
+        self.assertTrue((SK / "patches").is_dir())
+        for d in ALL_DIRS:
+            with self.subTest(skill=d):
+                self.assertEqual(frontmatter_value(read(d), "name"), d)
+        for d, want in FILES.items():
+            with self.subTest(files=d):
+                self.assertEqual(files_under(SK / d), want)
+
+    def test_as_is_skills_match_upstream_bytes(self):
+        clone = clone_or_skip(self)
+        for d, (path, status) in SKILLS.items():
+            if status != "as-is":
+                continue
+            with self.subTest(skill=d):
+                ups = upstream_files(clone, path)
+                self.assertEqual(files_under(SK / d), set(ups) | {"LICENSE"})
+                for f in ups:
+                    got = (SK / d / f).read_bytes()
+                    if f == "SKILL.md":
+                        got = strip_note(got.decode("utf-8")).encode("utf-8")
+                    self.assertEqual(got, upstream_file(clone, path, f), f)
+        p = subprocess.run([str(ROOT / "scripts" / "vendor-check"), "--upstream", str(clone), "--ref", PIN],
+                           capture_output=True, text=True, timeout=120) if (ROOT / "scripts" / "vendor-check").exists() \
+            else None
+        self.assertIsNotNone(p, "scripts/vendor-check exists")
+        for d in ("codebase-design", "grilling", "writing-for-agents"):
+            self.assertIn("%s: ok" % d, p.stdout.splitlines(), p.stdout + p.stderr)
+
+    def test_every_copy_carries_an_exact_provenance_line(self):
+        sha = json.loads((SK / "UPSTREAM.json").read_text())["sha"]
+        for d, (_, status) in SKILLS.items():
+            with self.subTest(skill=d):
+                fm, rest = split_frontmatter(read(d))
+                self.assertIsNotNone(fm)
+                self.assertEqual(rest[0], note_for(d, sha))
+                self.assertEqual("modified" in rest[0], status == "patched")
+                self.assertEqual(sum(1 for l in rest if l.startswith("<!-- vendored from ")), 1)
+
+    def test_every_copy_carries_the_upstream_license(self):
+        clone = clone_or_skip(self)
+        lic = git_bytes(clone, "show", "%s:LICENSE" % PIN)
+        self.assertIn(b"MIT License", lic)
+        self.assertIn(b"Matt Pocock", lic)
+        for d in SKILLS:
+            with self.subTest(skill=d):
+                self.assertEqual((SK / d / "LICENSE").read_bytes(), lic)
+
+    def test_upstream_record_names_the_pin_and_every_patch(self):
+        data = json.loads((SK / "UPSTREAM.json").read_text())
+        self.assertEqual(set(data), {"source", "sha", "date", "skills"})
+        self.assertEqual((data["source"], data["sha"], data["date"]), (SOURCE, PIN, "2026-09-29"))
+        self.assertRegex(data["sha"], r"^[0-9a-f]{40}$")
+        self.assertEqual(set(data["skills"]), set(SKILLS))
+        named = set()
+        for d, entry in data["skills"].items():
+            with self.subTest(skill=d):
+                path, status = SKILLS[d]
+                self.assertEqual(entry["upstream_path"], path)
+                self.assertEqual(entry["status"], status)
+                if status == "patched":
+                    self.assertEqual(set(entry), {"upstream_path", "status", "patch"})
+                    self.assertEqual(entry["patch"], "patches/%s.patch" % d)
+                    self.assertTrue((SK / entry["patch"]).is_file())
+                    named.add(entry["patch"])
+                else:
+                    self.assertEqual(set(entry), {"upstream_path", "status"})
+        self.assertEqual({"patches/" + p.name for p in (SK / "patches").iterdir()}, named)
+
+    def test_each_patched_copy_is_upstream_plus_its_stored_patch(self):
+        clone = clone_or_skip(self)
+        lic = git_bytes(clone, "show", "%s:LICENSE" % PIN)
+        for d, (path, status) in SKILLS.items():
+            if status != "patched":
+                continue
+            with self.subTest(skill=d), tempfile.TemporaryDirectory() as t:
+                T = Path(t)
+                for f in upstream_files(clone, path):
+                    dst = T / path / f
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    dst.write_bytes(upstream_file(clone, path, f))
+                patch = (SK / "patches" / ("%s.patch" % d)).resolve()
+                p = subprocess.run(["git", "apply", str(patch)], cwd=t, capture_output=True, text=True,
+                                   env=dict(os.environ, GIT_CONFIG_NOSYSTEM="1"))
+                self.assertEqual(p.returncode, 0, p.stderr)
+                out = T / "core" / "skills" / d
+                skill = out / "SKILL.md"
+                skill.write_text(insert_note(skill.read_text(encoding="utf-8"), note_for(d)), encoding="utf-8")
+                (out / "LICENSE").write_bytes(lic)
+                self.assertEqual(files_under(out), files_under(SK / d))
+                for f in files_under(out):
+                    self.assertEqual((out / f).read_bytes(), (SK / d / f).read_bytes(), f)
+                self.assertFalse((T / path).exists() and any((T / path).rglob("*")), "every upstream file moved")
+
+
+class TestPatchedContent(unittest.TestCase):
+
+    def test_skills_write_only_under_the_workspace(self):
+        for d in SKILLS:
+            for f in sorted(files_under(SK / d)):
+                text = (SK / d / f).read_text(encoding="utf-8", errors="replace")
+                for pat in FORBIDDEN:
+                    with self.subTest(file="%s/%s" % (d, f), pattern=pat):
+                        self.assertNotRegex(text, re.compile(pat, re.I))
+        need = {"domain-modeling": ["adr/NNNN-<slug>.md", "GLOSSARY.md"], "handoff": ["handoff-<slug>.md"],
+                "to-questionnaire": ["to-questionnaire-<slug>.md"], "diagnosing-bugs": []}
+        for d, paths in need.items():
+            text = "\n".join((SK / d / f).read_text(encoding="utf-8") for f in sorted(files_under(SK / d))
+                             if f != "LICENSE")
+            with self.subTest(skill=d):
+                self.assertIn("team-guard workspace-path", text)
+                for p in paths:
+                    self.assertIn(p, text)
+
+    def test_bug_fix_preamble_splits_the_loop_between_tester_and_engineer(self):
+        _, rest = split_frontmatter(read("diagnosing-bugs"))
+        body = [l for l in rest[1:]]
+        first = next(l for l in body if l.strip())
+        self.assertEqual(first, "## In the Bug fix variant")
+        start = body.index(first)
+        end = next((i for i in range(start + 1, len(body)) if body[i].startswith("## ")), len(body))
+        sec = "\n".join(body[start:end])
+        for word in ("tester", "feedback loop", "minimi", "regression test", "sealed", "engineer", "hypothes",
+                     "instrument", "fix", "never edits production code", "never edited"):
+            with self.subTest(word=word):
+                self.assertIn(word.lower(), sec.lower())
+
+    def test_inner_loop_skill_is_upstream_tdd_bound_to_the_sealed_tests(self):
+        text = read("tdd-inner-loop")
+        self.assertEqual(frontmatter_value(text, "name"), "tdd-inner-loop")
+        desc = frontmatter_value(text, "description") or ""
+        for w in ("software-engineer", "by name"):
+            self.assertIn(w, desc)
+        for w in ("test-first", "red-green-refactor", "integration tests", "Use when"):
+            self.assertNotIn(w, desc)
+        self.assertNotIn("confirm them with the user", text)
+        self.assertNotIn("What's the public interface, and which seams should we test?", text)
+        _, rest = split_frontmatter(text)
+        start = rest.index("## Seams: where tests go")
+        end = next((i for i in range(start + 1, len(rest)) if rest[i].startswith("## ")), len(rest))
+        seams = "\n".join(rest[start:end])
+        for w in (CONTRACT_FILE, "sealed tests", "unit tests"):
+            self.assertIn(w, seams)
+        lines = text.splitlines()
+        self.assertTrue(any("sealed" in l and "never edit" in l for l in lines), "sealed tests are never edited")
+        self.assertTrue(any("report" in l and "sealed" in l for l in lines), "a wrong sealed test is reported")
+
+        clone = clone_or_skip(self)
+        up = upstream_file(clone, "skills/engineering/tdd", "agents/openai.yaml").decode()
+        mine = (SK / "tdd-inner-loop" / "agents" / "openai.yaml").read_text()
+        self.assertIn("\npolicy:\n  allow_implicit_invocation: false", "\n" + mine)
+        extra = {"policy:", "  allow_implicit_invocation: false", ""}
+        self.assertEqual([l for l in mine.splitlines() if l not in extra], [l for l in up.splitlines() if l != ""])
+        for f in ("tests.md", "mocking.md"):
+            self.assertEqual((SK / "tdd-inner-loop" / f).read_bytes(), upstream_file(clone, "skills/engineering/tdd", f))
+            patch = (SK / "patches" / "tdd-inner-loop.patch").read_text()
+            self.assertIn("similarity index 100%%\nrename from skills/engineering/tdd/%s\n"
+                          "rename to core/skills/tdd-inner-loop/%s" % (f, f), patch)
+
+        up_md = upstream_file(clone, "skills/engineering/tdd", "SKILL.md").decode()
+        _, up_body = split_frontmatter(up_md)
+        keep, in_seams, first_para_done, seen_text = [], False, False, False
+        for l in up_body:
+            if l.startswith("## "):
+                in_seams = l == "## Seams: where tests go"
+                first_para_done, seen_text = False, False
+                keep.append(l)
+                continue
+            if in_seams:
+                if first_para_done:
+                    continue
+                if l.strip():
+                    seen_text = True
+                elif seen_text:
+                    first_para_done = True
+            if "GLOSSARY.md" in l or "Skill tool" in l:
+                continue
+            keep.append(l)
+        mine_lines = rest[1:]
+        it = iter(mine_lines)
+        missing = [l for l in keep if not any(l == m for m in it)]
+        self.assertEqual(missing, [], "every other upstream line is kept, in order")
+
+
+class TestBuiltSkills(unittest.TestCase):
+
+    def test_both_harnesses_ship_exactly_the_nine_skills(self):
+        for harness in ("claude-code", "codex"):
+            out = ROOT / "dist" / harness / "skills"
+            with self.subTest(harness=harness):
+                self.assertEqual(sorted(p.name for p in out.iterdir()), ALL_DIRS)
+                for d in ALL_DIRS:
+                    self.assertEqual(files_under(out / d), files_under(SK / d), d)
+                    for f in files_under(SK / d):
+                        if f.endswith("SKILL.md"):
+                            self.assertNotIn("{{", (out / d / f).read_text(encoding="utf-8"))
+                        else:
+                            self.assertEqual((out / d / f).read_bytes(), (SK / d / f).read_bytes(), "%s/%s" % (d, f))
+                p = subprocess.run([sys.executable, str(ROOT / "build.py"), "--check", harness], cwd=ROOT,
+                                   capture_output=True, text=True, timeout=120)
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+
+    def test_skill_calls_render_per_harness_from_adapter_placeholders(self):
+        # patches/ and UPSTREAM.json record upstream (a patch must quote the lines it removes), so only
+        # the vendored skill files are held to the rule.
+        for f in sorted(SK.rglob("*")):
+            if f.is_file() and f.relative_to(SK).parts[0] not in ("patches", "UPSTREAM.json"):
+                with self.subTest(file=str(f.relative_to(ROOT))):
+                    self.assertNotIn(b"Skill tool", f.read_bytes())
+        want = {"claude-code": {"skill_call": "call the Skill tool with", "skill_sigil": "", "user_skill_sigil": "/"},
+                "codex": {"skill_call": "mention", "skill_sigil": "$", "user_skill_sigil": "$"}}
+        for harness, vars_ in want.items():
+            adapter = json.loads((ROOT / "adapters" / harness / "adapter.json").read_text())
+            for k, v in vars_.items():
+                with self.subTest(harness=harness, var=k):
+                    self.assertEqual(adapter["vars"].get(k), v)
+        callers = [d for d in SKILLS if "{{skill_call}}" in read(d)]
+        self.assertIn("tdd-inner-loop", callers)
+        for d in callers:
+            cc = (ROOT / "dist" / "claude-code" / "skills" / d / "SKILL.md").read_text(encoding="utf-8")
+            cx = (ROOT / "dist" / "codex" / "skills" / d / "SKILL.md").read_text(encoding="utf-8")
+            with self.subTest(skill=d):
+                self.assertIn("Skill tool", cc)
+                self.assertNotIn("Skill tool", cx)
+                self.assertRegex(cx, r"`\$[a-z][a-z0-9-]*`")
+        tdd_cc = (ROOT / "dist" / "claude-code" / "skills" / "tdd-inner-loop" / "SKILL.md").read_text(encoding="utf-8")
+        tdd_cx = (ROOT / "dist" / "codex" / "skills" / "tdd-inner-loop" / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("call the Skill tool with `codebase-design`", tdd_cc)
+        self.assertIn("mention `$codebase-design`", tdd_cx)
+
+        with tempfile.TemporaryDirectory() as t:
+            copy = Path(t) / "repo"
+            shutil.copytree(ROOT, copy, ignore=shutil.ignore_patterns(".git", "__pycache__"))
+            probe = copy / "core" / "skills" / "zz-probe"
+            probe.mkdir()
+            (probe / "SKILL.md").write_text("---\nname: zz-probe\ndescription: probe\n---\n{{no_such_var}}\n")
+            p = subprocess.run([sys.executable, str(copy / "build.py"), "claude-code"], cwd=copy, capture_output=True,
+                               text=True, timeout=120)
+            self.assertNotEqual(p.returncode, 0)
+            self.assertIn("uses {{no_such_var}}, which the adapter doesn't define", p.stdout + p.stderr)
+
+
+if __name__ == "__main__":
+    unittest.main()

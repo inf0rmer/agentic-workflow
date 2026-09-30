@@ -2,6 +2,7 @@
 """Mutation-test only the code changed on this branch, to find what the tests miss.
 
   mutation-check [--base origin/main] [--go-only | --ts-only] [--dry-run]
+                 [--min-free-gb N] [--max-concurrency N] [--time-box MIN] [--sample N] [--seed S]
 
 Go: gremlins on each changed package, with survivors filtered to changed lines.
     (gremlins v0.5.1's own --diff mode skips every mutant when given a package path,
@@ -11,13 +12,29 @@ Tools are fetched on demand at pinned versions (go run / npx), nothing is instal
 
 Prints surviving mutants: each one is a concrete behavior change no test noticed.
 Exit code is 0 whether or not mutants survive; the tester decides what to do with them.
+
+Limits (a flag beats its environment variable, which beats the default):
+  --min-free-gb N      refuse to run below N GB free (10^9 bytes) in the repo and the temp dir;
+                       exit 3   MUTATION_MIN_FREE_GB, default 20, 0 is off
+  --max-concurrency N  workers for gremlins / Stryker, at least 1   MUTATION_MAX_CONCURRENCY, default 2
+  --time-box MIN       stop after MIN minutes and exit 4   MUTATION_TIME_BOX_MIN, default 15, 0 is off
+  --sample N           mutate at most N changed lines   MUTATION_SAMPLE, default 50, 0 is off
+  --seed S             which lines are sampled, repeatably, default 1
+Each run keeps its temp files in <tmp>/mutation-check-<pid> and removes them, and any tool
+process it started, on every exit. Interrupted runs exit 130 (SIGINT), 129 (SIGHUP) or 143 (SIGTERM).
 """
+
 import argparse
+import hashlib
 import os
 import re
 import shlex
+import shutil
+import signal
 import subprocess
 import sys
+import tempfile
+import time
 
 GREMLINS = "github.com/go-gremlins/gremlins/cmd/gremlins@v0.5.1"
 STRYKER = ["-p", "@stryker-mutator/core@10.0.0", "-p", "@stryker-mutator/jest-runner@10.0.0"]
@@ -25,11 +42,116 @@ TS_EXT = (".ts", ".tsx")
 SKIP_PARTS = ("_test.go", ".test.", ".spec.", "__mocks__", "/testdata/", "_gen.go", ".gen.ts", "zz_generated")
 
 
-def sh(cmd, dry, cwd=None):
-    print("$ " + " ".join(shlex.quote(c) for c in cmd), flush=True)
-    if dry:
-        return 0
-    return subprocess.run(cmd, cwd=cwd).returncode
+EXIT_REFUSED, EXIT_TIME_BOX = 3, 4
+MUTANT = re.compile(r"^\s*(LIVED|NOT COVERED|KILLED|TIMED OUT|NOT VIABLE)\s+(\S+) at (\S+?):(\d+):\d+", re.M)
+
+
+def die(msg, code=1):
+    print(f"mutation-check: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+class Interrupted(Exception):
+    def __init__(self, code):
+        super().__init__(code)
+        self.code = code
+
+
+class TimeBox(Exception):
+    pass
+
+
+def setting(flag_value, flag, env_var, default, minimum=0):
+    """A flag beats its env var, which beats the default; the value must be an integer of at least `minimum`."""
+    if flag_value is not None:
+        name, raw = flag, flag_value
+    elif os.environ.get(env_var) not in (None, ""):
+        name, raw = env_var, os.environ[env_var]
+    else:
+        return default
+    try:
+        n = int(str(raw).strip())
+    except ValueError:
+        die(f"invalid {name}: {raw!r} is not an integer")
+    if minimum is not None and n < minimum:
+        die(f"invalid {name}: {raw!r} must be at least {minimum}")
+    return n
+
+
+def pid_alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def remove_stale_run_dirs(tmp):
+    for name in os.listdir(tmp):
+        m = re.match(r"^mutation-check-(\d+)$", name)
+        if m and not pid_alive(int(m.group(1))):
+            shutil.rmtree(os.path.join(tmp, name), ignore_errors=True)
+
+
+def free_gb(path):
+    return shutil.disk_usage(path).free / 1e9
+
+
+class Runner:
+    """Runs one tool process at a time, in its own process group, inside the time box."""
+
+    def __init__(self, env, deadline, grace):
+        self.env, self.deadline, self.grace = env, deadline, grace
+        self.current = None
+
+    def kill_group(self, proc):
+        if proc is None:
+            return
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            pass
+        try:
+            proc.wait(timeout=self.grace)
+        except subprocess.TimeoutExpired:
+            pass
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+        try:
+            proc.wait()
+        except OSError:
+            pass
+
+    def run(self, cmd, cwd=None, capture=True):
+        """(returncode, stdout, stderr); raises TimeBox when the time box runs out."""
+        remaining = None
+        if self.deadline is not None:
+            remaining = self.deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeBox
+        pipe = subprocess.PIPE if capture else None
+        self.current = proc = subprocess.Popen(cmd, cwd=cwd, env=self.env, stdout=pipe, stderr=pipe, text=True,
+                                               stdin=subprocess.DEVNULL, start_new_session=True)
+        try:
+            out, err = proc.communicate(timeout=remaining)
+        except subprocess.TimeoutExpired:
+            self.kill_group(proc)
+            self.current = None
+            raise TimeBox
+        self.kill_group_quietly(proc)
+        self.current = None
+        return proc.returncode, out or "", err or ""
+
+    def kill_group_quietly(self, proc):
+        """Reap anything the finished tool left behind in its group."""
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
 
 
 def changed_files(base):
@@ -54,54 +176,89 @@ def changed_lines(merge_base, path):
     diff = subprocess.run(["git", "diff", "-U0", merge_base, "--", path], capture_output=True, text=True).stdout
     lines = set()
     for m in re.finditer(r"^@@ -\S+ \+(\d+)(?:,(\d+))? @@", diff, re.M):
-        start, count = int(m.group(1)), int(m.group(2) or 1)
+        start, count = int(m.group(1)), int(m.group(2) if m.group(2) is not None else 1)
         lines.update(range(start, start + count))
     return lines
 
 
-MUTANT = re.compile(r"^\s*(LIVED|NOT COVERED|KILLED|TIMED OUT|NOT VIABLE)\s+(\S+) at (\S+?):(\d+):\d+", re.M)
+def pick_sample(candidates, n, seed):
+    """n of the (path, line) candidates, chosen by a hash of the seed and the candidate, so the choice
+    depends on neither the order the files arrive in nor anything but the candidate set."""
+    ranked = sorted(candidates, key=lambda c: hashlib.sha256(f"{seed}:{c[0]}:{c[1]}".encode()).hexdigest())
+    return set(ranked[:n])
 
 
-def run_go(files, merge_base, dry):
+def line_ranges(path, lines):
+    """path:A-B ranges covering exactly `lines`, with adjacent lines merged."""
+    out, run = [], None
+    for n in sorted(lines):
+        if run and n == run[1] + 1:
+            run[1] = n
+        else:
+            run = [n, n]
+            out.append(run)
+    return [f"{path}:{a}-{b}" for a, b in out]
+
+
+class GoState:
+    def __init__(self):
+        self.totals, self.survivors, self.started = {}, [], False
+
+    def report(self):
+        print("\nGo mutants on changed lines: " + (", ".join(f"{k.lower()} {v}" for k, v in sorted(self.totals.items())) or "none"))
+        killed = self.totals.get("KILLED", 0)
+        lived = self.totals.get("LIVED", 0) + self.totals.get("NOT COVERED", 0)
+        if killed + lived:
+            print(f"mutation score: {killed / (killed + lived):.0%} (killed / (killed + lived + not covered))")
+        if self.survivors:
+            print("\nSurvivors — each is a behavior change no test noticed:\n  " + "\n  ".join(self.survivors))
+
+
+def run_go(files, merge_base, dry, runner, workers, sampled, state):
     pkgs = {}
     for f in files:
         root = go_module_root(f)
-        if root:
+        if root and (sampled is None or f in sampled):
             pkgs.setdefault((root, os.path.dirname(f)), []).append(f)
-    survivors, totals = [], {}
+    state.started = not dry
     for (root, pkg_dir), pkg_files in sorted(pkgs.items()):
-        wanted = {f: changed_lines(merge_base, f) for f in pkg_files}
-        cmd = ["go", "run", GREMLINS, "unleash", "--timeout-coefficient", "20", "-S", "lcktv",
+        wanted = {f: (sampled[f] if sampled is not None else changed_lines(merge_base, f)) for f in pkg_files}
+        cmd = ["go", "run", GREMLINS, "unleash", "--workers", str(workers), "--timeout-coefficient", "20", "-S", "lcktv",
                "./" + os.path.relpath(os.path.abspath(pkg_dir), root)]
         print("$ " + " ".join(shlex.quote(c) for c in cmd), f"(in {os.path.relpath(root) or '.'})", flush=True)
         if dry:
             continue
-        out = subprocess.run(cmd, cwd=root, capture_output=True, text=True)
-        if out.returncode and not MUTANT.search(out.stdout):
-            print(out.stdout[-2000:] + out.stderr[-2000:], file=sys.stderr)
+        code, out, err = runner.run(cmd, cwd=root)
+        if code and not MUTANT.search(out):
+            print(out[-2000:] + err[-2000:], file=sys.stderr)
             continue
-        for status, mutator, name, line in MUTANT.findall(out.stdout):
+        seen = set()
+        for status, mutator, name, line in MUTANT.findall(out):
             f = os.path.join(pkg_dir, name)
             if int(line) not in wanted.get(f, ()):
-                continue  # mutant on code this branch didn't touch
-            totals[status] = totals.get(status, 0) + 1
+                continue  # mutant on code this branch didn't touch, or on a line that wasn't sampled
+            if sampled is not None:
+                if (f, line) in seen:
+                    continue  # at most one mutant per sampled line
+                seen.add((f, line))
+            state.totals[status] = state.totals.get(status, 0) + 1
             if status in ("LIVED", "NOT COVERED"):
-                survivors.append(f"{status:11} {mutator:28} {f}:{line}")
-    if dry:
-        return
-    print("\nGo mutants on changed lines: " + (", ".join(f"{k.lower()} {v}" for k, v in sorted(totals.items())) or "none"))
-    killed, lived = totals.get("KILLED", 0), totals.get("LIVED", 0) + totals.get("NOT COVERED", 0)
-    if killed + lived:
-        print(f"mutation score: {killed / (killed + lived):.0%} (killed / (killed + lived + not covered))")
-    if survivors:
-        print("\nSurvivors — each is a behavior change no test noticed:\n  " + "\n  ".join(survivors))
+                state.survivors.append(f"{status:11} {mutator:28} {f}:{line}")
 
 
-def run_ts(files, dry):
+def run_ts(files, dry, runner, workers, sampled):
     if not files:
         return
-    sh(["npx", "--yes", *STRYKER, "stryker", "run", "--testRunner", "jest", "--coverageAnalysis", "perTest",
-        "--reporters", "clear-text,progress", "--mutate", ",".join(files)], dry)
+    if sampled is not None:
+        files = [r for f in files if f in sampled for r in line_ranges(f, sampled[f])]
+        if not files:
+            return
+    cmd = ["npx", "--yes", *STRYKER, "stryker", "run", "--testRunner", "jest", "--coverageAnalysis", "perTest",
+           "--concurrency", str(workers), "--reporters", "clear-text,progress", "--mutate", ",".join(files)]
+    print("$ " + " ".join(shlex.quote(c) for c in cmd), flush=True)
+    if dry:
+        return
+    code, out, err = runner.run(cmd, capture=False)
 
 
 def main():
@@ -111,20 +268,90 @@ def main():
     g.add_argument("--go-only", action="store_true")
     g.add_argument("--ts-only", action="store_true")
     p.add_argument("--dry-run", action="store_true", help="print the commands without running them")
+    for flag in ("--min-free-gb", "--max-concurrency", "--time-box", "--sample", "--seed"):
+        p.add_argument(flag, default=None)
     a = p.parse_args()
+
+    min_free = setting(a.min_free_gb, "--min-free-gb", "MUTATION_MIN_FREE_GB", 20)
+    workers = setting(a.max_concurrency, "--max-concurrency", "MUTATION_MAX_CONCURRENCY", 2, minimum=1)
+    time_box_min = setting(a.time_box, "--time-box", "MUTATION_TIME_BOX_MIN", 15)
+    sample = setting(a.sample, "--sample", "MUTATION_SAMPLE", 50)
+    seed = 1 if a.seed is None else setting(a.seed, "--seed", "", 1, minimum=None)
+    grace = setting(None, "", "MUTATION_KILL_GRACE_SEC", 10)
+    box_seconds, unit, amount = time_box_min * 60, "minutes", time_box_min
+    if os.environ.get("MUTATION_TIME_BOX_SEC") not in (None, ""):
+        amount = box_seconds = setting(None, "", "MUTATION_TIME_BOX_SEC", 0)
+        unit = "seconds"
 
     top = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True).stdout.strip()
     os.chdir(top)
-    merge_base, files = changed_files(a.base)
-    go_files = [f for f in files if f.endswith(".go")]
-    ts_files = [f for f in files if f.endswith(TS_EXT)]
-    print(f"changed since {merge_base[:12]}: {len(go_files)} Go, {len(ts_files)} TypeScript file(s)")
-    if not go_files and not ts_files:
-        return
-    if not a.ts_only:
-        run_go(go_files, merge_base, a.dry_run)
-    if not a.go_only:
-        run_ts(ts_files, a.dry_run)
+    tmp = tempfile.gettempdir()
+    for path in (top, tmp):
+        if a.dry_run:
+            print(f"free disk: {path} {free_gb(path):.1f} GB", flush=True)
+        elif min_free and free_gb(path) < min_free:
+            die(f"refused: {path} has {free_gb(path):.1f} GB free, needs {min_free} GB", EXIT_REFUSED)
+
+    started = time.monotonic()
+    deadline = started + box_seconds if box_seconds else None
+    run_dir = os.path.join(tmp, f"mutation-check-{os.getpid()}")
+    stryker_tmp = os.path.join(top, ".stryker-tmp")
+    stryker_existed = os.path.exists(stryker_tmp)
+    runner = Runner(dict(os.environ), deadline, grace)
+    code, state = 0, GoState()
+
+    def on_signal(signum, frame):
+        raise Interrupted({signal.SIGINT: 130, signal.SIGHUP: 129}.get(signum, 143))
+
+    try:
+        if not a.dry_run:
+            signal.signal(signal.SIGINT, on_signal)
+            signal.signal(signal.SIGTERM, on_signal)
+            signal.signal(signal.SIGHUP, on_signal)
+            remove_stale_run_dirs(tmp)
+            os.makedirs(run_dir, exist_ok=True)
+            runner.env.update({"TMPDIR": run_dir, "TMP": run_dir, "TEMP": run_dir, "GOTMPDIR": run_dir})
+        merge_base, files = changed_files(a.base)
+        go_files = [] if a.ts_only else sorted(f for f in files if f.endswith(".go"))
+        ts_files = [] if a.go_only else sorted(f for f in files if f.endswith(TS_EXT))
+        print(f"changed since {merge_base[:12]}: {len(go_files)} Go, {len(ts_files)} TypeScript file(s)")
+        if not go_files and not ts_files:
+            return 0
+        sampled = None
+        if sample:
+            cands = [(f, n) for f in go_files + ts_files for n in changed_lines(merge_base, f)]
+            if len(cands) > sample:
+                chosen = pick_sample(cands, sample, seed)
+                sampled = {}
+                for f, n in chosen:
+                    sampled.setdefault(f, set()).add(n)
+                print(f"sampled {sample} of {len(cands)} changed lines (seed {seed})", flush=True)
+        try:
+            if not a.ts_only:
+                run_go(go_files, merge_base, a.dry_run, runner, workers, sampled, state)
+                if not a.dry_run:
+                    state.report()
+                    state.started = False
+            if not a.go_only:
+                run_ts(ts_files, a.dry_run, runner, workers, sampled)
+        except TimeBox:
+            if state.started:
+                state.report()
+            print(f"INCOMPLETE: time box of {amount} {unit} reached", flush=True)
+            code = EXIT_TIME_BOX
+    except Interrupted as e:
+        print("mutation-check: interrupted", file=sys.stderr)
+        code = e.code
+    finally:
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        signal.signal(signal.SIGHUP, signal.SIG_IGN)
+        runner.kill_group(runner.current)
+        if not a.dry_run:
+            shutil.rmtree(run_dir, ignore_errors=True)
+            if not stryker_existed:
+                shutil.rmtree(stryker_tmp, ignore_errors=True)
+    return code
 
 
 if __name__ == "__main__":

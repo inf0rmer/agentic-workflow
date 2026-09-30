@@ -1,4 +1,4 @@
-"""ask-jev log placement inside and outside workspaces (JEV-1..JEV-3). Offline only:
+"""ask-jev log placement inside and outside workspaces. Offline only:
 ask-jev is run with --print-log-path or with input that fails validation."""
 
 import json
@@ -43,7 +43,7 @@ class JevCase(WSTestCase):
 
 class TestJevWorkspaceLog(JevCase):
 
-    def test_jev1_log_path_matches_workspace_path(self):
+    def test_log_path_matches_workspace_path(self):
         A = self.sb.new_repo("A")
         ws = self.new_ws("f")
         wt = self.attach(A)
@@ -54,7 +54,7 @@ class TestJevWorkspaceLog(JevCase):
                 self.assertEqual(self.log_path(cwd), w + "/jev-decisions.md")
                 self.assertEqual(w, realpath(ws))
 
-    def test_jev1_failed_validation_logs_into_workspace(self):
+    def test_failed_validation_logs_into_workspace(self):
         A = self.sb.new_repo("A")
         ws = self.new_ws("f")
         wt = self.attach(A)
@@ -77,21 +77,21 @@ class TestJevWorkspaceLog(JevCase):
 
 class TestJevOutsideWorkspace(JevCase):
 
-    def test_jev2_unattached_repo_uses_git_dir(self):
+    def test_unattached_repo_uses_git_dir(self):
         R = self.sb.new_repo("R")
         self.assertEqual(self.log_path(R), self.git_dir(R) + "/jev-decisions.md")
         self.assertEqual(self.log_path(R / "pkg"), self.git_dir(R) + "/jev-decisions.md")
 
-    def test_jev2_source_checkout_of_attached_repo_uses_git_dir(self):
+    def test_source_checkout_of_attached_repo_uses_git_dir(self):
         A = self.sb.new_repo("A")
         self.new_ws("f")
         self.attach(A)
         self.assertEqual(self.log_path(A), self.git_dir(A) + "/jev-decisions.md")
 
-    def test_jev2_plain_dir_has_no_log(self):
+    def test_plain_dir_has_no_log(self):
         self.assertEqual(self.log_path(self.sb.scratch), "")
 
-    def test_jev2_dangling_pointer_falls_back_to_git_dir(self):
+    def test_dangling_pointer_falls_back_to_git_dir(self):
         A = self.sb.new_repo("A")
         self.new_ws("f")
         wt = self.attach(A)
@@ -99,12 +99,12 @@ class TestJevOutsideWorkspace(JevCase):
         self.assertEqual(self.sb.tg("workspace-path", cwd=wt).code, 1)
         self.assertEqual(self.log_path(wt), self.git_dir(wt) + "/jev-decisions.md")
 
-    def test_jev2_workspace_dir_without_json_has_no_log(self):
+    def test_workspace_dir_without_json_has_no_log(self):
         ws = self.new_ws("f")
         (ws / "workspace.json").unlink()
         self.assertEqual(self.log_path(ws), "")
 
-    def test_jev2_explicit_log_options_win(self):
+    def test_explicit_log_options_win(self):
         R = self.sb.new_repo("R")
         A = self.sb.new_repo("A")
         ws = self.new_ws("f")
@@ -117,13 +117,13 @@ class TestJevOutsideWorkspace(JevCase):
         self.assertFalse(Path(custom).exists(), "--print-log-path writes nothing")
         self.assertFalse((ws / "jev-decisions.md").exists())
 
-    def test_jev3_no_api_key_needed(self):
+    def test_no_api_key_needed(self):
         self.assertNotIn("OPENROUTER_API_KEY", self.sb.env)
         self.assertEqual(self.sb.env.get("HTTPS_PROXY"), "http://127.0.0.1:9")
         r = self.timed_jev(cwd=self.sb.scratch, input="{}")
         self.assertEqual(json.loads(r.out).get("verdict"), "ESCALATE", self.show(r))
 
-    def test_jev3_tripwire_detects_a_network_attempt(self):
+    def test_tripwire_detects_a_network_attempt(self):
         # Guards the guard: a real HTTPS request through the configured proxy is counted.
         probe = ("import urllib.request\n"
                  "try:\n    urllib.request.urlopen('https://openrouter.ai/api/v1/models', timeout=5)\n"
