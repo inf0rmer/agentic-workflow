@@ -11,9 +11,23 @@ can't be faked without rewriting git history.
   team-guard verify             exit 2 and list any sealed file that changed
   team-guard list               show sealed files and the lock history
   team-guard holdout-path       print this branch's holdout-scenario directory
-  team-guard git-hook install|uninstall|status
-                                manage the git pre-commit hook that refuses commits
-                                changing sealed tests (sealing installs it)
+  team-guard git-hook install|uninstall|status [pre-commit|pre-push]
+                                manage the git hooks that refuse commits and pushes
+                                changing sealed tests (sealing installs them)
+  team-guard pre-push [<remote> <url>]
+                                git pre-push: refuse a push if sealed tests changed
+                                (not implemented yet)
+
+Workspaces (not implemented yet):
+  team-guard workspace new <feature> [--branch <name>]
+  team-guard workspace attach <repo-path> [--base <branch>] [--feature <feature>]
+  team-guard workspace list [--stale-days <N>]
+  team-guard workspace show [<feature>]
+  team-guard workspace close <feature> [--force]
+  team-guard workspace-path     print the workspace dir containing the cwd
+  team-guard gc [--apply] [--stale-days <N>] [--retention-days <R>]
+                                list (or with --apply, collect) stale workspaces,
+                                orphan holdouts and expired archives
 
 Hook entry points (read the hook event JSON on stdin):
   team-guard hook-pretool       PreToolUse: deny edits to sealed files and holdout
@@ -25,6 +39,7 @@ Hook entry points (read the hook event JSON on stdin):
 The git hook works with any agent harness, or none: a sealed test has to be
 unsealed (which is logged for the reviewer) before a commit can change it.
 """
+import argparse
 import datetime
 import json
 import os
@@ -276,6 +291,8 @@ def uninstall_hook():
 
 def cmd_git_hook(args):
     action = args[0] if args else "status"
+    if len(args) > 1 and args[1] == "pre-push":
+        not_implemented("git-hook " + action + " pre-push")
     if action == "install":
         install_hook()
     elif action == "uninstall":
@@ -301,6 +318,72 @@ def cmd_pre_commit():
         sys.exit(1)
 
 
+class UsageError(Exception):
+    pass
+
+
+class Parser(argparse.ArgumentParser):
+    def error(self, message):
+        raise UsageError(message)
+
+
+def not_implemented(name):
+    print(f"team-guard: not implemented: {name}", file=sys.stderr)
+    sys.exit(70)
+
+
+def parse_or_exit(parser, args):
+    try:
+        return parser.parse_args(args)
+    except UsageError as e:
+        print(f"team-guard: {parser.prog}: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_workspace(args):
+    sub = args[0] if args else ""
+    rest = args[1:]
+    prog = f"workspace {sub}"
+    p = Parser(prog=prog, add_help=False)
+    if sub == "new":
+        p.add_argument("feature")
+        p.add_argument("--branch")
+    elif sub == "attach":
+        p.add_argument("repo_path")
+        p.add_argument("--base")
+        p.add_argument("--feature")
+    elif sub == "list":
+        p.add_argument("--stale-days", type=int)
+    elif sub == "show":
+        p.add_argument("feature", nargs="?")
+    elif sub == "close":
+        p.add_argument("feature")
+        p.add_argument("--force", action="store_true")
+    else:
+        print("team-guard: workspace: expected new|attach|list|show|close\n" + __doc__, file=sys.stderr)
+        sys.exit(1)
+    parse_or_exit(p, rest)
+    not_implemented(prog)
+
+
+def cmd_workspace_path(args):
+    parse_or_exit(Parser(prog="workspace-path", add_help=False), args)
+    not_implemented("workspace-path")
+
+
+def cmd_gc(args):
+    p = Parser(prog="gc", add_help=False)
+    p.add_argument("--apply", action="store_true")
+    p.add_argument("--stale-days", type=int)
+    p.add_argument("--retention-days", type=int)
+    parse_or_exit(p, args)
+    not_implemented("gc")
+
+
+def cmd_pre_push(args):
+    not_implemented("pre-push")
+
+
 def main():
     if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
         print(__doc__)
@@ -311,6 +394,8 @@ def main():
         "list": cmd_list, "holdout-path": cmd_holdout_path,
         "hook-pretool": cmd_hook_pretool, "hook-task": cmd_hook_task, "hook-stop": cmd_hook_stop,
         "pre-commit": cmd_pre_commit, "git-hook": lambda: cmd_git_hook(args),
+        "workspace": lambda: cmd_workspace(args), "workspace-path": lambda: cmd_workspace_path(args),
+        "gc": lambda: cmd_gc(args), "pre-push": lambda: cmd_pre_push(args),
     }
     if cmd not in commands or (cmd in ("seal", "unseal") and not args):
         sys.exit(__doc__)

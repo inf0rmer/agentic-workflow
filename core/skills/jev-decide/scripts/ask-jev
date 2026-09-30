@@ -172,8 +172,12 @@ def main():
     p.add_argument("file", nargs="?", help="decision JSON file (default: stdin)")
     p.add_argument("--log", help="decision log path (default: <git-dir>/jev-decisions.md)")
     p.add_argument("--no-log", action="store_true")
+    p.add_argument("--print-log-path", action="store_true", help="print the resolved log path and exit")
     p.add_argument("--raw", action="store_true", help="also print Jev's raw answers")
     args = p.parse_args()
+    if args.print_log_path:
+        print("ask-jev: not implemented: --print-log-path", file=sys.stderr)
+        sys.exit(70)
 
     d = {}
     try:
