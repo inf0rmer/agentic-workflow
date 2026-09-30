@@ -123,6 +123,16 @@ for i, a in enumerate(argv):
         continue
     files.append(a)
 sid = hashlib.sha256((os.getcwd() + "\0" + "\0".join(files)).encode()).hexdigest()[:12]
+if os.environ.get("FAKE_CRIT_ON_TERM"):
+    # Leave a mark in the workspace's reviews/ when stopped, so a test can tell whether
+    # that happened before the workspace was archived.
+    def on_term(signum, frame):
+        d = os.path.join(os.path.dirname(O), "reviews")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "stopped-%d.json" % os.getpid()), "w") as fh:
+            fh.write("[]")
+        os._exit(143)
+    signal.signal(signal.SIGTERM, on_term)
 marker = os.path.join(state, sid + ".live")
 if live(sid):
     err("Connected to crit daemon at http://localhost:47111 (session %s)" % sid)
@@ -186,6 +196,14 @@ def verdict_line(gate, n, approved, k):
 
 def export_name(gate, n):
     return "%s-round%d.json" % (gate, n)
+
+
+def approval_sidecar_name(gate, n):
+    return "%s-round%d.approved.json" % (gate, n)
+
+
+SIDECAR_NOTE = ("Crit approved this round; every thread was resolved or deleted at approval, and the final state "
+                "could not be exported because Crit deletes the review on approval.")
 
 
 def fake_session_id(cwd, files):

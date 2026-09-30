@@ -19,7 +19,7 @@ import urllib.error
 import urllib.request
 
 from wslib import GUARD, WSTestCase, realpath
-from wsgate import LineReader, verdict_line, wait_until
+from wsgate import LineReader, approval_sidecar_name, verdict_line, wait_until
 
 REASON = "set CRIT_REAL=1 with crit 0.21+ on PATH to run the real-Crit smoke test"
 SESSION = re.compile(r"localhost:(\d+) \(session ([0-9A-Za-z]+)(?:, PID (\d+))?\)")
@@ -131,9 +131,12 @@ class TestRealCrit(WSTestCase):
         code, body = self.api(base2, "DELETE", "/api/comment/%s?path=%s" % (cid, self.art))
         self.assertEqual(code, 200, body)
         self.assertEqual(self.finish(p2, base2), 0, "\n".join(err2.lines))
-        self.assertTrue(out2.wait_for(verdict_line("design", 2, True, 0)[:-1], timeout=10), out2.lines)
-        self.assertTrue(out2.lines[-1].startswith(verdict_line("design", 2, True, 0)[:-1]), out2.lines)
+        self.assertTrue(out2.wait_for(verdict_line("design", 2, True, 0), timeout=10), out2.lines)
+        self.assertEqual(out2.lines[-1], verdict_line("design", 2, True, 0))
         self.assertIsNotNone(self.export(2), "the approved round still has an export")
+        if self.export(2):
+            self.assertTrue(os.path.exists(os.path.join(self.ws, "reviews", approval_sidecar_name("design", 2))),
+                            "a kept, non-empty export of an approved round has its approval sidecar")
         self.assertIsNotNone(self.export(1))
         for args in (("record", "design", "--crit"), ("check", "design")):
             r = self.sb.run([str(GUARD), "gate", *args], cwd=self.ws, env=self.env)

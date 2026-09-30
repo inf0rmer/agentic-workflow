@@ -12,8 +12,8 @@ import random
 import signal
 import unittest
 
-from wsgate import (APPROVED_OUT, FORBIDDEN, NOT_APPROVED_OUT, GateCase, LineReader, export_name, sha,
-                    verdict_line, wait_until)
+from wsgate import (APPROVED_OUT, FORBIDDEN, NOT_APPROVED_OUT, SIDECAR_NOTE, GateCase, LineReader,
+                    approval_sidecar_name, export_name, sha, verdict_line, wait_until)
 from wstools import pid_alive
 
 C1 = [{"id": "c1", "body": "why this?", "replies": [{"body": "because"}]}, {"id": "c2", "body": "ok", "resolved": True}]
@@ -161,8 +161,16 @@ class TestReviewRounds(GateCase):
                          (False, self.session_of("design", 1, "plan.md", "notes.md"), 1))
         self.assertIsNone(st.get("pending"))
         r = self.ok(self.review("design", comments=C1, verdict="true"))
-        self.assertEqual(r.out.splitlines()[-2:], [APPROVED_OUT, verdict_line("design", 2, True, 1)],
-                         "approved: true is found although it isn't Crit's last stderr line")
+        self.assertEqual(r.out.splitlines()[-2:], [APPROVED_OUT, verdict_line("design", 2, True, 0)],
+                         "approved: true is found although it isn't Crit's last stderr line, and an approved "
+                         "round reports no open comments")
+        self.assertEqual(self.export("design", 2), C1, "the round's export is left as it was")
+        sidecar = json.loads((self.ws / "reviews" / approval_sidecar_name("design", 2)).read_text())
+        self.assertRegex(sidecar.pop("at"), r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}")
+        self.assertEqual(sidecar, {"version": 1, "gate": "design", "round": 2, "approved": True, "note": SIDECAR_NOTE},
+                         "the empty final export is explained next to the kept one")
+        self.assertFalse((self.ws / "reviews" / approval_sidecar_name("design", 1)).exists(),
+                         "no sidecar for a round that wasn't approved")
         st = self.state()
         self.assertTrue(st["approved"])
         self.assertEqual(st["hashes"], {"plan.md": sha(self.ws / "plan.md"), "notes.md": sha(self.ws / "notes.md")})
