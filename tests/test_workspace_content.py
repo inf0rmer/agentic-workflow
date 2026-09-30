@@ -210,10 +210,17 @@ class TestSuite(ContentCase):
 class TestNoBackgroundWork(ContentCase):
 
     def test_guard_source_has_no_scheduling(self):
+        # The one exception is the design-gate review, which starts Crit in its own session so a
+        # killed wait doesn't kill the review (approved answer 13): exactly one
+        # start_new_session=True. The word "daemon" itself is allowed, because the gate reads
+        # Crit's own "crit daemon ..." status lines; turning a process into a daemon is not.
         body = text(GUARD)
-        for word in ("crontab", "launchctl", "systemctl", "nohup", "start_new_session", "daemon"):
+        for word in ("crontab", "launchctl", "systemctl", "nohup", "preexec_fn", "os.setsid", "os.fork(",
+                     "daemonize", "daemonise", "DaemonContext", "double fork"):
             with self.subTest(word=word):
                 self.assertNotIn(word, body)
+        self.assertEqual(re.findall(r"start_new_session\s*=\s*\w+", body), ["start_new_session=True"],
+                         "only the Crit review launch starts a new session")
 
 
 if __name__ == "__main__":

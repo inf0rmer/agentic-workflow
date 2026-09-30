@@ -3,6 +3,11 @@
 Every gate test runs against a fake Crit named by CRIT_BIN, with a guard `crit` first on
 PATH that records any call: a test that reaches the real tool by accident fails. Nothing
 binds a port, opens a browser or touches the network.
+
+The fake mirrors what crit 0.21.0 was observed to do: the session line on stderr, a
+session id keyed on the working directory and the file arguments, `-o` refused together
+with `--session`, no trailing newline on stdout, the review deleted on approval, replies
+only while the session's daemon is live, and review.json written lazily.
 """
 
 import hashlib
@@ -21,46 +26,141 @@ from wslib import GUARD, WSTestCase, realpath, tree_snapshot
 GATE_RECORD = "design-gate" + "." + "md"
 FORBIDDEN = ("share", "fetch", "unpublish", "push", "pull", "pr", "mr", "live", "preview", "plan", "story",
              "install", "config", "cleanup")
+NOT_APPROVED_OUT = "The review finished with %d unresolved comments."
+APPROVED_OUT = "Review approved with no comments — no changes requested."
+SHUTDOWN_OUT = "crit daemon shut down before review was finished."
 
 FAKE_CRIT = r'''#!/usr/bin/env python3
-# A stand-in for Crit, configured by FAKE_CRIT_* variables. It never binds a port.
-import json, os, shutil, signal, sys, time
+# A stand-in for crit 0.21.0, configured by FAKE_CRIT_* variables. It never binds a port.
+import hashlib, json, os, shutil, signal, sys, time
 signal.signal(signal.SIGPIPE, signal.SIG_IGN)
 signal.signal(signal.SIGHUP, signal.SIG_IGN)
 argv = sys.argv[1:]
+state = os.environ["FAKE_CRIT_STATE"]
+os.makedirs(state, exist_ok=True)
+stdin = sys.stdin.buffer.read() if argv[:1] == ["comment"] else None
 rec = {"argv": argv, "cwd": os.getcwd(), "pid": os.getpid(), "pgid": os.getpgid(0), "sid": os.getsid(0),
-       "env": {k: os.environ.get(k) for k in ("CRIT_NO_UPDATE_CHECK", "CRIT_PLAN_REVIEW", "CRIT_SHARE_URL")}}
+       "env": {k: os.environ.get(k) for k in ("CRIT_NO_UPDATE_CHECK", "CRIT_PLAN_REVIEW", "CRIT_SHARE_URL")},
+       "stdin": stdin.decode("utf-8", "replace") if stdin is not None else None}
 if os.environ.get("FAKE_CRIT_LOG"):
     with open(os.environ["FAKE_CRIT_LOG"], "a") as fh:
         fh.write(json.dumps(rec) + "\n")
 
-def say(stream, text):
+def out(text):
     try:
-        stream.write(text + "\n")
-        stream.flush()
+        sys.stdout.write(text)
+        sys.stdout.flush()
     except (BrokenPipeError, OSError, ValueError):
         pass
 
-if argv and argv[0] == "comments":
+def err(text):
+    try:
+        sys.stderr.write(text + "\n")
+        sys.stderr.flush()
+    except (BrokenPipeError, OSError, ValueError):
+        pass
+
+def live(i):
+    return os.path.exists(os.path.join(state, i + ".live"))
+
+def comments():
     p = os.environ.get("FAKE_CRIT_COMMENTS")
-    if not p or not os.path.exists(p):
+    if p and os.path.exists(p):
+        with open(p) as fh:
+            return json.load(fh)
+    return None
+
+def after(flag):
+    return argv[argv.index(flag) + 1] if flag in argv and argv.index(flag) + 1 < len(argv) else None
+
+if "-o" in argv and "--session" in argv:
+    err("--session cannot be used with --plan, --output, or an explicit review path")
+    sys.exit(1)
+
+if argv[:1] == ["comments"]:
+    sid = after("--session")
+    if sid is not None:
+        data = comments()
+        if not live(sid) or data is None:
+            err("no active review session %s" % sid)
+            sys.exit(1)
+        if "--all" not in argv:
+            data = [c for c in data if not c.get("resolved")]
+        out(json.dumps(data, indent=2))
+        sys.exit(0)
+    path = argv[-1]
+    if not os.path.isfile(path):
+        err("stat %s: no such file or directory" % path)
         sys.exit(1)
-    with open(p) as fh:
-        say(sys.stdout, fh.read().strip())
+    with open(path) as fh:
+        out(fh.read())
     sys.exit(0)
-if argv and argv[0] == "comment":
-    src = argv[argv.index("--file") + 1] if "--file" in argv else None
+
+if argv[:1] == ["comment"]:
+    sid = after("--session")
+    if sid is None or not live(sid):
+        err("no active review session %s" % sid)
+        sys.exit(1)
     dst = os.environ.get("FAKE_CRIT_REPLY_COPY")
-    if src and dst:
-        shutil.copyfile(src, dst)
+    if dst:
+        with open(dst, "wb") as fh:
+            fh.write(stdin)
+    out("Added 1 reply")
     sys.exit(int(os.environ.get("FAKE_CRIT_REPLY_EXIT", "0")))
-say(sys.stdout, "Started crit daemon at http://localhost:47111 (session %s)" % os.environ.get("FAKE_CRIT_SESSION", "s1"))
+
+# A review start: `-o <O> [--no-open] <file>...`.
+O = after("-o")
+files = []
+skip = False
+for i, a in enumerate(argv):
+    if skip:
+        skip = False
+        continue
+    if a == "-o":
+        skip = True
+        continue
+    if a.startswith("-"):
+        continue
+    files.append(a)
+sid = hashlib.sha256((os.getcwd() + "\0" + "\0".join(files)).encode()).hexdigest()[:12]
+marker = os.path.join(state, sid + ".live")
+if live(sid):
+    err("Connected to crit daemon at http://localhost:47111 (session %s)" % sid)
+else:
+    err("Started crit daemon at http://localhost:47111 (session %s, PID %d)" % (sid, os.getpid()))
+    open(marker, "w").close()
 hold = os.environ.get("FAKE_CRIT_HOLD")
 while hold and not os.path.exists(hold):
+    if not os.path.isdir(os.path.dirname(hold)):
+        sys.exit(0)  # the test's sandbox is gone: don't outlive it
     time.sleep(0.05)
+data = comments() or []
+store = os.path.join(O, "reviews", sid)
 verdict = os.environ.get("FAKE_CRIT_VERDICT", "false")
-if verdict != "none":
-    say(sys.stderr, "approved: %s" % verdict)
+
+def save():
+    os.makedirs(store, exist_ok=True)
+    with open(os.path.join(store, "review.json"), "w") as fh:
+        json.dump(data, fh)
+
+if verdict == "true":
+    err("approved: true")
+    err("")
+    err("Session: 1 file and 1s reviewed")
+    out("Review approved with no comments — no changes requested.")
+    if os.path.exists(marker):
+        os.unlink(marker)
+    shutil.rmtree(store, ignore_errors=True)
+elif verdict == "false":
+    err("approved: false")
+    out("The review finished with %d unresolved comments." % sum(1 for c in data if not c.get("resolved")))
+    save()
+elif verdict == "shutdown":
+    err("approved: false")
+    out("crit daemon shut down before review was finished.")
+    if os.path.exists(marker):
+        os.unlink(marker)
+    save()
 sys.exit(int(os.environ.get("FAKE_CRIT_EXIT", "0")))
 '''
 
@@ -75,6 +175,10 @@ def sha(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
+def today():
+    return time.strftime("%Y-%m-%d", time.gmtime())
+
+
 def verdict_line(gate, n, approved, k):
     """The last line gate review prints for a finished round."""
     return "gate %s round %d: approved=%s comments=%d" % (gate, n, "true" if approved else "false", k)
@@ -84,8 +188,8 @@ def export_name(gate, n):
     return "%s-round%d.json" % (gate, n)
 
 
-def today():
-    return time.strftime("%Y-%m-%d", time.gmtime())
+def fake_session_id(cwd, files):
+    return hashlib.sha256((str(cwd) + "\0" + "\0".join(files)).encode()).hexdigest()[:12]
 
 
 class GateCase(WSTestCase):
@@ -108,15 +212,16 @@ class GateCase(WSTestCase):
         guard.write_text(GUARD_CRIT % self.guard_log)
         guard.chmod(0o755)
         self.log = self.sb.tmp / "fake-crit.jsonl"
+        self.fake_state = self.sb.tmp / "fake-state"
         self.comments_file = self.sb.tmp / "comments.json"
         self.reply_copy = self.sb.tmp / "reply-copy.bin"
         self.sb.env.update({
             "PATH": str(guard.parent) + os.pathsep + self.sb.env.get("PATH", ""),
             "CRIT_BIN": str(self.fake),
             "FAKE_CRIT_LOG": str(self.log),
+            "FAKE_CRIT_STATE": str(self.fake_state),
             "FAKE_CRIT_COMMENTS": str(self.comments_file),
             "FAKE_CRIT_REPLY_COPY": str(self.reply_copy),
-            "FAKE_CRIT_SESSION": "s1",
             "FAKE_CRIT_VERDICT": "false",
             "FAKE_CRIT_EXIT": "0",
             # The caller's own values, which every Crit process must see overridden.
@@ -141,15 +246,30 @@ class GateCase(WSTestCase):
             return []
         return [json.loads(l) for l in self.log.read_text().splitlines() if l.strip()]
 
+    def review_dir(self, gate, open_round):
+        return os.path.join(self.O, gate, "r%d" % open_round)
+
+    def abs_files(self, *names):
+        return [str(self.ws / n) for n in names]
+
+    def session_of(self, gate, open_round, *names):
+        return fake_session_id(self.review_dir(gate, open_round), self.abs_files(*names))
+
+    def end_daemon(self, session):
+        """Make a session's daemon gone, as after a crash: replies and live exports fail."""
+        (self.fake_state / (session + ".live")).unlink(missing_ok=True)
+
     # -- running ---------------------------------------------------------------
 
-    def gate(self, *args, cwd=None, env=None):
-        return self.sb.tg("gate", *args, cwd=cwd or self.ws, env=env)
+    def gate(self, *args, cwd=None, env=None, input=None):
+        return self.sb.tg("gate", *args, cwd=cwd or self.ws, env=env, input=input)
 
-    def review(self, gate="design", *args, verdict="false", comments=(), session="s1", env=None, cwd=None):
+    def review(self, gate="design", *args, verdict="false", comments=(), session=None, env=None, cwd=None):
+        """Run one gate review round. `session` is accepted for older callers and ignored: the
+        fake derives the id from the review dir and the files, as real Crit does."""
         if comments is not None:
             self.set_comments(list(comments))
-        e = {"FAKE_CRIT_VERDICT": verdict, "FAKE_CRIT_SESSION": session}
+        e = {"FAKE_CRIT_VERDICT": verdict}
         e.update(env or {})
         return self.gate("review", gate, *args, env=e, cwd=cwd)
 
@@ -158,7 +278,7 @@ class GateCase(WSTestCase):
         return json.loads(p.read_text()) if p.exists() else None
 
     def export(self, gate, n):
-        p = self.ws / "reviews" / ("%s-round%d.json" % (gate, n))
+        p = self.ws / "reviews" / export_name(gate, n)
         return json.loads(p.read_text()) if p.exists() else None
 
     def record_path(self):

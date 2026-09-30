@@ -2,7 +2,8 @@
 
 Each round's comments are saved under reviews/ because Crit deletes a review once it is
 approved. An export is written whole, never shrinks, and never touches an earlier round.
-Replies go to Crit exactly as written, and nothing the tool does resolves a thread.
+Replies go to Crit exactly as written, only while the human isn't mid-round and the session's
+daemon is live, and nothing the tool does resolves a thread.
 """
 
 import json
@@ -40,7 +41,7 @@ class TestExports(GateCase):
 
     def test_missing_data_exports_empty_and_exports_never_lose_comments(self):
         r = self.ok(self.review("design", "plan.md", comments=None))
-        self.assertEqual((self.ws / "reviews" / export_name("design", 1)).read_text().strip(), "[]")
+        self.assertEqual(self.export("design", 1), [], "no data exports as an empty array")
         self.assertEqual(r.out.splitlines()[-1], verdict_line("design", 1, False, 0))
 
         self.ok(self.review("design", comments=C2))
@@ -57,7 +58,7 @@ class TestExports(GateCase):
         self.addCleanup(lambda: hold.exists() or hold.write_text("go"))
         self.set_comments(C1)
         p = self.popen_gate("review", "design", env={"FAKE_CRIT_HOLD": str(hold), "FAKE_CRIT_VERDICT": "true"})
-        self.assertTrue(LineReader(p.stdout).wait_for("(session s1)"))
+        self.assertTrue(LineReader(p.stderr).wait_for("(session "))
         self.assertTrue(wait_until(lambda: self.export("design", 4) == C1))
         self.set_comments(None)
         hold.write_text("go")
@@ -67,11 +68,26 @@ class TestExports(GateCase):
         earlier[3] = (self.ws / "reviews" / export_name("design", 3)).read_bytes()
         earlier[4] = (self.ws / "reviews" / export_name("design", 4)).read_bytes()
 
-        self.ok(self.review("design", "plan.md", comments=[], session="s2"))
-        self.ok(self.review("design", comments=C2, session="s2"))
+        self.ok(self.review("design", "plan.md", comments=[]))
+        self.ok(self.review("design", comments=C2))
         for n, data in earlier.items():
             with self.subTest(round=n):
                 self.assertEqual((self.ws / "reviews" / ("design-round%d.json" % n)).read_bytes(), data)
+
+
+    def test_export_falls_back_to_the_saved_review_when_the_daemon_is_gone(self):
+        self.ok(self.review("design", "plan.md", comments=C1))
+        sid = (self.state() or {}).get("session")
+        self.assertIsNotNone(sid, "the gate state holds the session")
+        self.end_daemon(sid)
+        self.set_comments(C2)
+        n_before = len(self.calls())
+        self.ok(self.review("design", comments=None))
+        new = self.calls()[n_before:]
+        fallback = ["comments", "-o", self.O, "--json", "--all", "%s/reviews/%s/review.json" % (self.O, sid)]
+        self.assertEqual(new[0]["argv"], ["comments", "--session", sid, "--json", "--all"], "the live form first")
+        self.assertEqual(new[1]["argv"], fallback, "then the saved review")
+        self.assertEqual(self.export("design", 1), C1)
 
 
 class TestReply(GateCase):
@@ -87,8 +103,9 @@ class TestReply(GateCase):
         self.set_comments(C2)
         r = self.ok(self.gate("reply", "design", "--file", str(reply), "--author", "architect"))
         new = self.calls()[n_before:]
-        self.assertEqual(new[0]["argv"], ["comment", "-o", self.O, "--session", "s1", "--json", "--file",
-                                          os.path.realpath(reply), "--author", "architect"])
+        sid = self.state()["session"]
+        self.assertEqual(new[0]["argv"], ["comment", "--session", sid, "--json", "--author", "architect"])
+        self.assertEqual(new[0]["stdin"], reply.read_bytes().decode("utf-8"), "the file's bytes go to Crit on stdin")
         self.assertEqual(new[1]["argv"][0], "comments", "the round is exported after the replies")
         self.assertEqual(self.reply_copy.read_bytes(), reply.read_bytes())
         self.assertEqual(self.export("design", 1), C2)
@@ -96,6 +113,30 @@ class TestReply(GateCase):
         r = self.code(self.gate("reply", "design", "--file", str(reply), "--author", "architect",
                                 env={"FAKE_CRIT_REPLY_EXIT": "4"}), 1)
         self.assertEqual(self.calls()[-1]["argv"][0], "comments", "the export is attempted even when Crit fails")
+
+    def test_reply_waits_for_the_round_and_needs_a_live_session(self):
+        good = self.sb.tmp / "good.json"
+        good.write_text(json.dumps([{"reply_to": "c1", "body": "x"}]))
+        hold = self.sb.tmp / "hold"
+        self.addCleanup(lambda: hold.exists() or hold.write_text("go"))
+        self.set_comments(C1)
+        p = self.popen_gate("review", "design", "plan.md", env={"FAKE_CRIT_HOLD": str(hold)})
+        self.assertTrue(LineReader(p.stderr).wait_for("(session "))
+        self.assertTrue(wait_until(lambda: (self.state() or {}).get("pending") is not None))
+        r = self.code(self.gate("reply", "design", "--file", str(good), "--author", "architect"), 1)
+        self.assertFalse([c for c in self.calls() if c["argv"][:1] == ["comment"]], "no reply mid-round")
+        hold.write_text("go")
+        p.communicate(timeout=30)
+
+        sid = (self.state() or {}).get("session")
+        self.assertIsNotNone(sid, "the gate state holds the session")
+        self.end_daemon(sid)
+        r = self.code(self.gate("reply", "design", "--file", str(good), "--author", "architect"), 1)
+        self.has(r.err, "gate review", r)
+        r = self.code(self.gate("reply", "design", "--file", str(good), "--author", "architect",
+                                env={"CRIT_BIN": str(self.sb.tmp / "no-crit")}), 1)
+        self.assertIn('team-guard: gate design: Crit is unavailable; use the chat fallback: the reply that approves '
+                      'this gate is exactly "approve design"', r.err.splitlines())
 
     def test_invalid_replies_never_reach_crit(self):
         self.ok(self.review("design", "plan.md", comments=C1))

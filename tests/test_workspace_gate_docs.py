@@ -84,5 +84,15 @@ class TestGateDocs(unittest.TestCase):
                                    r"re-run")
 
 
+    def test_instructions_name_the_gates_and_how_to_recover(self):
+        for name, doc in instr_texts().items():
+            with self.subTest(file=name):
+                text = self.gate_text(doc)
+                self.has_paragraph(name, text, r"`design`", r"`D1`", r"`D2`")
+                self.has_paragraph(name, text, r"same gate name")
+                self.has_paragraph(name, text, r"gate review <gate> --new|gate review \S+ --new", r"error")
+                self.has_paragraph(name, text, r"\breply\b", r"after the human finishes")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -99,6 +99,12 @@ class TestTesterIsDenied(HookCase):
             ("Read", {"file_path": os.path.join(self.g, ".crit", "any")}, None),
             ("apply_patch", {"command": patch_text(("update", "reviews/x.json"))}, W),
             ("apply_patch", {"command": patch_text(("add", ".crit/new.json"))}, W),
+            ("Read", {"file_path": os.path.join(W, "REVIEWS", "x.json")}, None),
+            ("Edit", {"file_path": os.path.join(W, ".Crit", "gate-design.json")}, None),
+            ("Glob", {"pattern": os.path.join(W, "reviews", "*.json")}, W),
+            ("Glob", {"pattern": "../reviews/*.json", "path": os.path.join(W, "notes")}, None),
+            ("Grep", {"pattern": "x", "path": os.path.join(W, "notes"), "glob": os.path.join(W, ".crit", "*")}, None),
+            ("Grep", {"pattern": "x", "path": os.path.join(W, "notes"), "glob": "../reviews/**"}, None),
         ]
         for tool, ti, cwd in denied:
             with self.subTest(tool=tool, input=ti):
@@ -111,6 +117,8 @@ class TestTesterIsDenied(HookCase):
             ("Read", {"file_path": os.path.join(W, ".critical", "x.json")}),
             ("Grep", {"pattern": "x", "path": os.path.join(W, "notes")}),
             ("Grep", {"pattern": "x"}),
+            ("Glob", {"pattern": "**/*.md", "path": os.path.join(W, "notes")}),
+            ("Grep", {"pattern": "x", "path": os.path.join(W, "notes"), "glob": "*.json"}),
             ("Edit", {"file_path": os.path.join(self.wt, "pkg", "a_test.go")}),
             ("Read", {"file_path": "/tmp/bad\x00path"}),
         ]
