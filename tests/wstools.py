@@ -127,8 +127,37 @@ class FifoWaiter:
 
 FAKE_TOOL = r'''#!/usr/bin/env python3
 # A stand-in for `go` / `npx` that records how it was run.
-import json, os, subprocess, sys, time
+import errno, json, os, subprocess, sys, time
 CFG = json.load(open(%(cfg)r))
+ROOT = os.path.dirname(CFG["log"])
+
+
+def alive_or_exit():
+    """Never outlive the test: once its sandbox is gone, stop."""
+    if not os.path.isdir(ROOT):
+        sys.exit(0)
+
+
+def open_fifo(path, mode):
+    # A plain open() of a named pipe blocks until a reader comes, forever if none does.
+    while True:
+        alive_or_exit()
+        try:
+            fd = os.open(path, os.O_WRONLY | os.O_NONBLOCK)
+            break
+        except OSError as e:
+            if e.errno != errno.ENXIO:
+                sys.exit(0)
+            time.sleep(0.05)
+    os.set_blocking(fd, True)
+    return os.fdopen(fd, mode)
+
+
+def nap(seconds):
+    end = time.time() + seconds
+    while time.time() < end:
+        alive_or_exit()
+        time.sleep(min(0.1, max(0.0, end - time.time())))
 NAME = %(name)r
 argv = sys.argv[1:]
 rec = {"tool": NAME, "argv": argv, "pid": os.getpid(), "pgid": os.getpgid(0), "cwd": os.getcwd(),
@@ -152,16 +181,16 @@ try:
     if NAME == "npx":
         os.makedirs(os.path.join(os.getcwd(), ".stryker-tmp", "sandbox-%%d" %% os.getpid()), exist_ok=True)
     if CFG.get("grandchild_fifo"):
-        with open(CFG["grandchild_fifo"], "wb") as w:
+        with open_fifo(CFG["grandchild_fifo"], "wb") as w:
             gc = subprocess.Popen(["sleep", "300"], stdout=w, stdin=subprocess.DEVNULL,
                                   stderr=subprocess.DEVNULL, close_fds=True)
         with open(CFG["grandchild_pid"], "w") as fh:
             fh.write(str(gc.pid))
     if CFG.get("ready_fifo"):
-        with open(CFG["ready_fifo"], "w") as fh:
+        with open_fifo(CFG["ready_fifo"], "w") as fh:
             fh.write("ready\n")
     pkg = argv[-1][2:] if argv[-1].startswith("./") else argv[-1]
-    time.sleep(CFG.get("sleep_by_pkg", {}).get(pkg, CFG.get("sleep", 0.2)))
+    nap(CFG.get("sleep_by_pkg", {}).get(pkg, CFG.get("sleep", 0.2)))
     if NAME == "go":
         for line in CFG.get("lines", {}).get(pkg, []):
             print(line, flush=True)
