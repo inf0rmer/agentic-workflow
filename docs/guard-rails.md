@@ -271,6 +271,8 @@ The tool never uses Crit's `share`, `push`, `pull` or `--pr`, and never changes 
 
 Crit keys a session on its working directory and files, and refuses `-o` together with `--session`. So every review runs from its own directory, `<workspace>/.crit/<gate>/r<N>`, where N is the round the review was opened at, with absolute file paths, and a re-run from that directory continues the same session. `gate review` also re-exports the round every 60 seconds while Crit runs (`TEAM_GATE_EXPORT_INTERVAL_SEC`), because approval deletes Crit's copy, and it reads Crit's saved `review.json` when the live session is gone. A daemon that shut down before the review finished is treated as no verdict.
 
+Crit approves a round only when no comment is open, so an approved round always reports `comments=0`. The round's export is never changed; if Crit had already deleted the review, so the final export found nothing and the kept file is an earlier copy, `gate review` writes `reviews/<gate>-round<N>.approved.json` beside it to say so. `workspace close` stops this workspace's Crit daemons (SIGTERM, up to 5 seconds, printing `stopped crit daemon <pid> (gate <gate>)`) before archiving, and leaves every other workspace's processes alone.
+
 `gate review` starts Crit detached, so it survives if the waiting process is killed.
 Run it in the background with the harness's longest background timeout, and if the wait is stopped, re-run it: it continues the same session and round, and `--new` starts a fresh review instead.
 An export is never replaced by one with fewer comments, and earlier rounds are never touched, because Crit deletes its data when a review is approved.

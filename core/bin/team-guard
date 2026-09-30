@@ -68,6 +68,7 @@ import os
 import re
 import selectors
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -1124,6 +1125,62 @@ class CloseRefused(Exception):
         self.header, self.problems, self.force_hint = header, problems, force_hint
 
 
+def crit_daemons_under(root):
+    """[(pid, cwd)] of live Crit processes whose working directory is inside root (this user's only)."""
+    root = realpath(root)
+    ps = subprocess.run(["ps", "-ax", "-o", "pid=,command="], capture_output=True, text=True).stdout
+    cands = []
+    for line in ps.splitlines():
+        pid, _, cmd = line.strip().partition(" ")
+        if pid.isdigit() and int(pid) != os.getpid() and "crit" in cmd.lower():
+            cands.append(int(pid))
+    cwds = {}
+    for pid in cands:
+        if os.path.isdir("/proc/self"):
+            try:
+                cwds[pid] = os.readlink(f"/proc/{pid}/cwd")
+            except OSError:
+                pass
+    if cands and not cwds:
+        try:
+            out = subprocess.run(["lsof", "-a", "-d", "cwd", "-Fpn", "-p", ",".join(map(str, cands))],
+                                 capture_output=True, text=True, timeout=30, stdin=subprocess.DEVNULL).stdout
+        except (OSError, subprocess.SubprocessError):
+            out = ""
+        cur = None
+        for line in out.splitlines():
+            if line.startswith("p") and line[1:].isdigit():
+                cur = int(line[1:])
+            elif line.startswith("n") and cur is not None:
+                cwds[cur] = line[1:]
+    return [(pid, cwd) for pid, cwd in sorted(cwds.items()) if under(cwd, root)]
+
+
+def stop_crit_daemons(wsdir):
+    """Stop this workspace's Crit daemons (SIGTERM, up to 5 s), so its gate exports are final before archiving."""
+    crit_dir = os.path.join(realpath(wsdir), ".crit")
+    if not os.path.isdir(crit_dir):
+        return
+    for pid, cwd in crit_daemons_under(crit_dir):
+        rel = os.path.relpath(realpath(cwd), crit_dir).split(os.sep)
+        gate = rel[0] if rel and rel[0] != "." else "?"
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            continue
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.05)
+        else:
+            warn(f"crit daemon {pid} (gate {gate}) did not stop within 5 seconds")
+            continue
+        print(f"team-guard: stopped crit daemon {pid} (gate {gate})")
+
+
 def close_workspace(feature, force=False, cwd=None):
     """Close a workspace: archive artifacts, remove worktrees and holdouts. Raises CloseRefused; exits on failure."""
     wsdir = os.path.join(ws_root(), feature)
@@ -1175,6 +1232,7 @@ def close_workspace(feature, force=False, cwd=None):
         shown = blocking + ([] if force else problems)
         raise CloseRefused(f"can't close {feature}:", shown, bool(problems) and not force)
     discard = list(problems)
+    stop_crit_daemons(wsdir)
 
     closing = data.get("closing")
     if closing and closing.get("archive"):
@@ -2328,6 +2386,23 @@ class GateRun:
         self.fresh = data
         return self.save(n, data)
 
+    def note_approval(self, n):
+        name = f"{self.gate}-round{n}.approved.json"
+        body = {"version": 1, "gate": self.gate, "round": n, "approved": True,
+                "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "note": "Crit approved this round; every thread was resolved or deleted at approval, and the final "
+                        "state could not be exported because Crit deletes the review on approval."}
+        target = os.path.join(self.ws, "reviews", name)
+        try:
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            tmp = target + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(body, f, indent=2)
+                f.write("\n")
+            os.replace(tmp, target)
+        except OSError as e:
+            warn(f"could not write reviews/{name}: {e}")
+
     def save(self, n, data):
         name = f"{self.gate}-round{n}.json"
         target = os.path.join(self.ws, "reviews", name)
@@ -2491,6 +2566,10 @@ def cmd_gate_review(a):
               f"or `team-guard gate review {gate} <files> --new` to start a fresh review",
               file=sys.stderr)
         sys.exit(1)
+    if verdict and not run.fresh and comment_count(kept) > 0:
+        # Crit deleted the review at approval, so the final export is empty and the kept file is an
+        # earlier copy. Say so beside it, and leave the export itself alone.
+        run.note_approval(n)
     st = dict(state) if state else {"v": 1, "gate": gate}
     hashes = {}
     if verdict:
@@ -2503,7 +2582,7 @@ def cmd_gate_review(a):
     save_gate_state(ws, gate, st)
     if last_out not in (b"\n", b""):
         sys.stdout.write("\n")
-    print(f"gate {gate} round {n}: approved={'true' if verdict else 'false'} comments={unresolved_count(kept)}")
+    print(f"gate {gate} round {n}: approved={'true' if verdict else 'false'} comments={0 if verdict else unresolved_count(kept)}")
     sys.stdout.flush()
 
 

@@ -150,7 +150,7 @@ Approval deletes the review data. So `team-guard gate review` exports each round
 
 Run `team-guard gate review` in the background with the harness's longest background timeout. Crit itself is started detached, so it survives a stopped wait. If the wait is stopped, re-run `team-guard gate review <gate>`: it continues the same session and round. After a Crit error or a shut-down daemon, run `team-guard gate review <gate> --new <files…>`. The last line it prints is `gate <gate> round <N>: approved=<true|false> comments=<K>`, with exit 0 either way.
 
-When the review ends with `approved=true` and zero comments, run `team-guard gate record <gate> --crit`, which appends the reviewed files' sha256 to `design-gate.md`. Never edit that file by hand.
+When the review ends with `approved=true` (Crit approves only with no open comments, so the count is 0), run `team-guard gate record <gate> --crit`, which appends the reviewed files' sha256 to `design-gate.md`. Never edit that file by hand. An approved round's export may be the last copy taken before Crit deleted the review, with a `.approved.json` note beside it.
 
 `team-guard gate check [<gate>]` compares the files with the last recorded approval: exit 0 means they still match, and exit 2 means a reviewed file changed or is missing, so the gate reopens.
 
