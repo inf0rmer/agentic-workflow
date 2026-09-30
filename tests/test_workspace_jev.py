@@ -7,17 +7,27 @@ import time
 import unittest
 from pathlib import Path
 
-from wslib import WSTestCase, realpath
+from wslib import ASK_JEV, WSTestCase, realpath
+from wsnet import Tripwire
 
 LIMIT = 5.0  # JEV-3: each call returns quickly because nothing touches the network
 
 
 class JevCase(WSTestCase):
 
+    def setUp(self):
+        super().setUp()
+        # JEV-3: every proxy points at a local tripwire, so any attempt to reach Jev is
+        # counted deterministically rather than inferred from a slow call.
+        self.net = Tripwire()
+        self.addCleanup(self.net.close)
+
     def timed_jev(self, *args, cwd=None, input=None):
         start = time.time()
-        r = self.sb.jev(*args, cwd=cwd, input=input)
+        r = self.sb.run([str(ASK_JEV), *args], cwd=cwd, input=input, env=self.net.proxy_env(),
+                        unset=("NO_PROXY", "no_proxy", "OPENROUTER_API_KEY"))
         elapsed = time.time() - start
+        self.assertEqual(self.net.connections, 0, "ask-jev %s tried the network\n%s" % (" ".join(args), self.show(r)))
         self.assertLess(elapsed, LIMIT, "ask-jev %s took %.1fs" % (" ".join(args), elapsed))
         return r
 
@@ -112,6 +122,14 @@ class TestJevOutsideWorkspace(JevCase):
         self.assertEqual(self.sb.env.get("HTTPS_PROXY"), "http://127.0.0.1:9")
         r = self.timed_jev(cwd=self.sb.scratch, input="{}")
         self.assertEqual(json.loads(r.out).get("verdict"), "ESCALATE", self.show(r))
+
+    def test_jev3_tripwire_detects_a_network_attempt(self):
+        # Guards the guard: a real HTTPS request through the configured proxy is counted.
+        probe = ("import urllib.request\n"
+                 "try:\n    urllib.request.urlopen('https://openrouter.ai/api/v1/models', timeout=5)\n"
+                 "except Exception:\n    pass\n")
+        self.sb.run(["python3", "-c", probe], env=self.net.proxy_env(), unset=("NO_PROXY", "no_proxy"))
+        self.assertGreaterEqual(self.net.connections, 1)
 
 
 if __name__ == "__main__":

@@ -4,12 +4,14 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 import time
 import unittest
 from pathlib import Path
 
 from wslib import (GUARD, LIST_LINE, WSTestCase, backdate_tree, iso_days_ago,
                    read_bytes, realpath, tree_snapshot)
+from wsnet import Tripwire
 
 
 class LifecycleCase(WSTestCase):
@@ -647,12 +649,18 @@ class TestGc(LifecycleCase):
         self.pushed_ws("g", "B")
         for args in (("workspace", "close", "f"), ("gc",), ("gc", "--apply"), ("workspace", "list")):
             with self.subTest(args=args):
-                p = subprocess.Popen([str(GUARD), *args], cwd=str(self.sb.scratch), env=env,
-                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
-                out, err = p.communicate(timeout=60)
-                self.assertNotEqual(p.returncode, 70, "not implemented: %s: %s" % (args, err.decode()))
-                ps = subprocess.run(["ps", "-A", "-o", "pgid=,pid=,command="], capture_output=True, text=True)
-                left = [l for l in ps.stdout.splitlines() if l.split() and l.split()[0] == str(p.pid)]
+                with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
+                    p = subprocess.Popen([str(GUARD), *args], cwd=str(self.sb.scratch), env=env,
+                                         stdout=out, stderr=err, start_new_session=True)
+                    # Wait for the exit but leave the child unreaped: its pid (and so its process
+                    # group id) can't be reused by an unrelated process while we look.
+                    os.waitid(os.P_PID, p.pid, os.WEXITED | os.WNOWAIT)
+                    ps = subprocess.run(["ps", "-A", "-o", "pgid=,pid=,command="], capture_output=True, text=True)
+                    code = p.wait(timeout=60)
+                    err.seek(0)
+                    self.assertNotEqual(code, 70, "not implemented: %s: %s" % (args, err.read().decode()))
+                left = [l for l in ps.stdout.splitlines()
+                        if len(l.split()) > 1 and l.split()[0] == str(p.pid) and l.split()[1] != str(p.pid)]
                 self.assertEqual(left, [], "processes left behind by %s" % (args,))
 
     def test_ac101_no_network(self):
@@ -666,7 +674,28 @@ class TestGc(LifecycleCase):
         self.has(g.out, "would close f (stale", g)
         c = self.close("f")
         self.ok(c)
-        self.assertLess(time.time() - start, 30, "lifecycle commands must not wait on the network")
+        # A hang guard only (AC-101 states no time bound); test_ac101_no_connection_to_the_remote
+        # is the deterministic check.
+        self.assertLess(time.time() - start, 120, "lifecycle commands must not wait on the network")
+
+    def test_ac101_no_connection_to_the_remote(self):
+        # Deterministic variant: the remote and every proxy point at a local tripwire.
+        net = Tripwire()
+        self.addCleanup(net.close)
+        env = dict(net.proxy_env(), TEAM_STALE_DAYS="0")
+        ws, repos, wts = self.pushed_ws("f", "A")
+        _, repos_g, _ = self.pushed_ws("g", "B")
+        self.sb.git(repos["A"], "remote", "set-url", "origin", net.url + "/A.git")
+        self.sb.git(repos["A"], "remote", "set-url", "--push", "origin", net.url + "/A.git")
+        self.assertEqual(self.status_of("f", env=env)[0], "stale")
+        self.ok(self.gc(env=env))
+        self.ok(self.close("f", env=env))
+        self.ok(self.gc("--apply", env=env))
+        self.assertEqual(net.connections, 0, "a lifecycle command contacted the remote")
+        # the tripwire itself works: a real fetch is counted
+        self.sb.git(repos_g["B"], "remote", "set-url", "origin", net.url + "/B.git")
+        self.sb.git(repos_g["B"], "fetch", "-q", "origin", check=False, env=net.proxy_env())
+        self.assertGreaterEqual(net.connections, 1)
 
     def test_ac101_remote_tracking_refs_decide_unpushed(self):
         ws, repos, wts = self.pushed_ws("f", "A")
