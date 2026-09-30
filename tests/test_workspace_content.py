@@ -175,7 +175,7 @@ class TestSuite(ContentCase):
         def git(*args):
             return subprocess.run(["git", "-C", str(ROOT), *args], capture_output=True, text=True, timeout=60)
         if git("rev-parse", "--verify", "-q", "main").returncode != 0:
-            self.skipTest("SKIPPED AC-" "59: no local main branch to diff tests/run.sh against")
+            self.skipTest("SKIPPED: no local main branch to diff tests/run.sh against")
         base = git("merge-base", "HEAD", "main").stdout.strip()
         diff = git("diff", base, "--", "tests/run.sh")
         self.assertEqual(diff.returncode, 0, diff.stderr)
@@ -202,8 +202,8 @@ class TestSuite(ContentCase):
                   "test_verify_passes_iff_all_sealed_files_match_property", "test_verify_reports_violations_per_repo",
                   "sealed_ws"):
             self.assertIn(n, guard)
-        self.assertIn('"history": []', guard, "legacy lock fixture (AC" "-36)")
-        self.assertIn("reflog", guard, "rebase/squash then verify (AC" "-33)")
+        self.assertIn('"history": []', guard, "the guard suite covers a legacy lock without blob hashes")
+        self.assertIn("reflog", guard, "the guard suite covers verify after a rebase or squash")
         self.assertIn("rebase", guard)
 
 

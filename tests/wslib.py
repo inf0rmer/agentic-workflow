@@ -256,7 +256,7 @@ class WSTestCase(unittest.TestCase):
         # dir inside it; no command may have written there.
         left = sorted(os.listdir(self.sb.home)) if self.sb.home.exists() else []
         if left:
-            raise AssertionError("AC-" "70: something wrote into HOME: %s" % left)
+            raise AssertionError("a command wrote into HOME, outside the sandbox temp dir: %s" % left)
 
     # -- assertions ----------------------------------------------------------
 
