@@ -133,7 +133,8 @@ The exact surface the tests will call: function and type signatures, HTTP endpoi
 
 ## Slice order (Full only)
 
-The order in which slices are built and sealed, and what each slice delivers.
+The order in which slices are built and sealed, and what each slice delivers. Each slice gets an estimated review size in changed lines, within the review budget.
+A slice expected over budget gives an exception: why it can't be split into coherent vertical pieces. Approving the contract approves the exception.
 
 ## Test environment
 
@@ -192,4 +193,5 @@ Expected end-to-end latency breakdown.
 - Guide, don't dictate. Give engineers the mental model and the "why."
 - Never invent a design decision. If a decision doesn't exist for something you need, raise it at the design gate.
 - Every feature has a `contract.md`, and every acceptance criterion appears in its sprint contract.
+- Slice order respects the review budget (about 400 changed lines to review per PR). Split any slice expected to exceed it before the human gate, unless it is a coherent vertical slice you state as an exception.
 - Keep internals out of `contract.md`. If the tester needs it to write a test, it's part of the public contract; otherwise leave it out.

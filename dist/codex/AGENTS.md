@@ -95,7 +95,7 @@ An unknown answer counts as "yes", so uncertainty routes to more process: read i
 | # | Condition | Variant |
 |---|---|---|
 | 1 | The request is exploratory: "can this work?" or "what's the shape of it?", with no plan to ship it as is | **Spike** |
-| 2 | Security-relevant (5): flag it to the human now, since security questions stop a goal | **Full** |
+| 2 | Security-relevant (5): flag it to the human now, since security questions stop the lead | **Full** |
 | 3 | More than one repo, a public contract, persisted data, cross-team, or not revertible | **Full** |
 | 4 | An open design question, or more than 15 files | **Standard** |
 | 5 | A defect with a repro, 15 files or fewer, no flags | **Bug fix** |
@@ -181,49 +181,11 @@ These apply to every variant.
 - **Timing.** The lead records the wall time of each step in `routing.md`.
 - **Unsigned commits during the run.** Agents commit unsigned with `git -c commit.gpgsign=false commit …`, a per-command setting that writes no config: it exists only in that command in the agent session environment, never in repo or global config. If a commit still asks to sign, stop and report it; never run `git config` for signing. After the human's code-review approval at the human gate, and before anything is pushed, the lead runs `team-guard sign` to re-sign every commit on the branch in every attached repo, with the human's key through their configured signer; whether the signer prompts the human depends on its approval settings. `team-guard sign` refuses a dirty or mid-rebase checkout, restores the branch if anything fails, and warns when another pre-commit hook runs on every amend. Seals check file contents, so the new commit IDs don't break them.
 
-### Keep the loop running with `/goal`
+### How the lead runs the steps
 
-Run the lead session under a goal so it keeps driving the steps without a prompt each time. Codex attaches the goal to the active chat as a persistent objective (`/goal` shows it; `/goal pause`, `resume`, `edit`, and `clear` manage it), and `max_goal_token_budget` in `config.toml` caps its spend. Codex's docs don't say whether it starts new turns on its own; if it waits after a turn, send `continue` or resume the goal.
+The lead drives each step itself: it starts the next step only on the previous subagent's report, and stops at every design gate and at the human gate. It never pushes without the human's approval. It stops and hands to the human when blockers remain after the re-check, a Jev `DEFER` blocks the work, a security question comes up, or a step needs a human decision. It checks in with the human after a cap of turns per variant: Bug fix 20, Standard 40, Full 60. At each step it reports the latest test output and `team-guard verify` output as evidence, and the human's words at a gate count only as the approval rules in Design gate define them. The lead runs the design gate per slice where slices exist; Chore and Spike have no design gate.
 
-Use one goal per gate, so the evaluator can't carry the lead past a review that is still pending. Each goal ends at its gate and never at a push. Paste the one that applies, filling in the feature name and adjusting the turn cap. Chore and Spike run without a goal.
-
-**Design-gate goal (Standard, Full):**
-
-```text
-/goal Take the {feature} task to the design gate: the spec, `contract.md` and any options brief are written, and the review is with the human, each round's comments answered by the owner of the file. Stop at the design gate and wait for the human's approval: zero comments in Crit, or the literal reply `approve design` in the chat fallback; nothing else counts. Do not start tests or the scaffold. After each turn, print the step you are in. Stop and hand to the human instead if a security question comes up, a step is blocked on a human decision, or 20 turns have passed. Never push.
-```
-
-**D1 goal (split gates):**
-
-```text
-/goal Take the {feature} task to the D1 gate: the spec and the options brief are written, and the review is with the human, each round's comments answered by the owner of the file. Stop at the D1 gate and wait for the human's approval: zero comments in Crit, or the literal reply `approve D1` in the chat fallback; nothing else counts. Do not write the contract. After each turn, print the step you are in. Stop and hand to the human instead if a security question comes up, a step is blocked on a human decision, or 20 turns have passed. Never push.
-```
-
-**D2 goal (split gates):**
-
-```text
-/goal Take the {feature} task through the D2 gate: `contract.md` and the ADRs from D1 are written, and the review is with the human, each round's comments answered by the owner of the file. Stop at the D2 gate and wait for the human's approval: zero comments in Crit, or the literal reply `approve D2` in the chat fallback; nothing else counts. Do not start tests or the scaffold. After each turn, print the step you are in. Stop and hand to the human instead if a security question comes up, a step is blocked on a human decision, or 20 turns have passed. Never push.
-```
-
-**Human-gate goal (Bug fix):**
-
-```text
-/goal The {feature} fix has reached the human gate: the regression test passes, `team-guard verify` exits 0, and the last review report shows no blockers. After each turn, print the latest output of the regression test run and `team-guard verify`, and the step you are in. The sealed test may change only through the tester's logged unseal and reseal. Stop at the human gate. Stop and hand to the human instead if blockers remain after the re-check, a Jev verdict is DEFER and blocks the work, a security question comes up, a step is blocked on a human decision, or 20 turns have passed. Never push.
-```
-
-**Human-gate goal (Standard):**
-
-```text
-/goal The {feature} team has reached the human gate: the sealed tests pass, `team-guard verify` exits 0, and the report of the pass that ended the review (the first pass if it had no blockers or majors, otherwise the re-check) shows no blockers and a holdout satisfaction score. After each turn, print the latest output of the sealed test run and `team-guard verify`, and the step you are in. No sealed test may change except through the tester's logged unseal and reseal. Stop at the human gate. Stop and hand to the human instead if blockers remain after the re-check, a Jev verdict is DEFER and blocks the work, a security question comes up, a step is blocked on a human decision, or 40 turns have passed. Never push.
-```
-
-**Human-gate goal (Full):**
-
-```text
-/goal The {feature} team has reached the human gate: every slice's sealed tests pass, `team-guard verify` exits 0, any opted-in mutation results are in the report, and the report of the pass that ended the review (the first pass if it had no blockers or majors, otherwise the re-check) shows no blockers and a holdout satisfaction score. After each turn, print the latest output of the sealed test run and `team-guard verify`, and the step you are in. No sealed test may change except through the tester's logged unseal and reseal. Stop at the human gate. Stop and hand to the human instead if blockers remain after the re-check, a Jev verdict is DEFER and blocks the work, a security question comes up, a step is blocked on a human decision, or 60 turns have passed. Never push.
-```
-
-Keep the condition built on evidence the session prints — test results, exit codes, the review report — not on an agent's claim that it's done. The evaluator can only judge what appears in the conversation. The goal doesn't add a review round: after the re-check, the goal is met only by handing to the human.
+If a slice is over budget (see Commit messages and PRs) and the contract states no exception, the lead sends it back to the architect to split before the human gate. An exception is in force once the human approves the contract at the design gate. A slice that is over budget at the human gate without one needs an explicit `approve over budget` from the human; the lead then runs `team-guard routing record step --step over-budget-approved --seconds 0`.
 
 ### Context isolation
 
@@ -270,8 +232,10 @@ Every PR carries an advisory merge-risk footer of High, Medium or Low, with a re
 Merge risk: high (advisory) — changes the stored config format; a revert needs the old format restored.
 ```
 
-The level comes from a rule table over facts about the change, checked top-down: persisted data or migrations, a breaking public-contract change (or one of unknown kind), several repos, auth or security, or hard to revert give High; an additive public-contract change, user-visible behavior, more than 15 files or 500 changed non-test lines, deploy, CI or config files, a major fixed in review, an unseal, skipped mutation testing on a risk-flagged module, or any holdout scenario failing (variants with no holdouts never trigger this) give Medium; none of those (docs, tests, or an internal change within limits) gives Low. Any unknown input counts as "yes". Review findings, unseals and skipped mutation testing can only raise the level, never lower it. The reason is the one or two highest rules that fired, in project terms. `team-guard risk` computes the level from the routing answers, git facts and the process flags `--majors-fixed`, `--holdouts-failed` and `--mutation-skipped`. The lead runs it before adding the footer, and `--packet` prints the rules and inputs for the human's review packet. Review outcomes, holdout scores and unseals stay in the human's review packet, not in the footer.
+The level comes from a rule table over facts about the change, checked top-down: persisted data or migrations, a breaking public-contract change (or one of unknown kind), several repos, auth or security, or hard to revert give High; an additive public-contract change, user-visible behavior, more than 15 files or a change over the review budget, deploy, CI or config files, a major fixed in review, an unseal, skipped mutation testing on a risk-flagged module, or any holdout scenario failing (variants with no holdouts never trigger this) give Medium; none of those (docs, tests, or an internal change) gives Low. Any unknown input counts as "yes". Review findings, unseals and skipped mutation testing can only raise the level, never lower it. The footer never names size: the reason is the one or two highest scope rules that fired, in project terms, and size alone leaves it without a reason. `team-guard risk` computes the level from the routing answers, git facts and the process flags `--majors-fixed`, `--holdouts-failed` and `--mutation-skipped`. The lead runs it before adding the footer, and `--packet` prints the rules and inputs for the human's review packet. Review outcomes, holdout scores and unseals stay in the human's review packet, not in the footer.
 
 ### Commit messages and PRs
 
 Commit messages and PR descriptions must read as ordinary project changes. Don't use workflow jargon in them: no "sealed", "holdout", "Jev", or "mutation survivors". Describe what changed and why, in the project's own terms.
+
+In Full, each slice gets its own PR, opened once that slice passes its review and stacked on the previous slice's branch when it depends on it. The human code-reviews each slice's PR, and only after that approval does the lead run `team-guard sign` and push, per slice. When a base PR merges, the lead retargets the next with `gh pr edit <n> --base <branch>` and re-runs `team-guard sign` if it rebased. Standard, Bug fix and Chore produce one PR, and Spike no PR. Each PR stays within about 400 changed lines to review (tests and generated code excluded; `--pr-budget N` or `TEAM_PR_BUDGET` changes it), and `team-guard risk` warns past it. The PR description carries a `Where to look` section in project terms, copied from `review-guide.md`, which the reviewer of the pass that ends the review writes in the workspace dir.

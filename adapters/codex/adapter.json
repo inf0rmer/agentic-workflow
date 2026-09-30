@@ -23,7 +23,6 @@
     "agent_ext": ".toml",
     "ask_tester": "stop and report to the lead, who relays it to the tester,",
     "skills_dir": "~/.agents/skills",
-    "goal_mechanics": "Codex attaches the goal to the active chat as a persistent objective (`/goal` shows it; `/goal pause`, `resume`, `edit`, and `clear` manage it), and `max_goal_token_budget` in `config.toml` caps its spend. Codex's docs don't say whether it starts new turns on its own; if it waits after a turn, send `continue` or resume the goal.",
     "skill_call": "mention",
     "skill_sigil": "$",
     "user_skill_sigil": "$"

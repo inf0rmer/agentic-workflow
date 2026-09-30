@@ -232,8 +232,9 @@ Merge risk: high (advisory) — changes the stored config format; a revert needs
 ```
 
 The level comes from a table checked top-down over facts about the change: persisted data, a breaking public-contract change, several repos, security or a hard revert give High.
-An additive public-contract change, user-visible behavior, more than 15 files or 500 changed non-test lines, deploy, CI or config files, a major fixed in review, an unseal, skipped mutation testing on a risk-flagged module, or any failed holdout scenario (variants with no holdouts never trigger this) give Medium; anything else (docs, tests, or an internal change within limits) gives Low.
+An additive public-contract change, user-visible behavior, more than 15 files or a change over the review budget, deploy, CI or config files, a major fixed in review, an unseal, skipped mutation testing on a risk-flagged module, or any failed holdout scenario (variants with no holdouts never trigger this) give Medium; anything else (docs, tests, or an internal change) gives Low.
 Any unknown input counts as "yes", and review findings, unseals and skipped mutation testing can only raise the level.
+The footer never names size: size alone adds no reason text.
 `team-guard risk` computes the level, and `--packet` prints the rules and inputs for your review packet.
 
 ## Close out
@@ -252,15 +253,23 @@ Separate agents only help if their contexts stay separate.
 - **Reviewer:** the spawn prompt holds the spec, `contract.md`, and the base branch. The re-check gets a new reviewer, with the first report but not the engineer's explanations.
 - **Holdout scenarios:** they live outside every repo and the workspace dir. Nobody mentions their content to the engineer.
 
-## Drive the loop with `/goal`
+## How the lead runs the steps
 
-You can run the lead session under a `/goal` so it keeps moving on its own.
-There is one goal per gate: the design gate (with separate D1 and D2 goals when the gates are split) and the human gate, with a human-gate goal for each of Bug fix, Standard and Full.
-Each goal ends at its gate, never at a push.
-Copy the one you need from the global instructions (`CLAUDE.md` or `AGENTS.md`) and fill in the feature name.
+The lead drives each step itself and starts the next only on the previous subagent's report.
+It stops at every design gate and at the human gate, and never pushes without your approval.
+It hands to you when blockers remain after the re-check, a Jev verdict is `DEFER` and blocks the work, a security question comes up, or a step needs your decision.
+It checks in after a cap of turns per variant (Bug fix 20, Standard 40, Full 60), and shows test and `team-guard verify` output at each step.
 
-The human-gate goal stops and hands to you when blockers remain after the re-check, a Jev verdict is `DEFER` and blocks the work, or a security question comes up.
-It also stops when a step is blocked on your decision, or after its turn cap.
+## Keep each PR reviewable
+
+In Full, each slice gets its own PR, opened once the slice passes review and stacked on the previous slice's branch when it depends on it.
+You review each slice's PR; the lead re-signs and pushes per slice only after your approval, and retargets the next PR with `gh pr edit` when a base merges.
+Standard, Bug fix and Chore produce one PR; a Spike produces none.
+Each PR stays within about 400 changed lines to review, excluding tests and generated code.
+Change the budget with `--pr-budget N` or `TEAM_PR_BUDGET`.
+A slice that cannot be split into coherent vertical pieces states why in the contract, and approving the contract approves that exception.
+Otherwise, over budget at the human gate, the lead asks you to reply `approve over budget`.
+The reviewer who ends the review writes `review-guide.md` in the workspace dir (`Where to look first`, `Checked mechanically`, `Not verified`, `Provisional decisions`), and the PR description carries its `Where to look` section.
 
 ## Write commits and PRs in project terms
 
