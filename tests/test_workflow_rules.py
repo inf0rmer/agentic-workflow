@@ -78,8 +78,8 @@ GOALS = [
 FOOTER_LINE = r"Merge risk: (high|medium|low) \(advisory\) — \S"
 PLAIN_WORDS_BANNED = [r"sealed", r"holdout", r"Jev", r"mutation survivors"]
 
-# Something that does not exist yet: any line naming it must also say it is planned.
-PLANNED_GRILLING = [r"grilling"]
+# The grilling skill is vendored now: no line naming it may call it planned.
+AVAILABLE_GRILLING = [r"grilling"]
 # Tools that now exist: no line naming one may still call it planned.
 AVAILABLE_ROUTING_LOG = [r"routing-log\.jsonl"]
 AVAILABLE_MUTATION_LIMITS = [r"mutation-check.{0,80}(disk|concurrency|clean)"]
@@ -357,7 +357,7 @@ class TestStepsAndDesignGate(RulesCase):
                                 r"doc-writer.{0,60}only when user-facing docs change")
         for name, doc in list(instr_texts().items()) + [("docs/workflow.md", read(WF))]:
             self.assert_lacks(name, doc, r"4 steps", r"four steps")
-        self.assert_only_planned(PLANNED_GRILLING)
+        self.assert_not_planned(AVAILABLE_GRILLING)
 
     def test_e2e_tests_run_once_against_live_base_app_before_sealing(self):
         docs = dict(agent_texts("tester"))

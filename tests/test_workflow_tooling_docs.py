@@ -23,7 +23,7 @@ DEFAULTS = [r"--min-free-gb[^\n]{0,120}\b20\b", r"--max-concurrency[^\n]{0,120}\
 AVAILABLE = [r"team-guard (refs|routing|risk|sign|gate)", r"routing-log\.jsonl",
              r"mutation-check.{0,80}(disk|concurrency|clean)", r"--min-free-gb|--max-concurrency|--time-box|--sample",
              r"re-sign command", r"merge-risk.{0,40}script", r"core\.hooksPath"]
-STILL_PLANNED = [r"grilling", r"vendor-check", r"seal.{0,80}gate record|gate record.{0,80}seal"]
+STILL_PLANNED = [r"seal.{0,80}gate record|gate record.{0,80}seal"]
 
 
 def paragraphs(doc):
