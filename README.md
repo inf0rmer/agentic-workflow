@@ -8,6 +8,16 @@ The first commit is a snapshot of the previous workflow. The workflow is written
 git diff 78427bc HEAD -M -- agents CLAUDE.md dist/claude-code
 ```
 
+## Documentation
+
+Guides live in [docs/](./docs/README.md):
+
+- [Workflow](./docs/workflow.md): the five phases, the review loop, and the human gate.
+- [Workspaces](./docs/workspaces.md): set up, close, and collect per-feature workspaces.
+- [Guard rails](./docs/guard-rails.md): sealed tests, the three enforcement layers, and mutation testing.
+- [Decisions with Jev](./docs/decisions-with-jev.md): when to ask Jev, and what each verdict means.
+- [Harnesses](./docs/harnesses.md): how `build.py` renders and installs the workflow for Claude Code and Codex.
+
 ## What changed and why
 
 The old workflow had the engineer and tester, on the same model and reading the same docs, write tests alongside or after the code. Their tests shared the code's blind spots. The redesign is grounded in current research on agentic software factories:
