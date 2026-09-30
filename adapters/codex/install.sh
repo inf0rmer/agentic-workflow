@@ -24,6 +24,11 @@ sed "s#@HOME@#$HOME#g" "$HERE/team.rules.template" > "$DEST/rules/agentic-workfl
 for skill in "$DIST"/skills/*/; do
   name=$(basename "$skill")
   target="$SKILLS/$name"
+  saved_denylist=
+  if [[ "$name" == jev-decide && -f "$target/denylist.txt" ]]; then
+    saved_denylist=$(mktemp)
+    cp -L "$target/denylist.txt" "$saved_denylist"   # follows a symlink to read the real file
+  fi
   mkdir -p "$BACKUP/skills"
   if [[ -L "$target" ]]; then
     # A symlink (for example into a skills.sh store): keep the link itself, and never write through it.
@@ -35,10 +40,17 @@ for skill in "$DIST"/skills/*/; do
   fi
   mkdir -p "$target"
   cp -R "$skill". "$SKILLS/$name/"
+  if [[ -n "$saved_denylist" ]]; then
+    cp "$saved_denylist" "$target/denylist.txt"
+    rm -f "$saved_denylist"
+    echo "note: kept your existing jev-decide denylist.txt ($target)."
+  fi
   # The denylist is yours, not the repo's: create it once, never overwrite it.
-  [[ "$name" != jev-decide || -f "$SKILLS/$name/denylist.txt" ]] || printf '%s\n' \
-    "# Names that must never be sent to Jev: one per line, matched case-insensitively as whole words." \
-    > "$SKILLS/$name/denylist.txt"
+  if [[ "$name" == jev-decide && ! -f "$target/denylist.txt" ]]; then
+    printf '%s\n' "# Names that must never be sent to Jev: one per line, matched case-insensitively as whole words." \
+      > "$target/denylist.txt"
+    echo "note: created an empty jev-decide denylist.txt; none existed."
+  fi
 done
 
 if [[ -e "$SKILLS/tdd" || -L "$SKILLS/tdd" ]]; then

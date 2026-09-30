@@ -93,6 +93,7 @@ If it doesn't load, the lead can put `$tdd-inner-loop` in the engineer's spawn p
 Each installer runs `tests/run.sh` first, backs up what it replaces to `backups/agentic-workflow-<timestamp>/` in the harness home, and copies the build.
 That includes every skill directory it is about to write, under `skills/` in the backup.
 If a skill's target is a symlink, for example into a `skills.sh` store, the installer backs up the link itself and replaces it with a real directory, so it never writes through the link.
+The Jev denylist is never emptied: when `jev-decide` is replaced, including through a symlink, the installer reads your existing `denylist.txt` (following the link) and copies it into the new directory, and it creates the empty default only when no denylist existed. It prints a note either way.
 If an upstream `tdd` skill is installed, it warns that its trigger phrases can fire in the tester and suggests removing it; it never deletes it.
 Neither installer edits your settings or merges hooks.
 
