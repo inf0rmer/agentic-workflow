@@ -183,5 +183,8 @@ fi
 echo "== workspaces (tests/test_workspace_*.py)"
 python3 "$ROOT/tests/run_workspace_tests.py" 'test_workspace_*.py' || fails=$((fails + 1))
 
+echo "== workflow rules (tests/test_workflow_*.py)"
+python3 "$ROOT/tests/run_workspace_tests.py" 'test_workflow_*.py' || fails=$((fails + 1))
+
 echo
 [[ $fails -eq 0 ]] && echo "all tests passed" || { echo "$fails test(s) failed"; exit 1; }
