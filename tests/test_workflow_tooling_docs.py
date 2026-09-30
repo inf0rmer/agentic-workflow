@@ -99,20 +99,24 @@ class TestToolingDocs(unittest.TestCase):
                 self.assertIn("breaking public-contract change", sec)
                 self.assertIn("additive public-contract change", sec)
 
-    def test_the_human_runs_sign_and_the_lead_only_prepares_it(self):
+    def test_the_lead_runs_sign_after_approval_and_the_human_gets_the_prompt(self):
         targets = {"instructions/" + k: section(v, H_SPEED) for k, v in instr_texts().items()}
         targets["docs/workflow.md"] = read(WF)
         targets["docs/guard-rails.md"] = read(GUARD_RAILS)
         for name, text in targets.items():
             with self.subTest(file=name):
                 self.assertIsNotNone(text)
-                self.paragraph_with(name, text, r"team-guard sign", r"human")
-        for name, doc in instr_texts().items():
+                self.paragraph_with(name, text, r"\blead\b[^.]*\bruns?\b[^.]*team-guard sign", r"approv",
+                                    r"before (any|anything is) push")
+                self.paragraph_with(name, text, r"team-guard sign|signing|sign(s|ed)?\b", r"prompt", r"\bhuman")
+        rendered = dict(("instructions/" + k, v) for k, v in instr_texts().items())
+        for role in ROLES:
+            rendered.update(agent_texts(role))
+        rendered.update({"README.md": read(README), "docs/workflow.md": read(WF), "docs/guard-rails.md": read(GUARD_RAILS)})
+        for name, doc in rendered.items():
             with self.subTest(file=name):
-                self.paragraph_with(name, section(doc, H_SPEED) or "", r"team-guard sign", r"lead",
-                                    r"prepares", r"never runs")
-                for line in doc.splitlines():
-                    self.assertNotRegex(line, re.compile(r"\blead\b.*\bruns? team-guard sign", re.I))
+                self.assertNotRegex(doc, re.compile(r"lead (only )?prepares|prepares the (sign )?command|"
+                                                    r"never runs `?team-guard sign", re.I))
 
     def test_tester_role_has_no_phase_wording(self):
         texts = {"core/roles/tester.md": read(ROOT / "core" / "roles" / "tester.md")}
