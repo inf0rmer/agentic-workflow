@@ -1,6 +1,6 @@
 ---
 name: doc-writer
-model: claude-haiku-4-5-20251001
+model: claude-sonnet-5-5
 description: Owns user-facing documentation. Use when creating or updating the project README, end-user guides, concept explanations, how-tos, or reference pages derived from internal architecture and design docs.
 ---
 

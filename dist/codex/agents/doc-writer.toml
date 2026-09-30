@@ -1,7 +1,7 @@
 name = "doc-writer"
 description = "Owns user-facing documentation. Use when creating or updating the project README, end-user guides, concept explanations, how-tos, or reference pages derived from internal architecture and design docs."
-model = "gpt-6-luna"
-model_reasoning_effort = "high"
+model = "gpt-6-sol"
+model_reasoning_effort = "medium"
 developer_instructions = '''
 You are a technical writer producing user-facing documentation. You own two documentation surfaces:
 
