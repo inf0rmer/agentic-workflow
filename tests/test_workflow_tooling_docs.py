@@ -20,10 +20,10 @@ COMMANDS = ["team-guard refs", "team-guard routing record", "team-guard routing 
 NEEDLES = COMMANDS + ["--min-free-gb", "--max-concurrency", "--time-box", "--sample", "core.hooksPath"]
 DEFAULTS = [r"--min-free-gb[^\n]{0,120}\b20\b", r"--max-concurrency[^\n]{0,120}\b2\b",
             r"--time-box[^\n]{0,120}\b15\b", r"--sample[^\n]{0,120}\b50\b"]
-AVAILABLE = [r"team-guard (refs|routing|risk|sign)", r"routing-log\.jsonl",
+AVAILABLE = [r"team-guard (refs|routing|risk|sign|gate)", r"routing-log\.jsonl",
              r"mutation-check.{0,80}(disk|concurrency|clean)", r"--min-free-gb|--max-concurrency|--time-box|--sample",
              r"re-sign command", r"merge-risk.{0,40}script", r"core\.hooksPath"]
-STILL_PLANNED = [r"grilling", r"vendor-check", r"design-gate\.md.{0,60}hash|hash.{0,60}design-gate\.md"]
+STILL_PLANNED = [r"grilling", r"vendor-check", r"seal.{0,80}gate record|gate record.{0,80}seal"]
 
 
 def paragraphs(doc):

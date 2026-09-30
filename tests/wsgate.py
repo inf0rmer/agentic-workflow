@@ -75,6 +75,15 @@ def sha(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
+def verdict_line(gate, n, approved, k):
+    """The last line gate review prints for a finished round."""
+    return "gate %s round %d: approved=%s comments=%d" % (gate, n, "true" if approved else "false", k)
+
+
+def export_name(gate, n):
+    return "%s-round%d.json" % (gate, n)
+
+
 def today():
     return time.strftime("%Y-%m-%d", time.gmtime())
 
