@@ -78,12 +78,13 @@ GOALS = [
 FOOTER_LINE = r"Merge risk: (high|medium|low) \(advisory\) — \S"
 PLAIN_WORDS_BANNED = [r"sealed", r"holdout", r"Jev", r"mutation survivors"]
 
-# Things that do not exist yet: any line naming one must also say it is planned.
-PLANNED_ROUTING_LOG = [r"routing-log\.jsonl"]
+# Something that does not exist yet: any line naming it must also say it is planned.
 PLANNED_GRILLING = [r"grilling"]
-PLANNED_MUTATION_LIMITS = [r"mutation-check.{0,80}(disk|concurrency|clean)"]
-PLANNED_RESIGN = [r"team-guard sign", r"re-sign command"]
-PLANNED_RISK_SCRIPT = [r"merge-risk.{0,40}script"]
+# Tools that now exist: no line naming one may still call it planned.
+AVAILABLE_ROUTING_LOG = [r"routing-log\.jsonl"]
+AVAILABLE_MUTATION_LIMITS = [r"mutation-check.{0,80}(disk|concurrency|clean)"]
+AVAILABLE_RESIGN = [r"team-guard sign", r"re-sign command"]
+AVAILABLE_RISK_SCRIPT = [r"merge-risk.{0,40}script"]
 
 
 # ---------------------------------------------------------------- helpers
@@ -241,6 +242,16 @@ class RulesCase(unittest.TestCase):
                             self.assertRegex(line, re.compile(r"planned", re.I),
                                              "%s presents %r as existing" % (name, p))
 
+    def assert_not_planned(self, patterns):
+        """No rendered line naming a tool that now exists still calls it planned."""
+        for name, doc in rendered_texts().items():
+            for line in doc.splitlines():
+                for p in patterns:
+                    if re.search(p, line, re.I):
+                        with self.subTest(file=name, line=line.strip()[:120]):
+                            self.assertNotRegex(line, re.compile(r"planned", re.I),
+                                                "%s still calls %r planned" % (name, p))
+
     def instr_section(self, heading):
         out = {}
         for name, doc in instr_texts().items():
@@ -316,13 +327,13 @@ class TestVariantsAndRouting(RulesCase):
             self.assert_has(name, sec, r"confirm(s)? or override(s)?", r"one line", r"Jev does not route",
                             r"upgraded mid-run", r"never downgraded", r"design question.{0,80}at least Standard")
 
-    def test_routing_and_step_times_are_recorded_and_shared_log_is_only_planned(self):
+    def test_routing_and_step_times_are_recorded_in_the_workspace_and_the_shared_log(self):
         for name, sec in self.instr_section(H_CHOOSING).items():
             self.assert_has(name, sec, r"routing\.md", r"wall time", r"~/\.agentic-workflow/routing-log\.jsonl",
-                            r"no tool writes it yet")
+                            r"team-guard routing record")
         for name, doc in instr_texts().items():
-            self.assert_lacks(name, doc, r"team-guard (route|routing|log)", r"routing-log (append|write)")
-        self.assert_only_planned(PLANNED_ROUTING_LOG)
+            self.assert_lacks(name, doc, r"routing-log (append|write)")
+        self.assert_not_planned(AVAILABLE_ROUTING_LOG)
 
 
 # ---------------------------------------------------------------- steps and design gate
@@ -416,8 +427,8 @@ class TestTestAndCodeRules(RulesCase):
                 self.assert_has(name, sec, *needles)
                 if role == "reviewer":
                     self.assert_has(name, sec, r"finding")
-        for name, doc in rendered_texts().items():
-            self.assert_lacks(name, doc, r"team-guard refs")
+        for name, doc in agent_texts("reviewer").items():
+            self.assert_has(name, doc, r"team-guard refs")
 
     def test_mutation_testing_is_off_by_default_and_sampled_when_on(self):
         for name, sec in self.instr_section(H_MUTATION).items():
@@ -431,7 +442,7 @@ class TestTestAndCodeRules(RulesCase):
         docs.update(agent_texts("reviewer"))
         for name, doc in docs.items():
             self.assert_lacks(name, doc, r"kill or justify every", r"kills or justifies", r"killed or justified")
-        self.assert_only_planned(PLANNED_MUTATION_LIMITS)
+        self.assert_not_planned(AVAILABLE_MUTATION_LIMITS)
         wf = read(WF)
         self.assert_has("docs/workflow.md", wf, r"Python has no supported mutation path")
         self.assert_lacks("docs/workflow.md", wf, r"kills or justifies every")
@@ -459,8 +470,8 @@ class TestSpeedGoalsFooter(RulesCase):
             self.assert_has(name, sec, r"followups\.md", r"neither a blocker nor security",
                             r"stays running between rounds", r"config changes", r"unsigned", r"session environment",
                             r"never in repo or global config", r"re-sign", r"every commit on the branch",
-                            r"before anything is pushed")
-        self.assert_only_planned(PLANNED_RESIGN)
+                            r"before anything is pushed", r"team-guard sign")
+        self.assert_not_planned(AVAILABLE_RESIGN)
 
     def test_one_goal_per_gate_each_stopping_at_its_gate(self):
         for name, sec in self.instr_section(H_GOAL).items():
@@ -484,13 +495,13 @@ class TestSpeedGoalsFooter(RulesCase):
             self.assert_has(name, sec, r"High", r"Medium", r"Low", r"advisory",
                             r"after the human approves the human-gate summary",
                             r'unknown input(s)? count(s)? as "?yes"?', r"only raise", r"review findings", r"unseals",
-                            r"skipped mutation testing", r"planned")
+                            r"skipped mutation testing", r"team-guard risk")
             with self.subTest(file=name):
                 examples = [l for l in sec.splitlines() if re.search(FOOTER_LINE, l, re.I)]
                 self.assertTrue(examples, "%s: no footer example line matching %r" % (name, FOOTER_LINE))
                 for line in examples:
                     self.assert_lacks("%s footer example" % name, line, *PLAIN_WORDS_BANNED)
-        self.assert_only_planned(PLANNED_RISK_SCRIPT)
+        self.assert_not_planned(AVAILABLE_RISK_SCRIPT)
 
 
 # ---------------------------------------------------------------- user docs, size, build
