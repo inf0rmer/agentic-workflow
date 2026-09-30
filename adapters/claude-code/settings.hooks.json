@@ -8,6 +8,13 @@
         ]
       }
     ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "~/.claude/team/bin/team-guard hook-stop", "timeout": 20 }
+        ]
+      }
+    ],
     "TaskCompleted": [
       {
         "hooks": [

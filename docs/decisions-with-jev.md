@@ -95,7 +95,7 @@ The script adds its own questions: whether the decision touches a public contrac
 flowchart TD
     V{"Verdict"} -->|"ACT"| A["Take the choice and note it:<br/>Decided via Jev: choice, reason"]
     V -->|"ESCALATE"| E["Take the normal path: architect or human<br/>Pass along Jev's choice and reasons"]
-    V -->|"DEFER"| D["Blocking or security: ask the human now<br/>Otherwise log it in questions.md and continue with your own PROVISIONAL choice"]
+    V -->|"DEFER"| D["Blocking, security, or no reversible choice: ask the human now<br/>Otherwise log it in questions.md with Jev's reasons and continue with your own reversible PROVISIONAL choice"]
     A --> P{"Blocked on a missing doc?"}
     E --> P
     P -->|"yes"| PR["Proceed with the choice marked PROVISIONAL<br/>The reviewer confirms or rejects it"]
@@ -180,4 +180,4 @@ Tune them from the decision log, not by guessing.
 
 ## Next steps
 
-- See where Jev fits in the phases in [Workflow](./workflow.md).
+- See where Jev fits in the steps in [Workflow](./workflow.md).

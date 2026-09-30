@@ -7,7 +7,7 @@
   },
   "vars": {
     "team_intro": "For significant features or changes that are more than a few lines of code, run a structured multi-agent workflow. You are the lead: start each role as a subagent using its agent type, and wait for its report before moving to the next step. Claude Code [agent teams](https://code.claude.com/docs/en/agent-teams) are an option only for parallel work within one step.",
-    "guard_hooks": "A `PreToolUse` hook blocks the engineer's edits to sealed files (in whichever attached repo the file lives) and holdout reads where the agent is identifiable, and a `TaskCompleted` hook blocks completing any task while a sealed test is modified.",
+    "guard_hooks": "A `PreToolUse` hook blocks the engineer's edits to sealed files (in whichever attached repo the file lives) and holdout reads where the agent is identifiable, a `SubagentStop` hook sends a subagent back to work while a sealed test is modified, and a `TaskCompleted` hook blocks completing any agent-team task while one is.",
     "bin": "~/.claude/team/bin",
     "agents_dir": "~/.claude/agents",
     "project_agents_dir": ".claude/agents",

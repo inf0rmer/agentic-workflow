@@ -6,7 +6,7 @@ Every task runs as one of five variants, sized to the work, with a design gate b
 flowchart TD
     Start["Task arrives"] --> Route{"Choose a variant<br/>checklist and rule table<br/>you confirm in one line"}
     Route -->|"Chore"| Chore["Chore<br/>checklist, one review"]
-    Route -->|"Bug fix"| Tests
+    Route -->|"Bug fix"| BugTest["Bug fix<br/>one sealed regression test"]
     Route -->|"Spike"| Spike["Spike<br/>time box, findings.md, one review"]
     Route -->|"Standard"| StdDesign["Design<br/>upfront questions, spec, lean contract"]
     Route -->|"Full"| FullDesign["Design<br/>upfront questions, spec, options brief if needed, contract"]
@@ -14,12 +14,14 @@ flowchart TD
     FullDesign --> Gate
     Gate --> Tests["Tests in parallel with the scaffold<br/>sealed tests and holdouts"]
     Tests --> Build["Build<br/>inner red-green loop"]
-    Build --> Review["One fresh review<br/>and a re-check of the fix diff"]
+    BugTest --> Build
+    Build --> Review["Fresh review<br/>Standard and Full add a re-check of the fix diff"]
+    Chore --> Review
     Review --> Human["Human gate<br/>code review, questions, re-sign"]
-    Chore --> Human
-    Spike --> Human
+    Spike --> SpikeHuman["Human reviews the branch and findings.md<br/>never merges as-is; re-run as Standard or Full"]
     Human -->|"approved"| Close["Docs if user-facing, close-out"]
-    Human -->|"sent back"| Build
+    Human -->|"sent back"| Rework["Fix, then back to review"]
+    Rework --> Review
 ```
 
 Run the whole team from one [workspace](./workspaces.md).
@@ -31,24 +33,24 @@ The lead answers ten questions about the task without reading any code, then app
 The first match wins, and an unknown answer counts as "yes", so uncertainty routes to more process.
 
 1. How many repos does it touch?
-2. Roughly how many files will change?
+2. Roughly how many files and lines change: 3 files or fewer, 4–15, or more than 15?
 3. Does it change a public contract?
 4. Does it touch persisted data or migrations?
 5. Does it touch security?
 6. Is it cross-team?
-7. Is it easy to revert?
-8. Is it user-facing?
+7. Can a plain `git revert` undo it?
+8. Does it change behavior a user can see?
 9. Is there an open design question?
 10. Is there a repro for a defect?
 
 | # | Condition | Variant |
 |---|---|---|
 | 1 | The request is exploratory ("can this work?", "what's the shape of it?") | Spike |
-| 2 | Any risk flag: public contract, persisted data, security, cross-team, hard to revert | Full |
-| 3 | It touches several repos | Full |
-| 4 | There is an open design question | Standard |
-| 5 | A defect with a repro and no risk flags | Bug fix |
-| 6 | Not user-facing, no behavior change | Chore |
+| 2 | Security-relevant (the lead flags it to you now) | Full |
+| 3 | More than one repo, a public contract, persisted data, cross-team, or not revertible | Full |
+| 4 | An open design question, or more than 15 files | Standard |
+| 5 | A defect with a repro, 15 files or fewer, no flags | Bug fix |
+| 6 | No behavior change a user can see, 3 files or fewer, no flags | Chore |
 | 7 | Anything else | Standard |
 
 The lead proposes the variant, and you confirm or override it in one line before work starts.
@@ -72,6 +74,7 @@ It produces a branch and a `findings.md`, gets one review and then your review, 
 To ship it, re-run as Standard or Full with the findings as input.
 
 The lead records the routing decision and the wall time of each step in `routing.md` in the workspace dir.
+A Chore has no workspace, so its record goes in the git directory.
 A shared log at `~/.agentic-workflow/routing-log.jsonl` is planned; no tool writes it yet.
 
 ## Steps by variant
@@ -84,11 +87,11 @@ Full and Standard both have five steps, followed by the human gate.
 2. **Design gate.** One review of the spec, the contract and any brief.
 3. **Tests in parallel with the scaffold.** The tester seals one test per criterion for each slice and writes 2–4 holdout scenarios, while the engineer scaffolds the contract as failing stubs.
 4. **Build.** The engineer makes the sealed tests pass with an inner red-green loop.
-5. **Review.** One fresh reviewer, then a targeted re-check of the fix diff only. The reviewer runs the holdouts.
+5. **Review.** One fresh reviewer, then a targeted re-check of the fix diff only. The holdouts run in the pass that ends the review: the first pass if it has no blockers or majors, otherwise the re-check.
 
 **Standard** has the same five steps, lighter: a lean contract, no options brief unless there is an open design question, 1–2 holdouts and no mutation testing.
 
-A Bug fix is one cycle: the lead writes 1–5 criteria, the tester seals one failing regression test, the engineer fixes it, and one fresh review follows.
+A Bug fix is one cycle: the lead writes 1–5 criteria, the tester seals one regression test that covers them and fails on the defect, the engineer fixes it, and one fresh review follows.
 A Chore is a checklist of up to three items and one review.
 
 The researcher is no longer a pipeline step.
@@ -104,7 +107,7 @@ The default is one design gate over the spec, `contract.md` and any brief.
 You discuss them, and each decision is recorded as an ADR in the workspace `adr/` directory.
 D1 (spec and brief) and D2 (contract and ADRs) run as separate reviews only when the brief has an open option and the contract depends on the choice.
 
-Nothing is sealed until the gate passes.
+Nothing is sealed until the gate passes (Bug fix and Chore have no gate).
 The gate passes when you finish the review with zero comments.
 The lead then writes `design-gate.md` with the sha256 of each reviewed file.
 If `contract.md` changes afterwards, the gate reopens.
@@ -145,11 +148,12 @@ sequenceDiagram
     E->>E: Make the sealed tests pass, inner loop underneath
     L->>R: Spawn with spec, contract.md, base branch
     R->>R: Guard rails first, then review the diff
-    alt No blockers
+    alt No blockers or majors
         R->>R: Run the holdout scenarios
         R->>L: Report and holdout satisfaction
     else Findings
-        R->>E: Findings
+        R->>L: Findings
+        L->>E: Relay the findings
         E->>E: Fix blockers and majors
         L->>R2: Spawn fresh with the first report
         R2->>R2: Re-check the fix diff, run the holdout scenarios
@@ -158,7 +162,7 @@ sequenceDiagram
     L->>H: Summary, report, satisfaction, decision log, questions
     alt Human approves
         H->>L: Approve
-        Note over L: Re-sign the branch, add the footer, push or open the PR
+        Note over H,L: Human re-signs every commit, lead adds the footer, then push or PR
     else Human sends it back
         H->>L: Feedback
     end
@@ -193,7 +197,7 @@ The tester unseals it, fixes it, commits, reseals, and notes the reason.
 Mutation testing is off by default in every variant.
 In Full it is opt-in for risk-flagged modules, and then it is sampled and time-boxed.
 Python has no supported mutation path.
-Hard limits in `mutation-check` (a free-disk check, capped concurrency, guaranteed cleanup, an enforced time box) are planned, so until they land the tester keeps the sample and the time box by hand.
+Sampling and hard limits in `mutation-check` (a free-disk check, capped concurrency, guaranteed cleanup, an enforced time box) are planned, so until they land the tester samples by hand and stops at the time box.
 
 ## Speed rules
 
@@ -201,7 +205,7 @@ Hard limits in `mutation-check` (a free-disk check, capped concurrency, guarante
 - **Subagents by default.** The lead starts one subagent per step. Agent-team teammates are used only for parallel work within one step.
 - **Scope stays fixed.** A finding that is neither a blocker nor security goes to `followups.md`, not into the current run.
 - **Warm environment.** The dev or e2e environment stays running between rounds and restarts only when its config changes.
-- **Unsigned commits, re-signed once.** Agents commit unsigned, set in their session environment only. Before anything is pushed, every commit on the branch is re-signed at the human gate. A re-sign command is planned; until then you re-sign by hand.
+- **Unsigned commits, re-signed once.** Agents commit unsigned with `git -c commit.gpgsign=false commit …`, a per-command setting that writes no config. After you approve the code review and before anything is pushed, every commit on the branch is re-signed. A re-sign command is planned; until then, in every attached repo, run `git rebase --keep-base --rebase-merges --exec 'git commit --amend --no-edit -S' <base>` and check with `git log --show-signature <base>..`.
 
 ## Human gate
 
@@ -225,6 +229,7 @@ Merge risk: high (advisory) — changes the stored config format; a revert needs
 ```
 
 The level comes from a table checked top-down over facts about the change: persisted data, a public contract, several repos, security or a hard revert give High.
+An additive contract change, user-visible behavior, more than 15 files or 500 changed non-test lines, deploy, CI or config files, a major fixed in review, an unseal, skipped mutation testing on a risk-flagged module, or low holdout satisfaction give Medium; anything else (docs, tests, or an internal change within limits) gives Low.
 Any unknown input counts as "yes", and review findings, unseals and skipped mutation testing can only raise the level.
 A script that computes the level is planned; until it exists the lead applies the table by hand.
 

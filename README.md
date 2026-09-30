@@ -112,7 +112,7 @@ Start the team from the workspace dir. Each attached worktree points back at its
 adapters/claude-code/install.sh
 ```
 
-Then merge `adapters/claude-code/settings.hooks.json` into `~/.claude/settings.json`: add the `PreToolUse` entry alongside your existing ones, add the `TaskCompleted` hook, and add the allow rules. The installer doesn't edit settings.
+Then merge `adapters/claude-code/settings.hooks.json` into `~/.claude/settings.json`: add the `PreToolUse` entry alongside your existing ones, add the `SubagentStop` and `TaskCompleted` hooks, and add the allow rules. The installer doesn't edit settings.
 
 The installer overwrites `~/.claude/CLAUDE.md` and the agent files (after backing them up). Make future edits in `core/`, rebuild, and reinstall, or the copies drift.
 
@@ -137,7 +137,7 @@ It installs `~/.codex/AGENTS.md`, one `~/.codex/agents/<role>.toml` per role, th
 | Step ordering | the lead starts one subagent per step and waits for its report | the lead spawns each step with `spawn_agent` (context not forked) and `wait_agent`s before the next |
 | Agent-to-agent messages | `SendMessage` | none between subagents: the engineer reports a disputed test to the lead |
 | Edit guard | `PreToolUse` on `Edit`/`Write` (`file_path`) | `PreToolUse` on `apply_patch` (paths parsed from the patch) |
-| Completion guard | `TaskCompleted`, exit 2 | `SubagentStop`, JSON `block` decision, once per stop |
+| Completion guard | `SubagentStop` (JSON `block` decision, once per stop) and `TaskCompleted` (exit 2, agent teams) | `SubagentStop`, JSON `block` decision, once per stop |
 | Tool permissions | allow rules in `settings.json` | `prefix_rule`s in `~/.codex/rules/` |
 | Skills | `~/.claude/skills/` | `~/.agents/skills/` (`$jev-decide`) |
 
@@ -145,7 +145,8 @@ Both harnesses share the workspace, holdout and archive directories under `~/.ag
 
 ## Known limits
 
-- **Three layers, from strongest to weakest.** (1) `team-guard verify` compares sealed files with the content hash recorded when they were sealed, so tampering is always *detected*, by any tool, at `TaskCompleted` and in review. (2) Git `pre-commit` and `pre-push` hooks, installed on first seal, *refuse* commits and pushes that change sealed tests in any harness; `--no-verify` bypasses them, which layer 1 still catches. (3) Harness hooks block edits *before* they happen, but only where the harness identifies the agent: Claude Code passes `agent_type` inside subagents, but documents no equivalent for agent-team teammates, and teammates don't apply a definition's frontmatter `hooks`.
+- **Three layers, from strongest to weakest.** (1) `team-guard verify` compares sealed files with the content hash recorded when they were sealed, so tampering is always *detected*, by any tool, at `SubagentStop`, `TaskCompleted` and in review. (2) Git `pre-commit` and `pre-push` hooks, installed on first seal, *refuse* commits and pushes that change sealed tests in any harness; `--no-verify` bypasses them, which layer 1 still catches. (3) Harness hooks block edits *before* they happen, but only where the harness identifies the agent: Claude Code passes `agent_type` inside subagents, but documents no equivalent for agent-team teammates, and teammates don't apply a definition's frontmatter `hooks`.
+- **The global Codex `AGENTS.md` is large.** At about 26 KB it leaves about 6.8 KB of Codex's 32 KiB cap for project `AGENTS.md` files.
 - **Other tools can replace the git hook.** Running `lefthook install` (as Grafana's `make lefthook-install` does) overwrites it; `team-guard verify` warns when that happens, and `team-guard git-hook install` re-chains it.
 - **Workspaces are per feature and local.** `team-guard` doesn't push, open PRs or enforce a ship order across repos; the order is recorded as a decision only. It isn't safe to run several `team-guard` commands against one workspace at once, and a repo can't be detached from a live workspace.
 - **Squash merges aren't detected.** A squash-merged branch isn't an ancestor of its base, so the workspace stays `active` until it goes stale; `workspace close` is the primary cleanup and `gc` the backstop.

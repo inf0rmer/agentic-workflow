@@ -73,7 +73,7 @@ It installs `~/.claude/CLAUDE.md`, `~/.claude/agents/*.md`, the tools in `~/.cla
 Then merge `adapters/claude-code/settings.hooks.json` into `~/.claude/settings.json`:
 
 - Add the `PreToolUse` entry, which runs `team-guard hook-pretool` on `Edit`, `Write`, `MultiEdit`, `NotebookEdit`, `Read`, `Grep`, and `Glob`, alongside your existing entries.
-- Add the `TaskCompleted` hook, which runs `team-guard hook-task`.
+- Add the `SubagentStop` hook, which runs `team-guard hook-stop`, and the `TaskCompleted` hook, which runs `team-guard hook-task` (for agent-team teammates).
 - Add the allow rules for `team-guard` and `mutation-check`.
 
 > **Caution:** The installer overwrites `~/.claude/CLAUDE.md` and the agent files, after backing them up. Make future edits in `core/`, rebuild, and reinstall, or the copies drift.
@@ -100,7 +100,7 @@ Then:
 | Step ordering | The lead starts one subagent per step and waits for its report | The lead spawns each step with `spawn_agent` and waits with `wait_agent` |
 | Agent-to-agent messages | `SendMessage` | None between subagents: the engineer reports a disputed test to the lead |
 | Edit guard | `PreToolUse` on `Edit` and `Write` (`file_path`) | `PreToolUse` on `apply_patch`, with paths parsed from the patch |
-| Completion guard | `TaskCompleted`, exit 2 | `SubagentStop`, a JSON `block` decision, once per stop |
+| Completion guard | `SubagentStop` (a JSON `block` decision, once per stop) and `TaskCompleted` (exit 2, agent teams) | `SubagentStop`, a JSON `block` decision, once per stop |
 | Agent identification | `agent_type` inside subagents, none documented for agent-team teammates | `agent_type` for subagents, omitted on the main thread |
 | Tool permissions | Allow rules in `settings.json` | `prefix_rule`s in `~/.codex/rules/` |
 | Skills | `~/.claude/skills/` | `~/.agents/skills/` (`$jev-decide`) |

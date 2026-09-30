@@ -78,31 +78,31 @@ A human reviews all code in every variant.
 Answer these ten questions about the task without reading any code:
 
 1. How many repos does it touch?
-2. Roughly how many files will change?
+2. Roughly how many files and lines change: 3 files or fewer, 4–15, or more than 15?
 3. Does it change a public contract (API, CLI, file format, schema others rely on)?
 4. Does it touch persisted data or migrations?
 5. Does it touch security (auth, permissions, secrets, untrusted input)?
 6. Is it cross-team (another team owns something it changes or consumes)?
-7. Is it easy to revert?
-8. Is it user-facing?
+7. Can a plain `git revert` undo it?
+8. Does it change behavior a user can see? (Docs, comments, dependency bumps within semver and renames don't.)
 9. Is there an open design question?
 10. Is there a repro for a defect?
 
-An unknown answer counts as "yes" to a risk question (3 to 6, 9), to "hard to revert" (7) and to "user-facing" (8), so uncertainty routes to more process. The rule table is evaluated top-down and the first match wins:
+An unknown answer counts as "yes", so uncertainty routes to more process: read it as several repos (1), more than 15 files (2), a flag (3 to 6, 9), not revertible (7) and user-visible behavior (8). An unknown repro (10) counts as no repro. The rule table is evaluated top-down and the first match wins:
 
 | # | Condition | Variant |
 |---|---|---|
 | 1 | The request is exploratory: "can this work?" or "what's the shape of it?", with no plan to ship it as is | **Spike** |
-| 2 | Any risk flag: public contract, persisted data, security, cross-team, or hard to revert | **Full** |
-| 3 | It touches several repos | **Full** |
-| 4 | There is an open design question | **Standard** |
-| 5 | It is a defect with a repro and no risk flags | **Bug fix** |
-| 6 | It is not user-facing and changes no behavior (docs, bumps, renames) | **Chore** |
+| 2 | Security-relevant (5): flag it to the human now, since security questions stop a goal | **Full** |
+| 3 | More than one repo, a public contract, persisted data, cross-team, or not revertible | **Full** |
+| 4 | An open design question, or more than 15 files | **Standard** |
+| 5 | A defect with a repro, 15 files or fewer, no flags | **Bug fix** |
+| 6 | No behavior change a user can see, 3 files or fewer, no flags | **Chore** |
 | 7 | Anything else: a new or changed behavior in one repo | **Standard** |
 
 The lead proposes the variant with its reason, and the human confirms or overrides it in one line before any work starts. Jev does not route. A variant may be upgraded mid-run and is never downgraded. A design question moves a task up to at least Standard.
 
-The lead records the routing decision, and the wall time of each step, in `routing.md` in the workspace dir. A shared append-only log at `~/.agentic-workflow/routing-log.jsonl` is planned; no tool writes it yet, so don't run a command for it.
+The lead records the routing decision, and the wall time of each step, in `routing.md` in the workspace dir. A Chore has no workspace, so its record goes in `routing.md` in the git directory (`git rev-parse --absolute-git-dir`), like the Jev log outside a workspace; never in the repo. A shared append-only log at `~/.agentic-workflow/routing-log.jsonl` is planned; no tool writes it yet, so don't run a command for it.
 
 ### Steps by variant
 
@@ -114,7 +114,7 @@ The lead records the routing decision, and the wall time of each step, in `routi
 2. **Design gate.** One review of the spec, `contract.md` and any brief; each decision becomes an ADR (see Design gate).
 3. **Tests in parallel with the scaffold.** The tester writes and seals one test per criterion for each slice, plus 2–4 holdout scenarios, while the engineer scaffolds the contract as failing stubs. The tester proves each test red against the stubs.
 4. **Build.** The engineer makes the sealed tests pass, using its inner red-green loop.
-5. **Fresh review and re-check.** One fresh reviewer reviews the diff against the spec and runs the holdouts, then a targeted re-check covers the fix diff only.
+5. **Fresh review and re-check.** One fresh reviewer reviews the diff against the spec, then a targeted re-check covers the fix diff only. The holdouts run in the pass that ends the review: the first pass if it has no blockers or majors, otherwise the re-check.
 
 **Standard (5 steps):**
 
@@ -122,11 +122,11 @@ The lead records the routing decision, and the wall time of each step, in `routi
 2. **Design gate.** One review of the spec and the contract (and the brief, if there is one).
 3. **Tests in parallel with the scaffold.** The tester writes and seals one test per criterion and 1–2 holdout scenarios while the engineer scaffolds the stubs.
 4. **Build.** The engineer makes the sealed tests pass with its inner loop.
-5. **Fresh review and re-check.** One fresh reviewer, then a targeted re-check of the fix diff only.
+5. **Fresh review and re-check.** One fresh reviewer, then a targeted re-check of the fix diff only. The holdouts run in the pass that ends the review, as in Full.
 
 Full and Standard both end at the **human gate**: the lead hands the human the change summary, the final review report, the holdout satisfaction, the decision log, the questions waiting in `questions.md`, and (for a feature spanning repos) the ship order with its reason, which the architect records in the workspace dir. Nothing is pushed without approval, and blockers that remain after the re-check go to the human.
 
-**Chore:** the engineer makes the change against a checklist of up to three items; one review; human code review. **Bug fix:** the lead writes a spec of one to five criteria; the tester seals one failing regression test; the engineer fixes it; one fresh review (a second only if there are blockers); human gate. **Spike:** see Workflow variants.
+**Chore:** the engineer makes the change against a checklist of up to three items; one review; human code review. **Bug fix:** the lead writes a spec of one to five criteria; the tester seals one regression test that covers them and fails on the defect; the engineer fixes it; one fresh review (a second only if there are blockers); human gate. **Spike:** see Workflow variants.
 
 The researcher is no longer a pipeline step: the architect absorbs the researcher's brief, and the researcher stays available for requests outside the pipeline. The doc-writer runs only when user-facing docs change. A `grilling` interview skill for the product-owner's upfront round is planned; until it is vendored, the product-owner asks the questions directly.
 
@@ -136,11 +136,11 @@ After the human merges, the product-owner closes out: roadmap and issues are upd
 
 The default is one design gate over the spec, `contract.md` and any brief. The human discusses them, and each decision is recorded as an ADR in the workspace `adr/` directory (`adr/NNNN-title.md`). D1 (spec and brief) and D2 (contract and ADRs) run as separate reviews only when the brief has an open option and the contract depends on the choice.
 
-Nothing is sealed until the gate passes. The gate passes when the human finishes the review with zero comments. The lead then writes `design-gate.md` in the workspace dir with the sha256 of each reviewed file. If `contract.md` changes afterwards, the gate reopens: the lead runs it again before any further tests are sealed.
+Nothing is sealed until the gate passes (Bug fix and Chore have no gate). The gate passes when the human finishes the review with zero comments. The lead then writes `design-gate.md` in the workspace dir with the sha256 of each reviewed file. If `contract.md` changes afterwards, the gate reopens: the lead runs it again before any further tests are sealed.
 
 ### Crit at a gate
 
-The lead reviews at a gate with Crit, locally. Review output goes under `<workspace>/.crit`, and `CRIT_NO_UPDATE_CHECK=1` is set. Each comment goes to the owner of the file it is on (the spec to the product-owner; the contract, brief and ADRs to the architect), who edits the file and replies. The lead never uses Crit's `share`, `push`, `pull` or `--pr` at a gate.
+In Claude Code, where Crit is installed, the lead reviews at a gate with Crit, locally. Review output goes under `<workspace>/.crit`, and `CRIT_NO_UPDATE_CHECK=1` is set. Each comment goes to the owner of the file it is on (the spec to the product-owner; the contract, brief and ADRs to the architect), who edits the file and replies. The lead never uses Crit's `share`, `push`, `pull` or `--pr` at a gate.
 
 Approval deletes the review data. So the lead exports each round's comments to `<workspace>/reviews/<gate>-round<N>.json` before re-running the review, and the threads survive. There is no wrapper or `team-guard` subcommand for Crit yet; the lead runs it directly.
 
@@ -150,13 +150,13 @@ Where Crit is unavailable, or the harness is Codex, the lead posts numbered ques
 
 ### Double-loop tests
 
-The isolated tester seals one test per criterion at a contract seam, plus a second only for a documented error or a stated invariant. End-to-end tests are not a default deliverable; the holdouts cover that. The engineer drives each sealed test green with an inner red-green loop of unit tests it owns; those are not sealed and are not evidence of a criterion. In Full, the tester seals per slice, just in time, from the spec and that slice's part of the contract. Bug fix is one cycle: the tester writes one sealed regression test that fails on the defect, and the engineer makes it pass.
+The isolated tester seals one test per criterion at a contract seam, plus a second only for a documented error or a stated invariant. End-to-end tests are not a default deliverable; the holdouts cover that. The engineer drives each sealed test green with an inner red-green loop of unit tests it owns; those are not sealed and are not evidence of a criterion. In Full, the tester seals per slice, just in time, from the spec and that slice's part of the contract. Bug fix is one cycle: the tester writes one sealed regression test that covers the criteria and fails on the defect, and the engineer makes it pass.
 
 When end-to-end tests are written, the tester runs them once against the live base app before sealing, to confirm the failure is "feature missing" and not a wrong selector, route or setup.
 
 ### Mutation testing
 
-Mutation testing is off by default in every variant. In Full it is opt-in for risk-flagged modules only, and then it is sampled and time-boxed: the tester runs a sample of mutants within a fixed time and writes a test for each survivor that matters, or a note on why it doesn't. Python has no supported mutation path. Hard limits in `mutation-check` (a free-disk check, capped concurrency, guaranteed cleanup, an enforced time box, sampling) are planned; until they land, the tester keeps the sample and the time box by hand and only runs it where the disk allows.
+Mutation testing is off by default in every variant. In Full it is opt-in for risk-flagged modules only, and then it is sampled and time-boxed: the tester runs a sample of mutants within a fixed time and writes a test for each survivor that matters, or a note on why it doesn't. Python has no supported mutation path. Hard limits in `mutation-check` (a free-disk check, capped concurrency, guaranteed cleanup, an enforced time box, sampling) are planned; until they land, the tester samples by hand (run only the risk-flagged package, or `--dry-run` and run a subset), stops at the time box, and only runs it where the disk allows.
 
 ### Speed rules
 
@@ -167,7 +167,7 @@ These apply to every variant.
 - **Scope stays fixed.** A finding that is neither a blocker nor security goes to `followups.md`, not into the current run. Cleanups across branches become a separate Chore.
 - **Warm environment.** The dev or e2e environment stays running between rounds and restarts only when its config changes.
 - **Timing.** The lead records the wall time of each step in `routing.md`.
-- **Unsigned commits during the run.** Agents commit unsigned, set in the agent session environment only, never in repo or global config. At the human gate every commit on the branch is re-signed, before anything is pushed, using the human's normal signing setup (usually one prompt for the whole branch). Seals check file contents, so the new commit IDs don't break them. A re-sign command is planned; until it exists the human re-signs by hand, for example with `git rebase --exec` and an amend that signs each commit.
+- **Unsigned commits during the run.** Agents commit unsigned with `git -c commit.gpgsign=false commit …`, a per-command setting that writes no config: it exists only in that command in the agent session environment, never in repo or global config. If a commit still asks to sign, stop and report it; never run `git config` for signing. At the human gate, after the human's code-review approval, every commit on the branch is re-signed, before anything is pushed, using the human's normal signing setup (usually one prompt for the whole branch). Seals check file contents, so the new commit IDs don't break them. A re-sign command is planned; until it exists this is a manual interim step. In every attached repo run `git rebase --keep-base --rebase-merges --exec 'git commit --amend --no-edit -S' <base>`, then check with `git log --show-signature <base>..`.
 
 ### Keep the loop running with `/goal`
 
@@ -178,37 +178,37 @@ Use one goal per gate, so the evaluator can't carry the lead past a review that 
 **Design-gate goal (Standard, Full):**
 
 ```text
-/goal Take the {feature} task to the design gate: the spec, `contract.md` and any options brief are written, and the human has the review open with each round's comments answered by the owner of the file. Stop at the design gate and wait for the human's zero-comment approval; do not start tests or the scaffold. After each turn, print the step you are in. Stop and hand to the human instead if a security question comes up, a step is blocked on a human decision, or 30 turns have passed. Never push.
+/goal Take the {feature} task to the design gate: the spec, `contract.md` and any options brief are written, and the review is with the human, each round's comments answered by the owner of the file. Stop at the design gate and wait for the human's approval: zero comments in Crit, or the literal reply `approve design` in the chat fallback; nothing else counts. Do not start tests or the scaffold. After each turn, print the step you are in. Stop and hand to the human instead if a security question comes up, a step is blocked on a human decision, or 20 turns have passed. Never push.
 ```
 
 **D1 goal (split gates):**
 
 ```text
-/goal Take the {feature} task to the D1 gate: the spec and the options brief are written, and the human has the review open with each round's comments answered by the owner of the file. Stop at the D1 gate and wait for the human's zero-comment approval; do not write the contract. After each turn, print the step you are in. Stop and hand to the human instead if a security question comes up, a step is blocked on a human decision, or 20 turns have passed. Never push.
+/goal Take the {feature} task to the D1 gate: the spec and the options brief are written, and the review is with the human, each round's comments answered by the owner of the file. Stop at the D1 gate and wait for the human's approval: zero comments in Crit, or the literal reply `approve D1` in the chat fallback; nothing else counts. Do not write the contract. After each turn, print the step you are in. Stop and hand to the human instead if a security question comes up, a step is blocked on a human decision, or 20 turns have passed. Never push.
 ```
 
 **D2 goal (split gates):**
 
 ```text
-/goal Take the {feature} task through the D2 gate: `contract.md` and the ADRs from D1 are written, and the human has the review open with each round's comments answered by the owner of the file. Stop at the D2 gate and wait for the human's zero-comment approval; do not start tests or the scaffold. After each turn, print the step you are in. Stop and hand to the human instead if a security question comes up, a step is blocked on a human decision, or 20 turns have passed. Never push.
+/goal Take the {feature} task through the D2 gate: `contract.md` and the ADRs from D1 are written, and the review is with the human, each round's comments answered by the owner of the file. Stop at the D2 gate and wait for the human's approval: zero comments in Crit, or the literal reply `approve D2` in the chat fallback; nothing else counts. Do not start tests or the scaffold. After each turn, print the step you are in. Stop and hand to the human instead if a security question comes up, a step is blocked on a human decision, or 20 turns have passed. Never push.
 ```
 
 **Human-gate goal (Bug fix):**
 
 ```text
-/goal The {feature} fix has reached the human gate: the regression test passes, `team-guard verify` exits 0, and the review report shows no blockers. After each turn, print the latest output of the regression test run and `team-guard verify`, and the step you are in. The sealed test may change only through the tester's logged unseal and reseal. Stop at the human gate. Stop and hand to the human instead if blockers remain after the re-check, a Jev verdict is DEFER and blocks the work, a security question comes up, a step is blocked on a human decision, or 30 turns have passed. Never push.
+/goal The {feature} fix has reached the human gate: the regression test passes, `team-guard verify` exits 0, and the last review report shows no blockers. After each turn, print the latest output of the regression test run and `team-guard verify`, and the step you are in. The sealed test may change only through the tester's logged unseal and reseal. Stop at the human gate. Stop and hand to the human instead if blockers remain after the re-check, a Jev verdict is DEFER and blocks the work, a security question comes up, a step is blocked on a human decision, or 20 turns have passed. Never push.
 ```
 
 **Human-gate goal (Standard):**
 
 ```text
-/goal The {feature} team has reached the human gate: the sealed tests pass, `team-guard verify` exits 0, and the final reviewer report shows no blockers and a holdout satisfaction score. After each turn, print the latest output of the sealed test run and `team-guard verify`, and the step you are in. No sealed test may change except through the tester's logged unseal and reseal. Stop at the human gate. Stop and hand to the human instead if blockers remain after the re-check, a Jev verdict is DEFER and blocks the work, a security question comes up, a step is blocked on a human decision, or 50 turns have passed. Never push.
+/goal The {feature} team has reached the human gate: the sealed tests pass, `team-guard verify` exits 0, and the report of the pass that ended the review (the first pass if it had no blockers or majors, otherwise the re-check) shows no blockers and a holdout satisfaction score. After each turn, print the latest output of the sealed test run and `team-guard verify`, and the step you are in. No sealed test may change except through the tester's logged unseal and reseal. Stop at the human gate. Stop and hand to the human instead if blockers remain after the re-check, a Jev verdict is DEFER and blocks the work, a security question comes up, a step is blocked on a human decision, or 40 turns have passed. Never push.
 ```
 
 **Human-gate goal (Full):**
 
 ```text
-/goal The {feature} team has reached the human gate: every slice's sealed tests pass, `team-guard verify` exits 0, any opted-in mutation results are in the report, and the final reviewer report shows no blockers and a holdout satisfaction score. After each turn, print the latest output of the sealed test run and `team-guard verify`, and the step you are in. No sealed test may change except through the tester's logged unseal and reseal. Stop at the human gate. Stop and hand to the human instead if blockers remain after the re-check, a Jev verdict is DEFER and blocks the work, a security question comes up, a step is blocked on a human decision, or 80 turns have passed. Never push.
+/goal The {feature} team has reached the human gate: every slice's sealed tests pass, `team-guard verify` exits 0, any opted-in mutation results are in the report, and the report of the pass that ended the review (the first pass if it had no blockers or majors, otherwise the re-check) shows no blockers and a holdout satisfaction score. After each turn, print the latest output of the sealed test run and `team-guard verify`, and the step you are in. No sealed test may change except through the tester's logged unseal and reseal. Stop at the human gate. Stop and hand to the human instead if blockers remain after the re-check, a Jev verdict is DEFER and blocks the work, a security question comes up, a step is blocked on a human decision, or 60 turns have passed. Never push.
 ```
 
 Keep the condition built on evidence the session prints — test results, exit codes, the review report — not on an agent's claim that it's done. The evaluator can only judge what appears in the conversation. The goal doesn't add a review round: after the re-check, the goal is met only by handing to the human.
@@ -228,6 +228,8 @@ Tooling lives in `{{bin}}/`:
 - `team-guard seal|unseal|verify|list` — the tester seals committed tests; `verify` fails if any sealed file's content changed since it was sealed (inside a workspace it checks every attached repo). Sealing installs git `pre-commit` and `pre-push` hooks (chaining any existing ones) that refuse commits and pushes changing sealed tests, whatever tool makes them. {{guard_hooks}}
 - `mutation-check --base <branch>` — mutation-tests only changed code (Go via gremlins, TypeScript via Stryker) and lists surviving mutants on changed lines. Run it only where mutation testing is opted in.
 
+The lead runs `team-guard verify` from the workspace dir after every subagent report, before starting the next step.
+
 Deterministic checks (tests, `team-guard verify`, mutation results when they were run, lint) come before any LLM judgment, including Jev's and the reviewer's.
 
 ### File ownership
@@ -240,8 +242,8 @@ Small decisions shouldn't wait on a full research pass or block a step. Any agen
 
 - **`ACT`** → take the choice, record it as `Decided via Jev: <choice> — <one-line reason>` in the task notes, and continue.
 - **`ESCALATE`** → follow the normal path (architect, or human), passing along Jev's leading choice and reasons.
-- **`DEFER`** → a risk (public contract, persisted data, security, cross-team) is clearly present. Jev's choice is withheld so it doesn't anchor anyone. If the work can continue, record it in `questions.md` and proceed with your own reversible choice marked `PROVISIONAL`; if it blocks the work or touches security, ask the human at once.
-- **Blocked on a missing doc?** Instead of stopping, ask Jev; on `ACT` or `ESCALATE`, proceed with its choice marked `PROVISIONAL` in your output and keep going. The reviewer must confirm or reject every `PROVISIONAL` decision in the review.
+- **`DEFER`** → a risk (public contract, persisted data, security, cross-team) is clearly present. Jev's choice is withheld so it doesn't anchor anyone. If the work can continue and you have a reversible choice, record the question in `questions.md` with Jev's reasons and proceed with that choice marked `PROVISIONAL`. With no reversible choice, or if it blocks the work or touches security, it is blocking: ask the human at once. Never proceed on a DEFER without a reversible `PROVISIONAL` choice.
+- **Blocked on a missing doc?** Instead of stopping, ask Jev; on `ACT` or `ESCALATE`, proceed with its choice marked `PROVISIONAL` in your output and keep going; on `DEFER`, follow the `DEFER` rule above. The reviewer must confirm or reject every `PROVISIONAL` decision in the review.
 - **Never use Jev** for routing, open-ended design, security fixes, or anything that can't be described without PII, customer or tenant data, secrets, or source code. Jev is a third-party service.
 - **Jev never judges work.** Not code, tests, diffs, or whether a task is done. It gates small decisions and escalates; it is never the final arbiter, and no agent iterates until Jev approves.
 
@@ -255,7 +257,7 @@ Every PR carries an advisory merge-risk footer of High, Medium or Low, with a re
 Merge risk: high (advisory) — changes the stored config format; a revert needs the old format restored.
 ```
 
-The level comes from a rule table over facts about the change, checked top-down: persisted data or migrations, a public contract, several repos, auth or security, or hard to revert give High; a behavior change in one repo with none of those gives Medium; a change with no behavior change (docs, bumps, renames, tests only) gives Low. Any unknown input counts as "yes". Review findings, unseals and skipped mutation testing can only raise the level, never lower it. A merge-risk script that computes the level is planned; until it exists the lead applies the table by hand. Review outcomes, holdout scores and unseals stay in the human's review packet, not in the footer.
+The level comes from a rule table over facts about the change, checked top-down: persisted data or migrations, a public contract, several repos, auth or security, or hard to revert give High; an additive public-contract change, user-visible behavior, more than 15 files or 500 changed non-test lines, deploy, CI or config files, a major fixed in review, an unseal, skipped mutation testing on a risk-flagged module, or holdout satisfaction under target give Medium; none of those (docs, tests, or an internal change within limits) gives Low. Any unknown input counts as "yes". Review findings, unseals and skipped mutation testing can only raise the level, never lower it. The reason is the one or two highest rules that fired, in project terms. A merge-risk script that computes the level is planned; until it exists the lead applies the table by hand. Review outcomes, holdout scores and unseals stay in the human's review packet, not in the footer.
 
 ### Commit messages and PRs
 

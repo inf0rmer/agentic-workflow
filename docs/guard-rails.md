@@ -54,7 +54,7 @@ flowchart TD
 
 | Layer | Where it runs | What it does | Gaps |
 |---|---|---|---|
-| 1. Content check | `team-guard verify`, the `TaskCompleted` hook (Claude Code), the `SubagentStop` hook (Codex) | Detects any change to a sealed file, by any tool | None: it's the backstop |
+| 1. Content check | `team-guard verify`, the `SubagentStop` and `TaskCompleted` hooks (Claude Code), the `SubagentStop` hook (Codex) | Detects any change to a sealed file, by any tool | None: it's the backstop |
 | 2. Git hooks | `pre-commit` and `pre-push` in the repo's shared hooks dir | Refuses commits that stage a change to a sealed file, and pushes while a sealed file differs | `--no-verify`, or a tool like `lefthook install` overwriting the hook |
 | 3. Harness hooks | `PreToolUse` in Claude Code and Codex | Denies edits to sealed files by any identified agent other than the tester | Shell edits, and agents the harness doesn't identify |
 
@@ -160,9 +160,9 @@ Survivors — each is a behavior change no test noticed:
 
 `mutation-check` exits 0 whether or not mutants survive.
 For each survivor that matters, the tester either writes a test that kills it, or records why it's equivalent (it can't change observable behavior) or irrelevant.
-New tests from this phase get sealed too.
+New tests from this step get sealed too.
 
-Hard limits in `mutation-check` (a free-disk check, capped concurrency, guaranteed cleanup, an enforced time box, sampling) are planned and don't exist yet, so the tester keeps the sample and the time box by hand.
+Sampling and hard limits in `mutation-check` (a free-disk check, capped concurrency, guaranteed cleanup, an enforced time box) are planned and don't exist yet, so the tester samples by hand (one risk-flagged package, or a subset from `--dry-run`) and stops at the time box.
 Line coverage is a secondary signal only.
 
 > **Note:** The TypeScript path assumes a jest setup that Stryker's jest runner can discover. Expect to tune it on first use in a large monorepo.
