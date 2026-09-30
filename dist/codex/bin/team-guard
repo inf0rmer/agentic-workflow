@@ -62,9 +62,11 @@ import argparse
 import calendar
 import datetime
 import fcntl
+import hashlib
 import json
 import os
 import re
+import selectors
 import shutil
 import stat
 import subprocess
@@ -533,6 +535,23 @@ def targets(tool_input):
     return PATCH_FILE.findall(patch) if "*** Begin Patch" in patch else []
 
 
+def reaches_review_data(paths, reading):
+    """True if a resolved path is in some workspace's .crit or reviews dir (reads: or above a workspace dir)."""
+    root = ws_root()
+    try:
+        names = [n for n in os.listdir(root) if os.path.isdir(os.path.join(root, n))]
+    except OSError:
+        return False
+    for d in names:
+        wsd = os.path.join(root, d)
+        for p in paths:
+            if any(under(p, os.path.join(wsd, sub)) for sub in (".crit", "reviews")):
+                return True
+            if reading and under(wsd, p):
+                return True
+    return False
+
+
 def cmd_hook_pretool():
     event = json.load(sys.stdin)
     agent = event.get("agent_type")
@@ -543,7 +562,14 @@ def cmd_hook_pretool():
     if not paths:
         return
     cwd = event.get("cwd") or os.getcwd()
-    paths = [os.path.realpath(os.path.join(cwd, p)) for p in paths]
+    try:
+        paths = [os.path.realpath(os.path.join(cwd, p)) for p in paths]
+    except (ValueError, OSError, TypeError):
+        return  # a path that can't be resolved is never a reason to crash
+
+    if agent in TEST_OWNERS and tool in READ_TOOLS | EDIT_TOOLS and reaches_review_data(paths, tool in READ_TOOLS):
+        return deny("Review discussion in the workspace's .crit/ and reviews/ is hidden from the tester by design. "
+                    "Work from the spec and contract.md.")
 
     holdout = holdout_root()
     if agent in HOLDOUT_BLIND and (
@@ -2131,6 +2157,463 @@ def sign_repo(name, top, base):
     return f"team-guard: sign: {name}: signed {len(commits)} commit(s){note}"
 
 
+# --- design gates: local Crit reviews, their exports, and the approval record ---
+
+GATE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+GATE_RECORD = "design-gate" + "." + "md"
+GATE_HEADING = re.compile(r"^## (?P<name>.+?): approved (?P<date>\d{4}-\d{2}-\d{2})\b")
+HASH_LINE = re.compile(r"^([0-9a-f]{64})  (\S.*)$")
+SESSION_RE = re.compile(r"\(session ([^)]*)\)")
+CRIT_ENV = {"CRIT_NO_UPDATE_CHECK": "1", "CRIT_PLAN_REVIEW": "off", "CRIT_SHARE_URL": ""}
+
+
+def gate_context(name, label):
+    """(gate, workspace realpath) for the cwd; exits 1 for a bad gate name or outside a workspace."""
+    if name is not None and not GATE_RE.match(name):
+        die(f"{label}: invalid gate name {name!r}")
+    ws = resolve_workspace(os.getcwd())
+    if not ws or ws[0] != "ok":
+        die(f"{label}: no workspace found; run this from a workspace dir or an attached worktree")
+    return realpath(ws[1])
+
+
+def chat_literal(gate):
+    return "approve " + (gate if gate in ("D1", "D2") else "design")
+
+
+def crit_bin():
+    return os.environ.get("CRIT_BIN") or "crit"
+
+
+def crit_available():
+    b = crit_bin()
+    if os.sep in b:
+        return os.path.isfile(b) and os.access(b, os.X_OK)
+    return shutil.which(b) is not None
+
+
+def require_crit(gate):
+    if not crit_available():
+        print(f'team-guard: gate {gate}: Crit is unavailable; use the chat fallback: the reply that approves '
+              f'this gate is exactly "{chat_literal(gate)}"', file=sys.stderr)
+        sys.exit(3)
+
+
+def crit_env():
+    env = dict(os.environ)
+    env.update(CRIT_ENV)
+    return env
+
+
+def crit_out_dir(ws):
+    return os.path.join(ws, ".crit")
+
+
+def gate_state_path(ws, gate):
+    return os.path.join(crit_out_dir(ws), f"gate-{gate}.json")
+
+
+def load_gate_state(ws, gate):
+    try:
+        with open(gate_state_path(ws, gate)) as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def save_gate_state(ws, gate, state):
+    os.makedirs(crit_out_dir(ws), exist_ok=True)
+    write_json_atomic(gate_state_path(ws, gate), state)
+
+
+def artifact_paths(ws, names, label):
+    """Normalized workspace-relative paths for regular files inside the workspace; exits 1 otherwise."""
+    out = []
+    for n in names:
+        cand = n if os.path.isabs(n) else os.path.join(ws, n)
+        try:
+            real = os.path.realpath(cand)
+        except (ValueError, OSError):
+            die(f"{label}: can't resolve {n!r}")
+        if not os.path.isfile(real):
+            die(f"{label}: {n!r} is not a regular file")
+        if not under(real, ws):
+            die(f"{label}: {n!r} is outside the workspace")
+        lexical = os.path.normpath(cand)
+        rel = os.path.relpath(lexical if os.path.commonpath([lexical, ws]) == ws else real, ws)
+        out.append(rel.replace(os.sep, "/"))
+    return out
+
+
+def sha256_file(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def comment_count(data):
+    n = 0
+    for e in data:
+        n += 1
+        if isinstance(e, dict) and isinstance(e.get("replies"), list):
+            n += len(e["replies"])
+    return n
+
+
+def unresolved_count(data):
+    return sum(1 for e in data if not (isinstance(e, dict) and e.get("resolved") is True))
+
+
+class GateRun:
+    """Exports and failures shared by one gate command."""
+
+    def __init__(self, ws, gate):
+        self.ws, self.gate, self.failed = ws, gate, False
+
+    def export(self, n, session):
+        """Save Crit's comments for round n under reviews/, never replacing a richer export. Returns the data kept."""
+        data = []
+        try:
+            r = subprocess.run([crit_bin(), "comments", "-o", crit_out_dir(self.ws), "--session", session, "--json",
+                                "--all"], cwd=self.ws, env=crit_env(), capture_output=True, text=True,
+                               stdin=subprocess.DEVNULL)
+            if r.returncode == 0:
+                got = json.loads(r.stdout)
+                if isinstance(got, list):
+                    data = got
+        except (OSError, ValueError):
+            pass
+        name = f"{self.gate}-round{n}.json"
+        target = os.path.join(self.ws, "reviews", name)
+        try:
+            old = None
+            if os.path.exists(target):
+                with open(target) as f:
+                    old = json.load(f)
+            if isinstance(old, list) and comment_count(data) < comment_count(old):
+                warn(f"kept reviews/{name} (the new export had fewer comments)")
+                return old
+            os.makedirs(os.path.join(self.ws, "reviews"), exist_ok=True)
+            tmp = os.path.join(self.ws, "reviews", f".{name}.tmp")
+            try:
+                with open(tmp, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2, ensure_ascii=False)
+                    f.write("\n")
+                os.replace(tmp, target)
+            except BaseException:
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+                raise
+        except (OSError, ValueError) as e:
+            warn(f"could not write reviews/{name}: {e}")
+            self.failed = True
+        return data
+
+
+def cmd_gate_review(a):
+    ws = gate_context(a.gate, "gate review")
+    gate = a.gate
+    files = artifact_paths(ws, a.files, "gate review") if a.files else []
+    state = load_gate_state(ws, gate)
+    pending = state.get("pending") if state else None
+    if pending is not None and not (isinstance(pending, dict) and isinstance(pending.get("round"), int)
+                                    and isinstance(pending.get("session"), str)):
+        pending = None
+    approved = bool(state and state.get("approved") is True)
+    unfinished = bool(state and state.get("approved") is False and state.get("session"))
+    if pending and not a.new:
+        mode = "resume"
+    elif not state or approved or a.new:
+        mode = "new"
+    else:
+        mode = "continue"
+    stored = list(state.get("files") or []) if state else []
+    if mode in ("resume", "continue"):
+        if files and set(files) != set(stored):
+            die(f"gate review: the named files differ from the review's files ({', '.join(stored)}); "
+                "use --new to start a fresh review")
+        files = stored
+    elif not files:
+        die("gate review: name at least one file to review")
+    require_crit(gate)
+
+    last_used = max(state.get("round", 0) if state else 0, pending["round"] if pending else 0)
+    run = GateRun(ws, gate)
+    if mode == "resume":
+        n, session = pending["round"], pending["session"]
+    else:
+        n, session = last_used + 1, (state.get("session") if state and mode == "continue" else None)
+    outgoing = None
+    if mode == "resume":
+        outgoing = (pending["round"], pending["session"])
+    elif pending and a.new:
+        outgoing = (pending["round"], pending["session"])
+    elif a.new and unfinished:
+        outgoing = (state["round"], state["session"])
+    elif mode == "continue":
+        outgoing = (state["round"], state["session"])
+    if outgoing:
+        run.export(*outgoing)
+
+    o = crit_out_dir(ws)
+    argv = [crit_bin(), "-o", o]
+    if mode == "new":
+        argv += (["--no-open"] if a.no_open else []) + files
+    else:
+        argv += ["--session", session if mode == "continue" else pending["session"]] + (["--no-open"] if a.no_open else [])
+    try:
+        proc = subprocess.Popen(argv, cwd=ws, env=crit_env(), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, preexec_fn=os.setsid)
+    except OSError as e:
+        die(f"gate review: can't run Crit: {e}")
+
+    sel = selectors.DefaultSelector()
+    for stream, tag in ((proc.stdout, "out"), (proc.stderr, "err")):
+        sel.register(stream, selectors.EVENT_READ, (tag, bytearray()))
+    live_session, verdict = None, None
+
+    def crit_lines():
+        """Complete lines from Crit's stdout and stderr as they arrive: (tag, line bytes)."""
+        while sel.get_map():
+            for key, _ in sel.select():
+                tag, buf = key.data
+                chunk = os.read(key.fileobj.fileno(), 65536)
+                if not chunk:
+                    sel.unregister(key.fileobj)
+                    if buf:
+                        yield tag, bytes(buf)
+                    continue
+                buf += chunk
+                while b"\n" in buf:
+                    i = buf.index(b"\n")
+                    line = bytes(buf[:i + 1])
+                    del buf[:i + 1]
+                    yield tag, line
+
+    for tag, line in crit_lines():
+        sink = sys.stdout.buffer if tag == "out" else sys.stderr.buffer
+        try:
+            sink.write(line)
+            sink.flush()
+        except (OSError, ValueError):
+            pass
+        text = line.decode("utf-8", errors="replace")
+        if tag == "err" and text.strip() in ("approved: true", "approved: false"):
+            verdict = text.strip() == "approved: true"
+        if tag == "out" and live_session is None:
+            m = SESSION_RE.search(text)
+            if m:
+                live_session = m.group(1)
+                st = dict(state) if state else {"v": 1, "gate": gate, "session": None, "round": 0, "approved": None,
+                                                "hashes": {}}
+                st.update({"files": files, "pending": {"round": n, "session": live_session}})
+                if mode == "new":
+                    st["open_round"] = n
+                st.setdefault("open_round", n)
+                save_gate_state(ws, gate, st)
+                state = st
+                run.export(n, live_session)
+    rc = proc.wait()
+    use_session = live_session or (pending["session"] if mode == "resume" else session)
+    kept = run.export(n, use_session) if use_session else []
+    if rc != 0 or verdict is None:
+        why = f"Crit exited with status {rc}" if rc != 0 else "Crit printed no verdict"
+        print(f"team-guard: gate {gate}: {why}; run `team-guard gate review {gate}` again to resume this round",
+              file=sys.stderr)
+        sys.exit(1)
+    st = dict(state) if state else {"v": 1, "gate": gate, "open_round": n}
+    hashes = {}
+    if verdict:
+        for f in files:
+            full = os.path.join(ws, f)
+            if os.path.isfile(full):
+                hashes[f] = sha256_file(full)
+    st.update({"v": 1, "gate": gate, "files": files, "session": use_session, "round": n, "approved": verdict,
+               "hashes": hashes, "pending": None})
+    save_gate_state(ws, gate, st)
+    print(f"gate {gate} round {n}: approved={'true' if verdict else 'false'} comments={unresolved_count(kept)}")
+    sys.stdout.flush()
+    if run.failed:
+        sys.exit(1)
+
+
+def cmd_gate_reply(a):
+    ws = gate_context(a.gate, "gate reply")
+    label = "gate reply"
+    if not a.author or not a.author.strip():
+        die(f"{label}: --author is required")
+    if not a.file:
+        die(f"{label}: --file is required")
+    path = os.path.realpath(os.path.abspath(a.file))
+    try:
+        with open(path, encoding="utf-8") as f:
+            entries = json.load(f)
+    except OSError:
+        die(f"{label}: can't read {a.file}")
+    except ValueError:
+        die(f"{label}: {a.file} is not valid JSON")
+    if not isinstance(entries, list):
+        die(f"{label}: {a.file} must be a JSON array of replies")
+    for i, e in enumerate(entries):
+        if not isinstance(e, dict):
+            die(f"{label}: entry {i} is not an object")
+        if not isinstance(e.get("reply_to"), str):
+            die(f"{label}: entry {i} needs a string reply_to")
+        if not isinstance(e.get("body"), str) or not e["body"]:
+            die(f"{label}: entry {i} needs a non-empty string body")
+        if "resolve" in e and e["resolve"] is not False:
+            die(f"{label}: entry {i}: replies never resolve a thread; resolve must be absent or false")
+    state = load_gate_state(ws, a.gate)
+    pending = state.get("pending") if state else None
+    if state and state.get("approved") is False and state.get("session"):
+        n, session = state.get("round"), state["session"]
+    elif isinstance(pending, dict) and isinstance(pending.get("session"), str):
+        n, session = pending.get("round"), pending["session"]
+    else:
+        die(f"{label}: gate {a.gate} has no unfinished review")
+    require_crit(a.gate)
+    run = GateRun(ws, a.gate)
+    try:
+        r = subprocess.run([crit_bin(), "comment", "-o", crit_out_dir(ws), "--session", session, "--json", "--file",
+                            path, "--author", a.author], cwd=ws, env=crit_env(), stdin=subprocess.DEVNULL)
+        rc = r.returncode
+    except OSError as e:
+        print(f"team-guard: gate reply: can't run Crit: {e}", file=sys.stderr)
+        rc = 1
+    run.export(n, session)
+    if rc != 0:
+        print(f"team-guard: gate {a.gate}: Crit exited with status {rc}", file=sys.stderr)
+    sys.exit(0 if rc == 0 and not run.failed else 1)
+
+
+def parse_gate_record(text):
+    """[(name, date, [(hash, path)])] for every approval section with data, in file order."""
+    sections, cur, fenced, done = [], None, False, False
+    for line in text.split("\n"):
+        if line.startswith("## "):
+            m = GATE_HEADING.match(line)
+            cur = [m.group("name"), m.group("date"), []] if m else None
+            fenced, done = False, False
+            if cur:
+                sections.append(cur)
+            continue
+        if cur is None or done:
+            continue
+        if line.lstrip().startswith("```"):
+            if fenced:
+                done = True
+            fenced = True
+            continue
+        if fenced:
+            m = HASH_LINE.match(line)
+            if m:
+                cur[2].append((m.group(1), m.group(2)))
+    return [(n, d, rows) for n, d, rows in sections if rows]
+
+
+def read_gate_record(ws):
+    try:
+        with open(os.path.join(ws, GATE_RECORD), encoding="utf-8", errors="replace") as f:
+            return f.read()
+    except OSError:
+        return None
+
+
+def append_gate_section(ws, gate, heading, rows):
+    """Append one approval section, or report that the same approval is already recorded."""
+    text = read_gate_record(ws)
+    if text is not None:
+        latest = [s for s in parse_gate_record(text) if s[0] == gate]
+        if latest and set(latest[-1][2]) == set(rows):
+            print(f"gate {gate}: already recorded")
+            return
+    fence = "`" * 3
+    section = f"\n## {heading}\n\n{fence}\n" + "".join(f"{h}  {p}\n" for h, p in rows) + f"{fence}\n"
+    path = os.path.join(ws, GATE_RECORD)
+    with open(path, "ab") as f:
+        if text is None:
+            f.write(b"# Design gate record\n")
+        elif text and not text.endswith("\n"):
+            f.write(b"\n")
+        f.write(section.encode("utf-8"))
+    print(f"gate {gate}: recorded {len(rows)} file(s) in {GATE_RECORD}")
+
+
+def cmd_gate_record(a):
+    label = "gate record"
+    ws = gate_context(a.gate, label)
+    gate = a.gate
+    today = time.strftime("%Y-%m-%d", time.gmtime())
+    if a.crit:
+        state = load_gate_state(ws, gate)
+        if not state or state.get("approved") is not True:
+            die(f"{label}: gate {gate}: the last review was not approved in Crit")
+        if state.get("pending"):
+            die(f"{label}: gate {gate}: a review round is in progress")
+        stored = list(state.get("files") or [])
+        if a.files and set(artifact_paths(ws, a.files, label)) != set(stored):
+            die(f"{label}: gate {gate}: the named files differ from the reviewed files ({', '.join(stored)})")
+        hashes = state.get("hashes") or {}
+        bad = []
+        for f in stored:
+            full = os.path.join(ws, f)
+            if not os.path.isfile(full):
+                bad.append(f"missing: {f}")
+            elif sha256_file(full) != hashes.get(f):
+                bad.append(f"changed: {f}")
+        if bad:
+            print(f"team-guard: {label}: gate {gate}: reviewed files differ from the approval\n" + "\n".join(bad),
+                  file=sys.stderr)
+            sys.exit(1)
+        rounds = state.get("round", 1) - state.get("open_round", 1) + 1
+        rounds_text = "1 round" if rounds == 1 else f"{rounds} rounds"
+        heading = f"{gate}: approved {today} in Crit ({rounds_text}, approved: true)"
+        rows = [(hashes[f], f) for f in stored]
+    else:
+        if not a.files:
+            die(f"{label}: name at least one file to record")
+        files = artifact_paths(ws, a.files, label)
+        literal = chat_literal(gate)
+        if a.chat.strip() != literal:
+            print(f'team-guard: gate {gate}: the reply that approves this gate is exactly "{literal}"', file=sys.stderr)
+            sys.exit(1)
+        heading = f"{gate}: approved {today} in chat (reply: {literal})"
+        rows = [(sha256_file(os.path.join(ws, f)), f) for f in files]
+    append_gate_section(ws, gate, heading, rows)
+
+
+def cmd_gate_check(a):
+    label = "gate check"
+    ws = gate_context(a.gate, label)
+    text = read_gate_record(ws)
+    if text is None and a.gate:
+        die(f"{label}: can't read {GATE_RECORD}")
+    sections = parse_gate_record(text or "")
+    if a.gate:
+        sections = [s for s in sections if s[0] == a.gate]
+    name = a.gate or (sections[-1][0] if sections else "-")
+    if not sections:
+        print(f"gate {name}: reopen the gate\nno approval recorded", file=sys.stderr)
+        sys.exit(2)
+    _, date, rows = sections[-1]
+    bad = []
+    for h, path in rows:
+        full = os.path.join(ws, path)
+        if not os.path.isfile(full):
+            bad.append(f"missing: {path}")
+        elif sha256_file(full) != h:
+            bad.append(f"changed: {path}")
+    if bad:
+        print(f"gate {name}: reopen the gate\n" + "\n".join(bad), file=sys.stderr)
+        sys.exit(2)
+    print(f"gate {name}: matches the approval of {date}")
+
+
 def cmd_gate(args):
     subs = ("review", "reply", "record", "check")
     if not args or args[0] not in subs:
@@ -2154,9 +2637,8 @@ def cmd_gate(args):
         g = p.add_mutually_exclusive_group(required=True)
         g.add_argument("--crit", action="store_true")
         g.add_argument("--chat")
-    _parse_or_die(p, rest, label)
-    print(f"team-guard: not implemented: {label}", file=sys.stderr)
-    sys.exit(70)
+    a = _parse_or_die(p, rest, label)
+    {"review": cmd_gate_review, "reply": cmd_gate_reply, "record": cmd_gate_record, "check": cmd_gate_check}[sub](a)
 
 
 def cmd_sign(args):
