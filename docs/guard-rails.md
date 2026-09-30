@@ -265,9 +265,11 @@ The tool never uses Crit's `share`, `push`, `pull` or `--pr`, and never changes 
 | Command | What it does |
 |---|---|
 | `team-guard gate review <gate> [<file>...] [--new] [--no-open]` | Starts a review (or continues the unfinished one), streams Crit's output, and exports the round to `reviews/<gate>-round<N>.json` when it starts and when it ends. It ends with `gate <gate> round <N>: approved=<true or false> comments=<K>` and exits 0 for either verdict. |
-| `team-guard gate reply <gate> --file <json> --author <role>` | Posts a JSON array of `{reply_to, body}` entries to the unfinished review, exactly as written, then re-exports the round. It never resolves a thread. |
+| `team-guard gate reply <gate> --file <json> --author <role>` | Posts a JSON array of `{reply_to, body}` entries to the review's Crit session, exactly as written (Crit reads the file's bytes on stdin), then re-exports the round. It refuses a round that is still running, needs the session's daemon to be alive (otherwise re-run `gate review`), exits 1 for every failure including an unavailable Crit, and never resolves a thread. |
 | `team-guard gate record <gate> [<file>...] (--crit \| --chat "<reply>")` | Appends the approval and the sha256 of each reviewed file to `design-gate.md`. `--crit` uses the files and hashes stored when the review was approved. `--chat` needs the exact reply and works without Crit. |
 | `team-guard gate check [<gate>]` | Compares the files with the latest recorded approval (the named gate, or the last one in the file). |
+
+Crit keys a session on its working directory and files, and refuses `-o` together with `--session`. So every review runs from its own directory, `<workspace>/.crit/<gate>/r<N>`, where N is the round the review was opened at, with absolute file paths, and a re-run from that directory continues the same session. `gate review` also re-exports the round every 60 seconds while Crit runs (`TEAM_GATE_EXPORT_INTERVAL_SEC`), because approval deletes Crit's copy, and it reads Crit's saved `review.json` when the live session is gone. A daemon that shut down before the review finished is treated as no verdict.
 
 `gate review` starts Crit detached, so it survives if the waiting process is killed.
 Run it in the background with the harness's longest background timeout, and if the wait is stopped, re-run it: it continues the same session and round, and `--new` starts a fresh review instead.

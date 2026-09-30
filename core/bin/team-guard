@@ -536,19 +536,41 @@ def targets(tool_input):
     return PATCH_FILE.findall(patch) if "*** Begin Patch" in patch else []
 
 
+def pattern_paths(tool, tool_input, cwd):
+    """Directories a Glob pattern or a Grep glob names before its first wildcard, resolved."""
+    key = {"Glob": "pattern", "Grep": "glob"}.get(tool)
+    pattern = tool_input.get(key) if key else None
+    if not isinstance(pattern, str) or not pattern:
+        return []
+    base = tool_input.get("path") if isinstance(tool_input.get("path"), str) and tool_input.get("path") else cwd
+    cut = min([i for i in (pattern.find(c) for c in "*?[{") if i >= 0] or [len(pattern)])
+    prefix = pattern[:cut]
+    prefix = prefix[:prefix.rfind("/")] if "/" in prefix else ""
+    try:
+        return [os.path.realpath(os.path.join(cwd, base, prefix))]
+    except (ValueError, OSError):
+        return []
+
+
 def reaches_review_data(paths, reading):
-    """True if a resolved path is in some workspace's .crit or reviews dir (reads: or above a workspace dir)."""
+    """True if a resolved path is in some workspace's .crit or reviews dir (reads: or above a workspace dir).
+
+    Names are compared without regard to case, since the usual file systems don't tell them apart."""
     root = ws_root()
     try:
         names = [n for n in os.listdir(root) if os.path.isdir(os.path.join(root, n))]
     except OSError:
         return False
+
+    def inside(p, d):
+        return p == d or p.startswith(d.rstrip("/") + "/")
+
     for d in names:
-        wsd = os.path.join(root, d)
-        for p in paths:
-            if any(under(p, os.path.join(wsd, sub)) for sub in (".crit", "reviews")):
+        wsd = os.path.join(root, d).lower()
+        for p in (x.lower() for x in paths):
+            if any(inside(p, wsd + "/" + sub) for sub in (".crit", "reviews")):
                 return True
-            if reading and under(wsd, p):
+            if reading and inside(wsd, p):
                 return True
     return False
 
@@ -566,15 +588,16 @@ def cmd_hook_pretool():
             deny("tdd-inner-loop is the software-engineer's inner loop, not the tester's. Work from the spec and contract.md.")
         return
     paths = targets(event.get("tool_input") or {})
-    if not paths:
-        return
     cwd = event.get("cwd") or os.getcwd()
+    extra = pattern_paths(tool, event.get("tool_input") or {}, cwd) if agent in TEST_OWNERS else []
+    if not paths and not extra:
+        return
     try:
         paths = [os.path.realpath(os.path.join(cwd, p)) for p in paths]
     except (ValueError, OSError, TypeError):
         return  # a path that can't be resolved is never a reason to crash
 
-    if agent in TEST_OWNERS and tool in READ_TOOLS | EDIT_TOOLS and reaches_review_data(paths, tool in READ_TOOLS):
+    if agent in TEST_OWNERS and tool in READ_TOOLS | EDIT_TOOLS and reaches_review_data(paths + extra, tool in READ_TOOLS):
         return deny("Review discussion in the workspace's .crit/ and reviews/ is hidden from the tester by design. "
                     "Work from the spec and contract.md.")
 
@@ -2170,7 +2193,7 @@ GATE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 GATE_RECORD = "design-gate" + "." + "md"
 GATE_HEADING = re.compile(r"^## (?P<name>.+?): approved (?P<date>\d{4}-\d{2}-\d{2})\b")
 HASH_LINE = re.compile(r"^([0-9a-f]{64})  (\S.*)$")
-SESSION_RE = re.compile(r"\(session ([^)]*)\)")
+SESSION_RE = re.compile(r"\(session ([^,)]+)")
 CRIT_ENV = {"CRIT_NO_UPDATE_CHECK": "1", "CRIT_PLAN_REVIEW": "off", "CRIT_SHARE_URL": ""}
 
 
@@ -2199,11 +2222,11 @@ def crit_available():
     return shutil.which(b) is not None
 
 
-def require_crit(gate):
+def require_crit(gate, code=3):
     if not crit_available():
         print(f'team-guard: gate {gate}: Crit is unavailable; use the chat fallback: the reply that approves '
               f'this gate is exactly "{chat_literal(gate)}"', file=sys.stderr)
-        sys.exit(3)
+        sys.exit(code)
 
 
 def crit_env():
@@ -2278,21 +2301,34 @@ class GateRun:
     """Exports and failures shared by one gate command."""
 
     def __init__(self, ws, gate):
-        self.ws, self.gate, self.failed = ws, gate, False
+        self.ws, self.gate, self.failed, self.fresh = ws, gate, False, []
 
-    def export(self, n, session):
-        """Save Crit's comments for round n under reviews/, never replacing a richer export. Returns the data kept."""
-        data = []
+    def _comments(self, argv, cwd):
         try:
-            r = subprocess.run([crit_bin(), "comments", "-o", crit_out_dir(self.ws), "--session", session, "--json",
-                                "--all"], cwd=self.ws, env=crit_env(), capture_output=True, text=True,
+            r = subprocess.run([crit_bin(), *argv], cwd=cwd, env=crit_env(), capture_output=True, text=True,
                                stdin=subprocess.DEVNULL)
             if r.returncode == 0:
                 got = json.loads(r.stdout)
                 if isinstance(got, list):
-                    data = got
+                    return got
         except (OSError, ValueError):
             pass
+        return None
+
+    def export(self, n, session, cwd):
+        """Save Crit's comments for round n under reviews/, never replacing a richer export.
+
+        Asks the live session first, then the review Crit saved on disk. Returns the data kept."""
+        data = self._comments(["comments", "--session", session, "--json", "--all"], cwd)
+        if data is None:
+            saved = os.path.join(crit_out_dir(self.ws), "reviews", session, "review.json")
+            data = self._comments(["comments", "-o", crit_out_dir(self.ws), "--json", "--all", saved], cwd)
+        if data is None:
+            data = []
+        self.fresh = data
+        return self.save(n, data)
+
+    def save(self, n, data):
         name = f"{self.gate}-round{n}.json"
         target = os.path.join(self.ws, "reviews", name)
         try:
@@ -2352,57 +2388,53 @@ def cmd_gate_review(a):
     last_used = max(state.get("round", 0) if state else 0, pending["round"] if pending else 0)
     run = GateRun(ws, gate)
     if mode == "resume":
-        n, session = pending["round"], pending["session"]
+        n = pending["round"]
     else:
-        n, session = last_used + 1, (state.get("session") if state and mode == "continue" else None)
+        n = last_used + 1
+    open_round = n if mode == "new" else int((state or {}).get("open_round") or 1)
     outgoing = None
-    if mode == "resume":
+    if mode == "resume" or pending:
         outgoing = (pending["round"], pending["session"])
-    elif pending and a.new:
-        outgoing = (pending["round"], pending["session"])
-    elif a.new and unfinished:
-        outgoing = (state["round"], state["session"])
-    elif mode == "continue":
+    elif mode == "continue" or (a.new and unfinished):
         outgoing = (state["round"], state["session"])
     if outgoing:
-        run.export(*outgoing)
+        old_dir = os.path.join(crit_out_dir(ws), gate, f"r{int((state or {}).get('open_round') or 1)}")
+        os.makedirs(old_dir, exist_ok=True)
+        run.export(*outgoing, old_dir)
+        carried = run.fresh if mode == "continue" else None
 
+    # Crit keeps a continued review's comments, so a continued round starts from the outgoing round's.
+    # (If Crit then deletes the review at approval before it can be read, this is what is left.)
+    if outgoing and mode == "continue":
+        run.save(n, carried)
+
+    # Crit keys a session on its working directory and file arguments, so every review of a gate
+    # runs from its own directory: re-running it continues or resumes the same session.
     o = crit_out_dir(ws)
-    argv = [crit_bin(), "-o", o]
-    if mode == "new":
-        argv += (["--no-open"] if a.no_open else []) + files
-    else:
-        argv += ["--session", session if mode == "continue" else pending["session"]] + (["--no-open"] if a.no_open else [])
+    review_dir = os.path.join(o, gate, f"r{open_round}")
+    os.makedirs(review_dir, exist_ok=True)
+    argv = [crit_bin(), "-o", o] + (["--no-open"] if a.no_open else []) + [os.path.join(ws, f) for f in files]
     try:
-        proc = subprocess.Popen(argv, cwd=ws, env=crit_env(), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE, preexec_fn=os.setsid)
+        proc = subprocess.Popen(argv, cwd=review_dir, env=crit_env(), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, start_new_session=True)
     except OSError as e:
         die(f"gate review: can't run Crit: {e}")
 
+    try:
+        interval = float(os.environ.get("TEAM_GATE_EXPORT_INTERVAL_SEC") or 60)
+        if interval <= 0:
+            interval = 60.0
+    except ValueError:
+        interval = 60.0
     sel = selectors.DefaultSelector()
+    bufs = {}
     for stream, tag in ((proc.stdout, "out"), (proc.stderr, "err")):
-        sel.register(stream, selectors.EVENT_READ, (tag, bytearray()))
-    live_session, verdict = None, None
+        sel.register(stream, selectors.EVENT_READ, tag)
+        bufs[tag] = bytearray()
+    live_session, verdict, void, next_export, last_out = None, None, False, None, b"\n"
 
-    def crit_lines():
-        """Complete lines from Crit's stdout and stderr as they arrive: (tag, line bytes)."""
-        while sel.get_map():
-            for key, _ in sel.select():
-                tag, buf = key.data
-                chunk = os.read(key.fileobj.fileno(), 65536)
-                if not chunk:
-                    sel.unregister(key.fileobj)
-                    if buf:
-                        yield tag, bytes(buf)
-                    continue
-                buf += chunk
-                while b"\n" in buf:
-                    i = buf.index(b"\n")
-                    line = bytes(buf[:i + 1])
-                    del buf[:i + 1]
-                    yield tag, line
-
-    for tag, line in crit_lines():
+    def handle(tag, line):
+        nonlocal live_session, verdict, void, state, next_export, last_out
         sink = sys.stdout.buffer if tag == "out" else sys.stderr.buffer
         try:
             sink.write(line)
@@ -2410,30 +2442,56 @@ def cmd_gate_review(a):
         except (OSError, ValueError):
             pass
         text = line.decode("utf-8", errors="replace")
-        if tag == "err" and text.strip() in ("approved: true", "approved: false"):
+        if tag == "out":
+            last_out = line[-1:]
+            if "shut down before review was finished" in text:
+                void = True
+        elif text.strip() in ("approved: true", "approved: false"):
             verdict = text.strip() == "approved: true"
-        if tag == "out" and live_session is None:
+        elif live_session is None:
             m = SESSION_RE.search(text)
             if m:
                 live_session = m.group(1)
                 st = dict(state) if state else {"v": 1, "gate": gate, "session": None, "round": 0, "approved": None,
                                                 "hashes": {}}
-                st.update({"files": files, "pending": {"round": n, "session": live_session}})
-                if mode == "new":
-                    st["open_round"] = n
-                st.setdefault("open_round", n)
+                st.update({"files": files, "open_round": open_round, "pending": {"round": n, "session": live_session}})
                 save_gate_state(ws, gate, st)
                 state = st
-                run.export(n, live_session)
+                run.export(n, live_session, review_dir)
+                next_export = time.monotonic() + interval
+
+    while sel.get_map():
+        timeout = None if next_export is None else max(0.0, next_export - time.monotonic())
+        ready = sel.select(timeout)
+        for key, _ in ready:
+            tag, buf = key.data, bufs[key.data]
+            chunk = os.read(key.fileobj.fileno(), 65536)
+            if not chunk:
+                sel.unregister(key.fileobj)
+                if buf:
+                    handle(tag, bytes(buf))
+                    buf.clear()
+                continue
+            buf += chunk
+            while b"\n" in buf:
+                i = buf.index(b"\n")
+                line = bytes(buf[:i + 1])
+                del buf[:i + 1]
+                handle(tag, line)
+        if not ready and next_export is not None and time.monotonic() >= next_export:
+            run.export(n, live_session, review_dir)  # keeps the comments if Crit deletes the review on approval
+            next_export = time.monotonic() + interval
     rc = proc.wait()
-    use_session = live_session or (pending["session"] if mode == "resume" else session)
-    kept = run.export(n, use_session) if use_session else []
-    if rc != 0 or verdict is None:
-        why = f"Crit exited with status {rc}" if rc != 0 else "Crit printed no verdict"
-        print(f"team-guard: gate {gate}: {why}; run `team-guard gate review {gate}` again to resume this round",
+    use_session = live_session or (pending["session"] if mode == "resume" else None)
+    kept = run.export(n, use_session, review_dir) if use_session else []
+    if rc != 0 or verdict is None or void:
+        why = (f"Crit exited with status {rc}" if rc != 0 else
+               "the Crit daemon shut down before the review was finished" if void else "Crit printed no verdict")
+        print(f"team-guard: gate {gate}: {why}; run `team-guard gate review {gate}` again to resume this round, "
+              f"or `team-guard gate review {gate} <files> --new` to start a fresh review",
               file=sys.stderr)
         sys.exit(1)
-    st = dict(state) if state else {"v": 1, "gate": gate, "open_round": n}
+    st = dict(state) if state else {"v": 1, "gate": gate}
     hashes = {}
     if verdict:
         for f in files:
@@ -2441,12 +2499,12 @@ def cmd_gate_review(a):
             if os.path.isfile(full):
                 hashes[f] = sha256_file(full)
     st.update({"v": 1, "gate": gate, "files": files, "session": use_session, "round": n, "approved": verdict,
-               "hashes": hashes, "pending": None})
+               "open_round": open_round, "hashes": hashes, "pending": None})
     save_gate_state(ws, gate, st)
+    if last_out not in (b"\n", b""):
+        sys.stdout.write("\n")
     print(f"gate {gate} round {n}: approved={'true' if verdict else 'false'} comments={unresolved_count(kept)}")
     sys.stdout.flush()
-    if run.failed:
-        sys.exit(1)
 
 
 def cmd_gate_reply(a):
@@ -2476,26 +2534,30 @@ def cmd_gate_reply(a):
         if "resolve" in e and e["resolve"] is not False:
             die(f"{label}: entry {i}: replies never resolve a thread; resolve must be absent or false")
     state = load_gate_state(ws, a.gate)
-    pending = state.get("pending") if state else None
-    if state and state.get("approved") is False and state.get("session"):
-        n, session = state.get("round"), state["session"]
-    elif isinstance(pending, dict) and isinstance(pending.get("session"), str):
-        n, session = pending.get("round"), pending["session"]
-    else:
+    if state and state.get("pending"):
+        die(f"{label}: gate {a.gate}: a review round is in progress; reply after the human finishes it")
+    if not (state and state.get("approved") is False and state.get("session")):
         die(f"{label}: gate {a.gate} has no unfinished review")
-    require_crit(a.gate)
+    n, session = state.get("round"), state["session"]
+    require_crit(a.gate, code=1)
+    review_dir = os.path.join(crit_out_dir(ws), a.gate, f"r{int(state.get('open_round') or 1)}")
+    os.makedirs(review_dir, exist_ok=True)
     run = GateRun(ws, a.gate)
     try:
-        r = subprocess.run([crit_bin(), "comment", "-o", crit_out_dir(ws), "--session", session, "--json", "--file",
-                            path, "--author", a.author], cwd=ws, env=crit_env(), stdin=subprocess.DEVNULL)
+        with open(path, "rb") as f:
+            payload = f.read()
+        r = subprocess.run([crit_bin(), "comment", "--session", session, "--json", "--author", a.author], cwd=review_dir,
+                           env=crit_env(), input=payload)
         rc = r.returncode
     except OSError as e:
         print(f"team-guard: gate reply: can't run Crit: {e}", file=sys.stderr)
         rc = 1
-    run.export(n, session)
+    run.export(n, session, review_dir)
     if rc != 0:
-        print(f"team-guard: gate {a.gate}: Crit exited with status {rc}", file=sys.stderr)
-    sys.exit(0 if rc == 0 and not run.failed else 1)
+        print(f"team-guard: gate {a.gate}: Crit could not take the replies (exit {rc}); replies need the review's "
+              f"Crit session to be alive, so run `team-guard gate review {a.gate}` and then reply again",
+              file=sys.stderr)
+    sys.exit(0 if rc == 0 else 1)
 
 
 def parse_gate_record(text):
