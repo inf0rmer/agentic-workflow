@@ -8,7 +8,7 @@ description: The software-engineer's inner loop for making sealed tests pass wit
 
 TDD is the red → green loop. This skill is the reference that makes that loop produce tests worth keeping: what a good test is, where tests go, the anti-patterns, and the rules of the loop. Every section applies on every cycle: consult them before and during the loop, not after.
 
-When exploring the codebase, read the optional `GLOSSARY.md` in `$(team-guard workspace-path)` so test names and interface vocabulary match the project's domain language, and respect the ADRs in its `adr/` directory.
+When exploring the codebase, read the optional `GLOSSARY.md` and the ADRs in `$(team-guard workspace-path)`, and the project's own glossary and ADRs if it keeps them, so test names and interface vocabulary match the project's domain language. Only read the project's; write in the workspace.
 
 ## What a good test is
 

@@ -69,7 +69,7 @@ diff --git a/skills/engineering/domain-modeling/SKILL.md b/core/skills/domain-mo
 similarity index 73%
 rename from skills/engineering/domain-modeling/SKILL.md
 rename to core/skills/domain-modeling/SKILL.md
-index a4438c6..a52ae7e 100644
+index a4438c6..653175d 100644
 --- a/skills/engineering/domain-modeling/SKILL.md
 +++ b/core/skills/domain-modeling/SKILL.md
 @@ -9,35 +9,17 @@ Actively build and sharpen the project's domain model as you design. This is the
@@ -111,7 +111,7 @@ index a4438c6..a52ae7e 100644
 -```
 -
 -Create files lazily: only when you have something to write. If no `GLOSSARY.md` exists, create one when the first term is resolved. If no `docs/adr/` exists, create it when the first ADR is needed.
-+Each ADR is `adr/NNNN-<slug>.md`. Create files lazily: only when you have something to write. If no `GLOSSARY.md` exists, create one in the workspace dir when the first term is resolved. If no `adr/` exists there, create it when the first ADR is needed.
++Each ADR is `adr/NNNN-<slug>.md`. If the project already keeps a glossary or ADRs, read them too; write only in the workspace dir. If `team-guard workspace-path` fails because there is no workspace, use `git rev-parse --absolute-git-dir` instead, never the working tree. Create files lazily: only when you have something to write. If no `GLOSSARY.md` exists, create one in the workspace dir when the first term is resolved. If no `adr/` exists there, create it when the first ADR is needed.
  
  ## During the session
  

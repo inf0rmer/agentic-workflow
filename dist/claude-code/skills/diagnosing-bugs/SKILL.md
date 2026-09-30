@@ -10,13 +10,13 @@ The phases below are split between two roles. The **tester** builds the feedback
 
 The **engineer** hypothesises, instruments and fixes (Phases 3 to 5), then cleans up (Phase 6). The sealed regression test is never edited: if it looks wrong, report the failing assertion to the lead rather than changing it.
 
-Throwaway loop scripts and captured artifacts go under `$(team-guard workspace-path)`, never in a project repo.
+Throwaway loop scripts, prototypes and captured artifacts go under `$(team-guard workspace-path)`, never in a project repo. If `team-guard workspace-path` fails because there is no workspace, use `git rev-parse --absolute-git-dir` instead, never the working tree.
 
 # Diagnosing Bugs
 
 A discipline for hard bugs. Skip phases only when explicitly justified.
 
-When exploring the codebase, read `GLOSSARY.md` (if it exists) to get a clear mental model of the relevant modules, and check ADRs in the area you're touching.
+When exploring the codebase, read the optional `GLOSSARY.md` and the ADRs in `$(team-guard workspace-path)`, and the project's own glossary and ADRs if it keeps them, to get a clear mental model of the relevant modules. Only read the project's; write in the workspace.
 
 ## Redact
 
@@ -143,5 +143,5 @@ Required before declaring done:
 - [ ] Original repro no longer reproduces (re-run the Phase 1 loop)
 - [ ] Regression test passes (or absence of seam is documented)
 - [ ] All `[DEBUG-...]` instrumentation removed (`grep` the prefix)
-- [ ] Throwaway prototypes deleted (or moved to a clearly-marked debug location)
+- [ ] Throwaway prototypes deleted (or moved under `$(team-guard workspace-path)`)
 - [ ] The hypothesis that turned out correct is stated in the commit / PR message, so the next debugger learns

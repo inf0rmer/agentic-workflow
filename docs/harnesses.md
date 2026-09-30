@@ -83,9 +83,17 @@ Moving the pin is a person's decision: update the copies and patches, then the p
 
 The byte-for-byte checks need a local clone of upstream at the pin. Run the suite with `VENDOR_UPSTREAM_CLONE=<path to a clone of mattpocock/skills at the pin> tests/run.sh`; without it those tests skip with that reason, and nothing touches the network.
 
+## Know what is unverified
+
+On Codex, the engineer loads `$tdd-inner-loop` by mentioning it in its developer instructions. The Codex docs say an explicit `$skill` mention still works when implicit invocation is off, but that loading from developer instructions rather than a user turn is unverified.
+If it doesn't load, the lead can put `$tdd-inner-loop` in the engineer's spawn prompt, which is a user turn.
+
 ## Install
 
 Each installer runs `tests/run.sh` first, backs up what it replaces to `backups/agentic-workflow-<timestamp>/` in the harness home, and copies the build.
+That includes every skill directory it is about to write, under `skills/` in the backup.
+If a skill's target is a symlink, for example into a `skills.sh` store, the installer backs up the link itself and replaces it with a real directory, so it never writes through the link.
+If an upstream `tdd` skill is installed, it warns that its trigger phrases can fire in the tester and suggests removing it; it never deletes it.
 Neither installer edits your settings or merges hooks.
 
 ### Install for Claude Code

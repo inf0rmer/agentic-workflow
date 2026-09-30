@@ -21,13 +21,28 @@ install -m 0755 "$DIST"/bin/* "$DEST/team/bin/"
 
 for skill in "$DIST"/skills/*/; do
   name=$(basename "$skill")
-  mkdir -p "$DEST/skills/$name"
+  target="$DEST/skills/$name"
+  mkdir -p "$BACKUP/skills"
+  if [[ -L "$target" ]]; then
+    # A symlink (for example into a skills.sh store): keep the link itself, and never write through it.
+    cp -P "$target" "$BACKUP/skills/$name"
+    rm "$target"
+    echo "note: $target was a symlink; backed up the link and replaced it with a real directory."
+  elif [[ -e "$target" ]]; then
+    cp -R "$target" "$BACKUP/skills/$name"
+  fi
+  mkdir -p "$target"
   cp -R "$skill". "$DEST/skills/$name/"
   # The denylist is yours, not the repo's: create it once, never overwrite it.
   [[ "$name" != jev-decide || -f "$DEST/skills/$name/denylist.txt" ]] || printf '%s\n' \
     "# Names that must never be sent to Jev: one per line, matched case-insensitively as whole words." \
     > "$DEST/skills/$name/denylist.txt"
 done
+
+if [[ -e "$DEST/skills/tdd" || -L "$DEST/skills/tdd" ]]; then
+  echo "warning: an upstream 'tdd' skill is installed at $DEST/skills/tdd. It has trigger phrases that can fire in the tester." >&2
+  echo "         The workflow uses 'tdd-inner-loop' instead; consider removing 'tdd' (it is not deleted for you)." >&2
+fi
 
 echo
 echo "Installed agents, CLAUDE.md, skills, and $DEST/team/bin. Backup: $BACKUP"

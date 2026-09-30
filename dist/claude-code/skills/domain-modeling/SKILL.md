@@ -20,7 +20,7 @@ $(team-guard workspace-path)/
     └── 0002-postgres-for-write-model.md
 ```
 
-Each ADR is `adr/NNNN-<slug>.md`. Create files lazily: only when you have something to write. If no `GLOSSARY.md` exists, create one in the workspace dir when the first term is resolved. If no `adr/` exists there, create it when the first ADR is needed.
+Each ADR is `adr/NNNN-<slug>.md`. If the project already keeps a glossary or ADRs, read them too; write only in the workspace dir. If `team-guard workspace-path` fails because there is no workspace, use `git rev-parse --absolute-git-dir` instead, never the working tree. Create files lazily: only when you have something to write. If no `GLOSSARY.md` exists, create one in the workspace dir when the first term is resolved. If no `adr/` exists there, create it when the first ADR is needed.
 
 ## During the session
 

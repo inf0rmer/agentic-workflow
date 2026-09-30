@@ -39,7 +39,7 @@ Match the process to the task with a workflow variant (below). Global role defin
 
 Projects can override these by placing project-specific versions in `{{project_agents_dir}}/`.
 
-Skills are Matt Pocock's, MIT, pinned at one commit (the plugin is not installed and the copies never auto-update; `scripts/vendor-check` reports drift): `grilling` (product-owner), `codebase-design` and `domain-modeling` (architect), `diagnosing-bugs` (Bug fix), `tdd-inner-loop` (software-engineer only), `writing-for-agents` (editing `core/`), and `handoff` and `to-questionnaire`, which the human runs as `{{user_skill_sigil}}handoff` and `{{user_skill_sigil}}to-questionnaire` when you tell them to.
+Skills are Matt Pocock's, MIT, pinned at one commit (the plugin is not installed and the copies never auto-update; `scripts/vendor-check` reports drift): `grilling` (product-owner), `codebase-design` and `domain-modeling` (architect), `diagnosing-bugs` (Bug fix), `tdd-inner-loop` (software-engineer only), `writing-for-agents` (editing `core/`), and `handoff` and `to-questionnaire`, which the human runs as `{{user_skill_sigil}}handoff` and `{{user_skill_sigil}}to-questionnaire`. The lead tells the human to run handoff when switching harness or resetting context, and to-questionnaire for a question only another team can answer.
 
 ### Workspaces
 
@@ -156,7 +156,7 @@ When the review ends with `approved=true` and zero comments, run `team-guard gat
 
 ### Gate fallback without Crit
 
-Where Crit is unavailable (`team-guard gate review` exits with exit 3 and names the reply for the gate), or the harness is Codex, the lead posts numbered questions in chat about the reviewed files. The human answers them and the owners revise. The reply that ends the single gate is the literal `approve design`; when the gates are split, it is `approve D1` or `approve D2`. No other reply counts as approval.
+Where Crit is unavailable (`team-guard gate review` exits with exit 3 and names the reply for the gate), or the harness is Codex, the lead posts numbered questions in chat about the reviewed files, using the `grilling` skill. The human answers them and the owners revise. The reply that ends the single gate is the literal `approve design`; when the gates are split, it is `approve D1` or `approve D2`. No other reply counts as approval.
 
 Then the lead records it with `team-guard gate record <gate> <files…> --chat "<reply>"`, which checks the reply and appends the current sha256 of the files to `design-gate.md`.
 

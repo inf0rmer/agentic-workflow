@@ -34,6 +34,10 @@ class Cannot(Exception):
     pass
 
 
+class BrokenPatch(Cannot):
+    pass
+
+
 def git(repo, *args, check=True, inp=None):
     p = subprocess.run(["git", "-C", repo, *args], capture_output=True, input=inp)
     if check and p.returncode != 0:
@@ -125,7 +129,7 @@ def expected_copy(repo, record, name, e, skills_dir, tmp):
         patch = os.path.abspath(os.path.join(skills_dir, e["patch"]))
         p = subprocess.run(["git", "apply", patch], cwd=work, capture_output=True)
         if p.returncode != 0:
-            raise Cannot(f"{e['patch']} does not apply at the pin: {p.stderr.decode(errors='replace').strip()}")
+            raise BrokenPatch(f"{e['patch']} does not apply at the pin: {p.stderr.decode(errors='replace').strip()}")
         out = os.path.join(work, "core", "skills", name)
     else:
         out = os.path.join(work, e["upstream_path"])
@@ -201,7 +205,7 @@ def run(args):
         pin = record["sha"]
         if git(repo, "cat-file", "-e", pin + "^{commit}", check=False).returncode != 0:
             raise Cannot(f"the pinned commit {pin} is not in the upstream")
-        report, drift = [], 0
+        report, drift, broken = [], 0, []
         for name in sorted(record["skills"]):
             e = record["skills"][name]
             path = e["upstream_path"]
@@ -209,7 +213,13 @@ def run(args):
                 report.append(f"{name}: upstream removed")
                 drift += 1
                 continue
-            expected = expected_copy(repo, record, name, e, skills_dir, tmp)
+            try:
+                expected = expected_copy(repo, record, name, e, skills_dir, tmp)
+            except BrokenPatch as err:
+                report.append(f"{name}: patch broken at pin")
+                broken.append(str(err))
+                drift += 1
+                continue
             actual = os.path.join(skills_dir, name)
             drifted = local_drift(expected, actual) if os.path.isdir(actual) else ["  missing: SKILL.md"]
             if drifted:
@@ -223,6 +233,12 @@ def run(args):
                 drift += 1
                 continue
             report.append(f"{name}: ok")
+        if blob(repo, pin, "LICENSE") != blob(repo, ref, "LICENSE"):
+            report.append("LICENSE: upstream changed")
+            drift += 1
+        if broken:
+            sys.stdout.write("\n".join(report) + "\n")
+            raise Cannot("; ".join(broken))
         report.append("no drift" if not drift else f"drift in {drift} skill(s)")
         sys.stdout.write("\n".join(report) + "\n")
         return 1 if drift else 0
@@ -240,6 +256,9 @@ def main():
         return run(a)
     except Cannot as e:
         print(f"vendor-check: {e}", file=sys.stderr)
+        return 2
+    except Exception as e:  # never a traceback, and never an exit code a script reads as drift
+        print(f"vendor-check: {type(e).__name__}: {e}", file=sys.stderr)
         return 2
 
 
