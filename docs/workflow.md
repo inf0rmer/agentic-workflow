@@ -229,7 +229,7 @@ Merge risk: high (advisory) — changes the stored config format; a revert needs
 ```
 
 The level comes from a table checked top-down over facts about the change: persisted data, a public contract, several repos, security or a hard revert give High.
-An additive contract change, user-visible behavior, more than 15 files or 500 changed non-test lines, deploy, CI or config files, a major fixed in review, an unseal, skipped mutation testing on a risk-flagged module, or low holdout satisfaction give Medium; anything else (docs, tests, or an internal change within limits) gives Low.
+An additive contract change, user-visible behavior, more than 15 files or 500 changed non-test lines, deploy, CI or config files, a major fixed in review, an unseal, skipped mutation testing on a risk-flagged module, or any failed holdout scenario (variants with no holdouts never trigger this) give Medium; anything else (docs, tests, or an internal change within limits) gives Low.
 Any unknown input counts as "yes", and review findings, unseals and skipped mutation testing can only raise the level.
 A script that computes the level is planned; until it exists the lead applies the table by hand.
 
