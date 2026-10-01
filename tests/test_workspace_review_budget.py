@@ -264,5 +264,38 @@ class TestSizeInRiskLevel(BudgetCase):
                 self.assertNotRegex(first, re.compile(r"size|large|lines|\d", re.I))
 
 
+class TestGeneratedPaths(BudgetCase):
+
+    def test_only_exact_generated_names_and_dist_segments_are_left_out_of_the_lines_to_review(self):
+        # A name that merely contains a generated marker is hand-written code a human must read.
+        files = {"pkg/fuzz_generated.go": lines(5)}
+        for rel in ("x/y_gen.go", "a.gen.ts", "p.pb.go", "m_pb2.py", "zz_generated.deepcopy.go",
+                    "dist/bundle.js", "web/dist/app.js"):
+            files[rel] = lines(2000)
+        repo, feature = self.change(files)
+        r = self.ok(self.risk(repo, feature, budget=4))
+        _, rules, inputs = parse(r.out)
+        self.assertEqual(inputs.get("review_lines"), "5", self.show(r))
+        self.assertEqual(warnings(r.out), [warning(5, 4)], self.show(r))
+        self.assertEqual(rules.get("large-change"), "medium", self.show(r))
+
+
+class TestRiskUsage(ToolCase):
+
+    def test_risk_usage_names_the_budget_flag_and_its_environment_variable(self):
+        r = self.ok(self.sb.tg(cwd=self.sb.scratch))
+        block, inside = [], False
+        for line in r.out.splitlines():
+            if line.startswith("  team-guard "):
+                inside = line.startswith("  team-guard risk")
+            elif not line.startswith("    "):
+                inside = False
+            if inside:
+                block.append(line)
+        usage = "\n".join(block)
+        self.assertIn("--pr-budget", usage, self.show(r))
+        self.assertIn(BUDGET_ENV, usage, self.show(r))
+
+
 if __name__ == "__main__":
     unittest.main()

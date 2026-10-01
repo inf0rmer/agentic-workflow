@@ -1,8 +1,8 @@
 """Checks that the rendered instructions, agent files and docs keep PRs reviewable.
 
-Each slice of a Full change is its own PR, every PR stays within a review budget, the
-reviewer leaves a guide to where a human should look, and the lead follows plain stop
-rules rather than a goal loop. Patterns are case-insensitive regexes.
+Each slice of a Full change is its own PR, opened only after the previous slice's PR has
+merged, every PR stays within a review budget, the reviewer leaves a guide to where a
+human should look, and the lead follows plain stop rules rather than a goal loop. Patterns are case-insensitive regexes.
 """
 
 import json
@@ -20,6 +20,18 @@ GUARD_RAILS = ROOT / "docs" / "guard-rails.md"
 GUIDE = r"review-guide\.md"
 GUIDE_HEADINGS = [r"Where to look first", r"Checked mechanically", r"Not verified", r"Provisional decisions"]
 APPROVAL_STEP = "team-guard routing record step --step over-budget-approved"
+APPROVAL_STEP_FULL = APPROVAL_STEP + " --seconds 0"
+NO_STACKING = [r"stacked", r"stacking", r"\bstack (of )?PRs?\b", r"retarget"]
+# One slice from review to merge, in order; the next slice's PR waits for the merge and a rebase.
+SLICE_SEQUENCE = [r"passes (its )?review", r"human gate", r"team-guard sign --base",
+                  r"\bpush(es|ed)?\b[^.\n]{0,80}\bopens?\b[^.\n]{0,40}\bPR\b",
+                  r"\bmerges?\b",
+                  r"only after[^.\n]{0,80}\bmerged?\b|\bmerged?\b[^.\n]{0,80}before[^.\n]{0,60}\bPR\b",
+                  r"rebase[sd]?\b[^.\n]{0,80}\bonto\b[^.\n]{0,40}\bbase\b"]
+DESIGN_GATE_ONCE = r"design gate[^.\n]{0,120}once per feature|once per feature[^.\n]{0,120}design gate"
+HUMAN_GATE_PER_SLICE = r"human gate[^.\n]{0,120}per slice|per slice[^.\n]{0,120}human gate"
+STOP_BEFORE_PUSH = r"before sign\w*,? push\w*,? (or|and) open\w*"
+SIZE_ONLY_FOOTER = re.escape("Merge risk: <level> (advisory).")
 
 
 def instr_sections(case, heading):
@@ -58,7 +70,7 @@ class TestPullRequestRules(RulesCase):
 
     def test_full_opens_one_pr_per_slice_and_other_variants_one_pr_within_budget(self):
         for name, sec in instr_sections(self, H_PRS).items():
-            self.assert_has(name, sec, r"each slice gets its own PR", r"stacked on", r"team-guard sign",
+            self.assert_has(name, sec, r"each slice gets its own PR", r"team-guard sign",
                             r"per slice", r"Standard, Bug fix and Chore", r"one PR", r"Spike", r"no PR",
                             r"\b400\b", r"--pr-budget")
 
@@ -78,6 +90,38 @@ class TestPullRequestRules(RulesCase):
         for name, path in INSTR.items():
             with self.subTest(file=name):
                 self.assertLessEqual(path.stat().st_size, 32768)
+
+
+class TestSequentialSlicePRs(RulesCase):
+
+    def assert_in_order(self, name, text, patterns):
+        self.assertIsNotNone(text, "%s: section or file is missing" % name)
+        at = 0
+        for p in patterns:
+            with self.subTest(file=name, step=p):
+                m = re.compile(p, re.I).search(text, at)
+                self.assertIsNotNone(m, "%s: %r must follow the earlier steps (from offset %d)" % (name, p, at))
+                if m:
+                    at = m.end()
+
+    def test_each_slice_is_reviewed_gated_signed_pushed_and_merged_before_the_next_pr_opens(self):
+        for name, sec in instr_sections(self, H_PRS).items():
+            self.assert_in_order(name, sec, SLICE_SEQUENCE)
+            self.assert_has(name, sec, r"Where to look")
+        wf = read(WF)
+        self.assert_has("docs/workflow", wf, *SLICE_SEQUENCE)
+
+    def test_design_gate_runs_once_per_feature_while_the_human_gate_runs_per_slice(self):
+        texts = dict(instr_texts())
+        texts["docs/workflow"] = read(WF)
+        for name, doc in texts.items():
+            self.assert_has(name, doc, DESIGN_GATE_ONCE, HUMAN_GATE_PER_SLICE)
+
+    def test_no_stacked_or_retargeted_pr_wording_remains(self):
+        texts = dict(instr_texts())
+        texts["docs/workflow"] = read(WF)
+        for name, doc in texts.items():
+            self.assert_lacks(name, doc, *NO_STACKING)
 
 
 class TestGoalLoopRemoved(RulesCase):
@@ -104,6 +148,30 @@ class TestFooterSilentOnSize(RulesCase):
             self.assert_lacks(name, sec, r"500 changed non-test lines")
 
 
+class TestSizeOnlyFooter(RulesCase):
+
+    def test_footer_docs_show_a_size_only_footer_with_no_reason(self):
+        secs = dict(instr_sections(self, H_FOOTER))
+        secs["docs/workflow"] = section(read(WF), "## Merge-risk footer")
+        for name, sec in secs.items():
+            self.assert_has(name, sec, SIZE_ONLY_FOOTER, r"(no|without an?) reason")
+
+
+class TestLeadStopDetails(RulesCase):
+
+    def test_lead_section_keeps_the_seal_design_gate_evidence_and_turn_cap_details(self):
+        for name, sec in instr_sections(self, H_LEAD).items():
+            self.assert_has(name, sec,
+                            r"sealed test[^.\n]{0,120}unseal and reseal",
+                            r"logged unseal and reseal",
+                            r"no scaffold\w*[^.\n]{0,40}tests?[^.\n]{0,40}before the design gate",
+                            r"printed evidence",
+                            r"never on an agent's claim",
+                            r"since the last human check-in",
+                            r"(up to|until|before) the design gate[^.\n]{0,80}\b20\b"
+                            r"|\b20\b[^.\n]{0,80}(up to|until|before) the design gate")
+
+
 class TestOverBudgetException(ToolCase, RulesCase):
 
     def test_over_budget_slice_needs_a_stated_exception_or_the_humans_approval(self):
@@ -124,6 +192,13 @@ class TestOverBudgetException(ToolCase, RulesCase):
         self.ok(self.sb.tg("routing", "record", "step", "--step", "over-budget-approved", "--seconds", "0", cwd=ws))
         steps = [e for e in self.log_lines() if e.get("event") == "step"]
         self.assertEqual([(e["step"], e["seconds"]) for e in steps], [("over-budget-approved", 0)])
+
+
+    def test_over_budget_slice_without_an_exception_stops_before_signing_pushing_or_opening_its_pr(self):
+        for name, sec in instr_sections(self, H_LEAD).items():
+            self.assert_has(name, sec, r"over budget", r"no approved exception|without an approved exception",
+                            STOP_BEFORE_PUSH, r"approve over budget", re.escape(APPROVAL_STEP_FULL),
+                            r"any other reply[^.\n]{0,80}back to the architect")
 
 
 if __name__ == "__main__":
