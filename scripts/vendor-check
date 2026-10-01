@@ -11,6 +11,7 @@ stays a person's decision. One line per skill, in sorted order:
   <dir>: local drift                          the copy differs from upstream at the pin plus its patch
   <dir>: upstream changed[, patch conflict]   the path differs between the pin and the ref
   <dir>: ok
+  LICENSE: upstream removed                   the upstream LICENSE is gone at the ref (also drift)
 
 Exit 0 and "no drift" when every skill is ok, 1 and "drift in <n> skill(s)" otherwise, and 2
 with a message on stderr (nothing on stdout) when it cannot run. A URL upstream is cloned
@@ -233,7 +234,10 @@ def run(args):
                 drift += 1
                 continue
             report.append(f"{name}: ok")
-        if blob(repo, pin, "LICENSE") != blob(repo, ref, "LICENSE"):
+        if git(repo, "cat-file", "-e", f"{ref}:LICENSE", check=False).returncode != 0:
+            report.append("LICENSE: upstream removed")
+            drift += 1
+        elif blob(repo, pin, "LICENSE") != blob(repo, ref, "LICENSE"):
             report.append("LICENSE: upstream changed")
             drift += 1
         if broken:
