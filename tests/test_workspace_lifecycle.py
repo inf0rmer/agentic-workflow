@@ -2,6 +2,7 @@
 
 import json
 import os
+import select
 import shutil
 import subprocess
 import tempfile
@@ -12,6 +13,35 @@ from pathlib import Path
 from wslib import (GUARD, LIST_LINE, WSTestCase, backdate_tree, iso_days_ago,
                    read_bytes, realpath, tree_snapshot)
 from wsnet import Tripwire
+
+
+def wait_exit_unreaped(pid):
+    """Block until child `pid` exits, leaving it unreaped (a zombie).
+
+    While the zombie exists its pid, and so its process group id, can't be reused by an
+    unrelated process, so a `ps` taken now can't mistake a newcomer for a leftover.
+    os.waitid(WNOWAIT) does this directly, but some builds (python.org's macOS Python, as
+    used by actions/setup-python) lack os.waitid. There, a kqueue NOTE_EXIT watch gives the
+    same guarantee: it reports the exit without reaping. Returns False when neither exists;
+    reaping first and checking afterwards would reopen the pid-reuse race, so callers skip.
+    """
+    if hasattr(os, "waitid"):
+        os.waitid(os.P_PID, pid, os.WEXITED | os.WNOWAIT)
+        return True
+    if hasattr(select, "kqueue"):
+        kq = select.kqueue()
+        try:
+            ev = select.kevent(pid, filter=select.KQ_FILTER_PROC,
+                               flags=select.KQ_EV_ADD | select.KQ_EV_ONESHOT,
+                               fflags=select.KQ_NOTE_EXIT)
+            try:
+                kq.control([ev], 1, None)
+            except ProcessLookupError:
+                pass  # already a zombie: it exited before the watch was added, still unreaped
+        finally:
+            kq.close()
+        return True
+    return False
 
 
 class LifecycleCase(WSTestCase):
@@ -655,7 +685,9 @@ class TestGc(LifecycleCase):
                                          stdout=out, stderr=err, start_new_session=True)
                     # Wait for the exit but leave the child unreaped: its pid (and so its process
                     # group id) can't be reused by an unrelated process while we look.
-                    os.waitid(os.P_PID, p.pid, os.WEXITED | os.WNOWAIT)
+                    if not wait_exit_unreaped(p.pid):
+                        p.wait(timeout=60)
+                        self.skipTest("no way to wait for a child without reaping it here")
                     ps = subprocess.run(["ps", "-A", "-o", "pgid=,pid=,command="], capture_output=True, text=True)
                     code = p.wait(timeout=60)
                     err.seek(0)
