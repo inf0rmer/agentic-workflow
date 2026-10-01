@@ -2266,7 +2266,18 @@ def sign_repo(name, top, base):
     allowed = git("config", "--get", "gpg.ssh.allowedSignersFile", cwd=top, check=False).stdout.strip()
     verified = fmt in ("", "openpgp") or (fmt == "ssh" and bool(allowed))
     if problem is None and verified:
-        marks = git("log", "--format=%G?", rng, cwd=top).stdout.split()
+        # Python starts children with SIGPIPE at its default. A verifier that exits without reading the
+        # signed payload would then kill git itself, silently, so let git see the write error instead.
+        r = subprocess.run(["git", "log", "--format=%G?", rng], cwd=top, capture_output=True, text=True,
+                           stdin=subprocess.DEVNULL, restore_signals=False)
+        if r.returncode != 0:
+            why = " ".join(r.stderr.split())[-300:]
+            if not why:
+                why = (f"git exited with signal {-r.returncode}" if r.returncode < 0
+                       else f"git exited with status {r.returncode}")
+            restore(orig)
+            fail(f"could not check the signatures ({why}); the branch was restored")
+        marks = r.stdout.split()
         if any(m not in ("G", "U") for m in marks):
             problem = "a signature did not verify"
     if problem:
