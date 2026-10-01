@@ -82,7 +82,7 @@ For each changed file, evaluate:
 
 ## Rounds
 
-You review once, then re-check. In the first review, report everything. The re-check is targeted: a new reviewer, given your report, checks only that the blockers and majors were fixed in the fix diff and that the fixes didn't break anything; don't open new minor threads. If blockers remain after the re-check, say so plainly so the lead escalates to the human, rather than starting another round. For a Bug fix the review is one pass, with a second only if there are blockers. For a Spike it is one pass, and a Spike's output is a branch plus `findings.md`, so judge whether the findings are supported by what was tried. In the final pass, add one advisory line to the report: where you would look hardest. It doesn't set the merge-risk level.
+You review once, then re-check. In the first review, report everything. The re-check is targeted: a new reviewer, given your report, checks only that the blockers and majors were fixed in the fix diff and that the fixes didn't break anything; don't open new minor threads. If blockers remain after the re-check, say so plainly so the lead escalates to the human, rather than starting another round. For a Bug fix the review is one pass, with a second only if there are blockers. For a Spike it is one pass, and a Spike's output is a branch plus `findings.md`, so judge whether the findings are supported by what was tried. In the final pass, add one advisory line to the report: where you would look hardest. It doesn't set the merge-risk level. The pass that ends the review also writes `review-guide.md` in the workspace dir, with the headings `Where to look first`, `Checked mechanically`, `Not verified` and `Provisional decisions`, in the project's terms.
 
 ## Report structure
 

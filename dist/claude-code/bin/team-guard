@@ -38,7 +38,7 @@ Workflow tooling:
   team-guard routing summary [--json]
   team-guard risk [--base R] [--feature F] [--answer k=v]... [--contract none|additive|breaking|unknown]
                   [--majors-fixed N] [--holdouts-failed N] [--mutation-skipped yes|no|unknown]
-                  [--human-level high|medium|low] [--packet] [--no-log]
+                  [--human-level high|medium|low] [--pr-budget N | TEAM_PR_BUDGET] [--packet] [--no-log]
   team-guard sign [--base <ref>]
   team-guard gate review <gate> [<file>...] [--new] [--no-open]
   team-guard gate reply <gate> --file <json> --author <role>
@@ -52,7 +52,7 @@ Hook entry points (read the hook event JSON on stdin):
   team-guard hook-stop          SubagentStop (Claude Code and Codex): send the subagent back if verify fails
   team-guard pre-commit         git pre-commit: refuse staged changes to sealed files
 
-Environment: TEAM_LOG_ROOT, TEAM_REFS_CONFIG, TEAM_WORKSPACE_ROOT, TEAM_HOLDOUT_ROOT, TEAM_ARCHIVE_ROOT,
+Environment: TEAM_PR_BUDGET, TEAM_LOG_ROOT, TEAM_REFS_CONFIG, TEAM_WORKSPACE_ROOT, TEAM_HOLDOUT_ROOT, TEAM_ARCHIVE_ROOT,
 TEAM_STALE_DAYS, TEAM_ARCHIVE_RETENTION_DAYS.
 
 The git hooks work with any agent harness, or none: a sealed test has to be
@@ -2004,11 +2004,12 @@ RISK_REASONS = {
     "hard-to-revert": "a plain revert may not undo it",
     "additive-contract": "adds to a public interface that others rely on",
     "user-visible": "changes behavior users can see",
-    "large-change": "is a large change",
     "config-or-ci": "changes deploy, CI or configuration files",
 }
 RISK_PROCESS_ONLY = "extra checks during development flagged this change for a closer look"
-RISK_LOW = "docs, tests or an internal change within size limits"
+RISK_LOW = "docs, tests or an internal change"
+DEFAULT_PR_BUDGET = 400
+GENERATED_SUFFIXES = ("_gen.go", ".gen.ts", ".pb.go", "_pb2.py")
 
 
 def path_category(path):
@@ -2029,6 +2030,25 @@ def path_category(path):
     if (set(segs) & {"doc", "docs"}) or ext in DOC_EXTS:
         return "docs"
     return "other"
+
+
+def is_generated(path):
+    parts = path.split("/")
+    base = parts[-1].lower()
+    return "dist" in parts[:-1] or base.endswith(GENERATED_SUFFIXES) or base.startswith("zz_generated")
+
+
+def pr_budget_or_die(flag):
+    """The review budget: the flag, else TEAM_PR_BUDGET, else the default. The flag wins without reading the variable."""
+    if flag is not None:
+        val, src = flag, "--pr-budget"
+    else:
+        val, src = os.environ.get("TEAM_PR_BUDGET", ""), "TEAM_PR_BUDGET"
+        if val == "":
+            return DEFAULT_PR_BUDGET
+    if not re.fullmatch(r"[0-9]+", val) or int(val) < 1:
+        die(f"risk: {src} must be a whole number of at least 1")
+    return int(val)
 
 
 def repo_change_facts(top, mb):
@@ -2075,9 +2095,11 @@ def cmd_risk(args):
     p.add_argument("--holdouts-failed", type=int, default=0)
     p.add_argument("--mutation-skipped", choices=YES_NO, default="no")
     p.add_argument("--human-level", choices=("high", "medium", "low"))
+    p.add_argument("--pr-budget")
     p.add_argument("--packet", action="store_true")
     p.add_argument("--no-log", action="store_true")
     a = _parse_or_die(p, args, "risk")
+    budget = pr_budget_or_die(a.pr_budget)
     if a.majors_fixed < 0 or a.holdouts_failed < 0:
         die("risk: --majors-fixed and --holdouts-failed must be integers of at least 0")
     overrides = parse_answer_items(a.answer, "risk")
@@ -2098,7 +2120,7 @@ def cmd_risk(args):
         answers[k] = overrides[k]
 
     cats = {c: 0 for c in RISK_CATEGORIES}
-    files = non_test = changed_repos = unseals = 0
+    files = non_test = review = changed_repos = unseals = 0
     for name, top, base in targets:
         mb = merge_base_or_die(top, base, "risk", name)
         rows = repo_change_facts(top, mb)
@@ -2110,6 +2132,8 @@ def cmd_risk(args):
             cats[cat] += 1
             if cat != "test":
                 non_test += add + rem
+                if not is_generated(path):
+                    review += add + rem
         ids = repo_ids(top)
         unseals += sum(1 for h in load_lock(ids[1])["history"] if h.get("action") == "unseal")
 
@@ -2135,7 +2159,8 @@ def cmd_risk(args):
         rules.append(("additive-contract", "medium", True))
     if risky("user_visible"):
         rules.append(("user-visible", "medium", True))
-    if files > 15 or non_test > 500:
+    over = review > budget
+    if files > 15 or over:
         rules.append(("large-change", "medium", True))
     if cats["config_or_ci"] >= 1:
         rules.append(("config-or-ci", "medium", True))
@@ -2148,18 +2173,21 @@ def cmd_risk(args):
     if a.holdouts_failed >= 1:
         rules.append(("holdouts-failed", "medium", False))
     level = "high" if any(r[1] == "high" for r in rules) else "medium" if rules else "low"
-    scope = [RISK_REASONS[r[0]] for r in rules if r[1] == level and r[2]]
+    at_level = [r for r in rules if r[1] == level and r[0] != "large-change"]
+    scope = [RISK_REASONS[r[0]] for r in at_level if r[2]]
     if level == "low":
         reason = RISK_LOW
-    elif not scope:
+    elif scope:
+        reason = "; ".join(scope[:2])
+    elif at_level:
         reason = RISK_PROCESS_ONLY
     else:
-        reason = "; ".join(scope[:2])
-    lines = [f"Merge risk: {level} (advisory) — {reason}."]
+        reason = None
+    lines = [f"Merge risk: {level} (advisory)" + (f" — {reason}." if reason else ".")]
 
     inputs = dict(answers)
     inputs.update({"contract": contract, "files": files, "non_test_lines": non_test, "repos_changed": changed_repos,
-                   "unseals": unseals, "majors_fixed": a.majors_fixed, "holdouts_failed": a.holdouts_failed,
+                   "review_lines": review, "pr_budget": budget, "over_budget": "yes" if over else "no", "unseals": unseals, "majors_fixed": a.majors_fixed, "holdouts_failed": a.holdouts_failed,
                    "mutation_skipped": a.mutation_skipped})
     for c, n in cats.items():
         inputs["category." + c] = n
@@ -2172,6 +2200,7 @@ def cmd_risk(args):
             e = {"v": 1, "ts": utc_now(), "event": "risk", "feature": feature, "level": level,
                  "rules": [r[0] for r in rules],
                  "inputs": {"answers": answers, "contract": contract, "files": files, "non_test_lines": non_test,
+                            "review_lines": review, "over_budget": "yes" if over else "no",
                             "repos_changed": changed_repos, "unseals": unseals, "majors_fixed": a.majors_fixed,
                             "holdouts_failed": a.holdouts_failed, "mutation_skipped": a.mutation_skipped,
                             "categories": cats}}
@@ -2179,6 +2208,9 @@ def cmd_risk(args):
                 e["human_level"] = a.human_level
             return e
         append_locked(build)
+    if over:
+        lines.append(f"Review-size warning: {review} changed lines to review exceeds the review budget of {budget}; "
+                     "split before asking for review.")
     print("\n".join(lines))
 
 

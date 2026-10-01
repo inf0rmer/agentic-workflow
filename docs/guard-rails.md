@@ -237,6 +237,10 @@ team-guard risk --feature payments --majors-fixed 1 --packet
 # Merge risk: high (advisory) — changes stored data or its format, which a revert may not undo.
 ```
 
+It counts the lines to review (`review_lines`: added and removed lines outside tests and generated paths, where docs count; generated means a `dist` directory, a name ending `_gen.go`, `.gen.ts`, `.pb.go` or `_pb2.py`, or starting `zz_generated`).
+When that exceeds the review budget it prints a final line `Review-size warning: <n> changed lines to review exceeds the review budget of <b>; split before asking for review.` and `large-change` fires at Medium.
+The budget is 400, or `TEAM_PR_BUDGET`, or `--pr-budget N`; the flag wins, and a value that is not a whole number of at least 1 exits 1.
+`--packet` lists `over_budget`, `pr_budget` and `review_lines`, and the log records `over_budget` and `review_lines`.
 It reads the routing answers, the changed files and lines in every attached repo, the unseals in the lock history, and the flags `--contract`, `--majors-fixed`, `--holdouts-failed` and `--mutation-skipped`.
 An unknown input counts as risky, and a file path can raise the level (a migration, or an auth or security path) but never lower it.
 `--packet` adds the rules that fired and every input for the human's review packet.
