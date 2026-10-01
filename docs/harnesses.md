@@ -94,8 +94,9 @@ Each installer runs `tests/run.sh` first, backs up what it replaces to `backups/
 That includes every skill directory it is about to write, under `skills/` in the backup.
 If a skill's target is a symlink, for example into a `skills.sh` store, the installer backs up the link itself and replaces it with a real directory, so it never writes through the link.
 An existing skill directory is backed up, then removed and copied fresh, so nothing is written through a symlink inside it and your own files never merge into ours.
+If the skills root is itself a symlink into a store, replacing a skill deletes inside that store, and the backup holds the original.
 If a skill can't be installed, the installer prints `agentic-workflow install: skill <name> failed: ...` and exits non-zero.
-The Jev denylist is never emptied: when `jev-decide` is replaced, including through a symlink, the installer reads your existing `denylist.txt` (following the link) and copies it into the new directory, and it creates the empty default only when no denylist existed. It prints a note either way.
+The Jev denylist is never emptied: when `jev-decide` is replaced, including through a symlink, the installer reads your existing `denylist.txt` (following the link) and copies it into the new directory, and it creates the empty default only when no denylist existed. A denylist that is a symlink is restored as the same link, without writing through it, and a regular one keeps its mode. If saving or restoring it fails, the installer names `jev-decide`, exits non-zero, and leaves no copy in the temp dir. It prints a note either way.
 If an upstream `tdd` skill is installed, it warns that its trigger phrases can fire in the tester and suggests removing it; it never deletes it.
 Neither installer edits your settings or merges hooks.
 

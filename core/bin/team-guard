@@ -359,7 +359,7 @@ def check_seal_args(cmd, paths):
         sys.exit(0)
     for p in paths:
         if p.startswith("-"):
-            die(f"{cmd}: unknown option {p}; paths that start with - are not accepted\n{SEAL_USAGE[cmd]}")
+            die(f"{cmd}: unknown option {p}; to name a file that starts with -, prefix it with ./\n{SEAL_USAGE[cmd]}")
 
 
 def cmd_seal(paths):
@@ -1662,6 +1662,8 @@ REF_DEFAULT_EXCLUDES = ("docs/**", "**/*.md", "**/*.rst", "**/*.txt", "dist/**")
 
 def is_lockfile(path):
     return any(r.match(path) for r in LOCKFILE_RES)
+
+
 REF_CONFIG_KEYS = ("patterns", "disable_patterns", "exclude")
 
 
