@@ -8,6 +8,7 @@ Every case runs offline in its own sandbox from wslib.
 import os
 import re
 import shutil
+import stat
 import sys
 import unittest
 
@@ -129,11 +130,13 @@ class InstallerBugCase(InstallCase):
                         "exec %s %s \"$@\"\n" % (real, fixed))
         stub.chmod(0o755)
 
-    def run_installer(self, harness):
+    def run_installer(self, harness, tmpdir=None):
         """Run the installer as is, keeping earlier backups, with the clock frozen."""
         env = {"HOME": str(self.home), "CLAUDE_HOME": str(self.home / ".claude"),
                "CODEX_HOME": str(self.home / ".codex"),
                "PATH": str(self.fakebin) + os.pathsep + self.sb.env.get("PATH", "")}
+        if tmpdir is not None:
+            env["TMPDIR"] = str(tmpdir)
         return self.sb.run(["bash", str(self.repo / "adapters" / harness / "install.sh")], cwd=self.sb.scratch, env=env)
 
     def backups(self, harness):
@@ -212,6 +215,83 @@ class TestInstallerBackups(InstallerBugCase):
                         and not re.match(r"^\s*(cp|rm|mv|mkdir|install|ln):", l)]
                 self.assertTrue(said, "the installer itself says which skill failed\n" + self.show(r))
                 self.lacks(r.out, "Installed ", r)
+
+
+class TestInstallerDenylist(InstallerBugCase):
+    """The Jev denylist belongs to the person: a reinstall keeps it exactly as it was."""
+
+    def jev(self, harness):
+        return self.skills_dir(harness) / "jev-decide"
+
+    def first_install(self, harness):
+        self.ok(self.run_installer(harness), "first install")
+        shutil.rmtree(self.dest(harness) / "backups", ignore_errors=True)
+        return self.jev(harness) / "denylist.txt"
+
+    def fresh_tmpdir(self, harness, case):
+        t = self.sb.tmp / ("tmp-%s-%s" % (harness, case))
+        t.mkdir()
+        return t
+
+    def leftovers(self, tmpdir):
+        return sorted(os.path.relpath(os.path.join(d, f), tmpdir)
+                      for d, _, files in os.walk(tmpdir) for f in files)
+
+    def test_a_symlinked_denylist_stays_the_same_link_and_its_target_is_untouched(self):
+        for harness in HARNESSES:
+            with self.subTest(harness=harness):
+                deny = self.first_install(harness)
+                real = self.ext / ("%s-deny.txt" % harness)
+                real.write_text("secret partner\n")
+                os.chmod(real, 0o640)
+                before = os.stat(real)
+                deny.unlink()
+                os.symlink(real, deny)
+                tmpdir = self.fresh_tmpdir(harness, "link")
+
+                r = self.ok(self.run_installer(harness, tmpdir))
+                self.assertTrue(os.path.islink(deny), "the denylist is still a link\n" + self.show(r))
+                self.assertEqual(os.readlink(deny), str(real), "the link points where it did")
+                self.assertEqual(real.read_text(), "secret partner\n")
+                after = os.stat(real)
+                self.assertEqual((after.st_mode, after.st_mtime_ns, after.st_ino),
+                                 (before.st_mode, before.st_mtime_ns, before.st_ino), "the target is untouched")
+                self.assertEqual(self.leftovers(tmpdir), [], "no copy of the denylist is left in the temp dir")
+
+    def test_a_regular_denylist_keeps_its_contents_and_its_mode(self):
+        for harness in HARNESSES:
+            for mode in (0o644, 0o640):
+                with self.subTest(harness=harness, mode=oct(mode)):
+                    deny = self.first_install(harness)
+                    deny.write_text("acme corp\n")
+                    os.chmod(deny, mode)
+                    tmpdir = self.fresh_tmpdir(harness, "mode%o" % mode)
+
+                    r = self.ok(self.run_installer(harness, tmpdir))
+                    self.assertFalse(os.path.islink(deny))
+                    self.assertEqual(deny.read_text(), "acme corp\n")
+                    self.assertEqual(oct(stat.S_IMODE(os.lstat(deny).st_mode)), oct(mode),
+                                     "the denylist keeps its mode\n" + self.show(r))
+                    self.assertEqual(self.leftovers(tmpdir), [], "no copy of the denylist is left in the temp dir")
+
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0,
+                     "SKIPPED: root can read an unreadable file, so the failure can't be forced")
+    def test_a_denylist_that_cannot_be_saved_fails_the_install_naming_jev_decide(self):
+        for harness in HARNESSES:
+            with self.subTest(harness=harness):
+                deny = self.first_install(harness)
+                deny.write_text("acme corp\n")
+                os.chmod(deny, 0)
+                tmpdir = self.fresh_tmpdir(harness, "unreadable")
+                try:
+                    r = self.run_installer(harness, tmpdir)
+                finally:
+                    if os.path.lexists(deny):
+                        os.chmod(deny, 0o644)
+                self.nonzero(r)
+                self.has(r.out + r.err, "agentic-workflow install: skill jev-decide failed", r)
+                self.lacks(r.out, "Installed ", r)
+                self.assertEqual(self.leftovers(tmpdir), [], "no copy of the denylist is left in the temp dir")
 
 
 # -- vendor-check and a removed upstream license -----------------------------
