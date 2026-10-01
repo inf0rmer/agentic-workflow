@@ -369,7 +369,7 @@ def cmd_seal(paths):
     lock = load_lock(git_dir)
     files = [rel(top, p) for p in paths]
     for f in files:
-        if git("ls-files", "--error-unmatch", f, cwd=top, check=False).returncode:
+        if git("ls-files", "--error-unmatch", "--", f, cwd=top, check=False).returncode:
             sys.exit(f"team-guard: {f} is not tracked; commit it before sealing")
         if git("diff", "--quiet", "HEAD", "--", f, cwd=top, check=False).returncode:
             sys.exit(f"team-guard: {f} has uncommitted changes; commit it before sealing")
