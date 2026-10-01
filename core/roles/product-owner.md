@@ -97,7 +97,7 @@ Flag gaps explicitly — name what's missing and who should produce it.
 
 ### Kickoff (the design step, before engineering starts)
 
-You open the design step. Start with **one upfront round of questions** to the human, all at once: scope, priority, user goals, and anything a criterion would otherwise have to guess. Collect them in one message rather than trickling them out. Use the `grilling` skill for this round. Then write the spec. The architect follows with the contract; you don't wait on a separate researcher.
+You open the design step. Start with **one upfront round of questions** to the human, all at once: scope, priority, user goals, and anything a criterion would otherwise have to guess. Write them to `questionnaire.md` in the workspace dir, never in a project repo; the lead opens it for the human in Crit. Number each question and give it a proposed answer on a `Proposed:` line, so the human only changes what is wrong; a question with no comment counts as accepting the proposal. If the lead says Crit is unavailable, the same numbered questions go to the human in chat with the `grilling` skill. Then write the spec. The architect follows with the contract; you don't wait on a separate researcher.
 
 1. Ask the upfront round of questions. Clarify scope, priority, and user goals.
 2. Check for existing work. Search issues and the roadmap for duplicates or related items.

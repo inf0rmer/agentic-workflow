@@ -6,6 +6,7 @@ These guides show you how to run a feature through the agent team, from spec to 
 |---|---|
 | [Workflow](./workflow.md) | Pick a variant, follow its steps through the design gate, the review, and the human gate. |
 | [Workspaces](./workspaces.md) | Set up a feature across one or more repos, then close and collect it. |
+| [Watch an open PR](./pr-loop.md) | Keep a PR moving after it opens: poll, answer feedback, push fixes, and know when to stop. |
 | [Guard rails](./guard-rails.md) | Seal tests, verify them, and harden them with mutation testing. |
 | [Decisions with Jev](./decisions-with-jev.md) | Settle small choices fast, and know when not to. |
 | [Harnesses](./harnesses.md) | Build and install the workflow for Claude Code or Codex CLI. |

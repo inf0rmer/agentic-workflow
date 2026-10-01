@@ -114,6 +114,12 @@ How this component starts, what it does at steady state, and how it shuts down.
 - [Design Doc Title](path) — how this component depends on that decision.
 ```
 
+## Contracts that wrap an external CLI
+
+When a contract wraps an external CLI, run it first. Record the commands actually run and their real output in the contract, not assumed behavior: exit codes, output format, error messages.
+
+Add one smoke test that runs the real tool. It is skipped unless `TEAM_REAL_TOOLS=1` is set and is not sealed; unit tests may use fakes.
+
 ## Output template — Contract (`contract.md`)
 
 The handoff to the tester and the engineer's definition of done. Written for someone who will never see your other documents.

@@ -69,6 +69,8 @@ Use table-driven tests for functions with multiple input/output cases. Each subc
 
 Guard integration tests so they skip cleanly when infrastructure isn't available — and report that they skipped, so a skipped suite is never mistaken for a passing one.
 
+A contract that wraps an external CLI also gets one smoke test that runs the real tool. It skips unless `TEAM_REAL_TOOLS=1` is set and is never sealed; unit tests may use fakes.
+
 ### Testing error paths
 
 Every documented error needs a test. Verify specific error types, not just that an error occurred.
