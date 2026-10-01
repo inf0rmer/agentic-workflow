@@ -94,13 +94,24 @@ class TestReviewStart(GateCase):
         noexec.chmod(0o644)
         before = self.ws_snapshot()
         for binpath in (self.sb.tmp / "missing-crit", noexec):
-            for gate, literal in (("design", "approve design"), ("D1", "approve D1"), ("D2", "approve D2"),
-                                  ("alpha", "approve design")):
+            for gate, literal in (("design", "approve design"), ("D1", "approve D1"), ("D2", "approve D2")):
                 with self.subTest(bin=binpath.name, gate=gate):
                     r = self.code(self.gate("review", gate, "plan.md", env={"CRIT_BIN": str(binpath)}), 3)
                     self.assertIn('team-guard: gate %s: Crit is unavailable; use the chat fallback: the reply that '
                                   'approves this gate is exactly "%s"' % (gate, literal), r.err.splitlines())
                     self.assertEqual(self.ws_snapshot(), before)
+            # Only the design gates have an approving chat reply; any other gate is told to post in
+            # chat and is given no reply to wait for.
+            with self.subTest(bin=binpath.name, gate="alpha"):
+                r = self.code(self.gate("review", "alpha", "plan.md", env={"CRIT_BIN": str(binpath)}), 3)
+                hint = [l for l in r.err.splitlines() if l.startswith("team-guard: gate alpha: ")]
+                self.assertEqual(len(hint), 1, self.show(r))
+                advice = hint[0][len("team-guard: gate alpha: "):]
+                self.assertRegex(advice, r"^Crit is unavailable")
+                self.assertRegex(advice, r"(?i)\bpost\b[^\n]*\bin chat\b")
+                self.assertNotRegex(r.err, r"(?i)approves this gate")
+                self.assertNotRegex(r.err, r'"approve [^"]*"')
+                self.assertEqual(self.ws_snapshot(), before)
 
 
 class TestReviewRounds(GateCase):
