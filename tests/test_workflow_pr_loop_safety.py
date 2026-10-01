@@ -41,6 +41,7 @@ PLAIN_PUSH = r"plain `?git push`?|`git push`[^.\n]{0,40}(no|without)[^.\n]{0,20}
 NO_FORCE = r"never force-push\w*[^.\n]{0,80}without asking"
 COLLABORATORS = [r"\bOWNER\b", r"\bMEMBER\b", r"\bCOLLABORATOR\b"]
 SECURITY_STOPS = r"security[^\n]{0,300}?\bask\w*[^.\n]{0,60}before push"
+FIX_COMMITS = r"changes requested|requested changes|\bfix(es)?\b|fix commits?|re-sign"
 CAPS_CLAUDE = r"Claude Code[^.\n]{0,120}4 hours[^.\n]{0,80}10 fix pushes"
 CAPS_CODEX = r"Codex[^.\n]{0,120}\b10 fix pushes\b"
 CODEX_NO_TIME_CAP = r"Codex[^.\n]{0,60}4 hours"
@@ -78,6 +79,14 @@ class TestFixPushes(PrLoopCase):
             self.assert_has(name, prs[name] + "\n" + watch[name],
                             r"first push[^.\n]{0,160}" + re.escape("origin/<base branch>") +
                             r"|" + re.escape("origin/<base branch>") + r"[^.\n]{0,160}first push")
+            # Commits that answer a review land on a branch that is already pushed, so signing them
+            # against the base branch would rewrite pushed commits.
+            for s in re.split(r"(?<=[.!?])\s+", re.sub(r"\s+", " ", prs[name])):
+                if re.search(FIX_COMMITS, s, re.I):
+                    with self.subTest(file=name, sentence=s[:120]):
+                        self.assertNotRegex(s, re.compile(re.escape("origin/<base branch>") + r"|same command",
+                                                          re.I))
+            self.assert_has(name, prs[name], r"Watching the open PR|" + re.escape("--base origin/<PR branch>"))
 
 
 class TestWhoseFeedbackCounts(PrLoopCase):
