@@ -266,7 +266,7 @@ No scaffolding or tests start before the design gate passes, and a sealed test c
 
 In Full, each slice gets its own PR, one at a time.
 The slice passes its review, then you take it through its human gate.
-On your approval the lead runs `team-guard sign --base <base branch>`, pushes and opens the PR with a `Where to look` section.
+On your approval the lead runs `team-guard sign --base origin/<base branch>` (the same ref the slice is rebased onto), pushes and opens the PR with a `Where to look` section.
 Each later slice is built on its own local branch, cut from the previous slice's tip, so the pushed branch only ever holds the slice under review; changes you request in its PR are committed there, and the later branch is rebased onto it.
 You review and merge it; the next slice's PR opens only after the merge.
 Before that slice's human gate, the lead fetches the merged base (`git fetch`) and rebases the slice onto `origin/<base branch>`.
