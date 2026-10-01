@@ -348,7 +348,22 @@ def rel(top, path):
     return os.path.relpath(os.path.realpath(os.path.join(os.getcwd(), path)), os.path.realpath(top))
 
 
+SEAL_USAGE = {"seal": "usage: team-guard seal <path>...     lock committed test files at HEAD",
+              "unseal": "usage: team-guard unseal <path>...   release files for a sanctioned fix (logged)"}
+
+
+def check_seal_args(cmd, paths):
+    """Handle --help/-h (usage, exit 0) and refuse any other dash option (exit 1) before anything is written."""
+    if any(p in ("-h", "--help") for p in paths):
+        print(SEAL_USAGE[cmd])
+        sys.exit(0)
+    for p in paths:
+        if p.startswith("-"):
+            die(f"{cmd}: unknown option {p}; paths that start with - are not accepted\n{SEAL_USAGE[cmd]}")
+
+
 def cmd_seal(paths):
+    check_seal_args("seal", paths)
     top, git_dir = require_repo()
     head = git("rev-parse", "HEAD").stdout.strip()
     lock = load_lock(git_dir)
@@ -365,12 +380,11 @@ def cmd_seal(paths):
     lock["history"].append({"at": now(), "action": "seal", "commit": head, "files": files})
     save_lock(git_dir, lock)
     print(f"sealed {len(files)} file(s) at {head[:12]}")
-    for name in HOOK_NAMES:
-        if hook_state(name) != "installed":
-            install_hook(name)
+    install_hooks(only_missing=True)
 
 
 def cmd_unseal(paths):
+    check_seal_args("unseal", paths)
     top, git_dir = require_repo()
     lock = load_lock(git_dir)
     files = [rel(top, p) for p in paths]
@@ -702,6 +716,31 @@ if [ -x "$chained" ]; then exec "$chained" "$@"; fi
 """
 
 
+def hooks_dir_in_work_tree():
+    """The hooks dir (relative to the work tree) when it lies inside the work tree outside the git dir, else None."""
+    top = realpath(git("rev-parse", "--show-toplevel").stdout.strip())
+    hooks = realpath(os.path.abspath(git("rev-parse", "--git-path", "hooks").stdout.strip()))
+    gitdirs = [realpath(os.path.abspath(git("rev-parse", flag).stdout.strip()))
+               for flag in ("--git-dir", "--git-common-dir")]
+    if any(hooks == g or hooks.startswith(g + os.sep) for g in gitdirs):
+        return None
+    if hooks == top or hooks.startswith(top + os.sep):
+        return os.path.relpath(hooks, top)
+    return None
+
+
+def install_hooks(only_missing=False):
+    """Install the guard hooks, unless the hooks dir is a project directory: then write nothing and warn."""
+    inside = hooks_dir_in_work_tree()
+    if inside:
+        warn(f"core.hooksPath puts the hooks dir inside the work tree ({inside}), which belongs to the project; "
+             "the guard hooks aren't installed there. verify and the reviewer are the remaining checks.")
+        return
+    for name in HOOK_NAMES:
+        if not only_missing or hook_state(name) != "installed":
+            install_hook(name)
+
+
 def install_hook(name="pre-commit"):
     hook, chained = hook_paths(name)
     state = hook_state(name)
@@ -736,8 +775,7 @@ def cmd_git_hook(args):
         sys.exit(__doc__)
     require_repo()
     if action == "install":
-        for name in HOOK_NAMES:
-            install_hook(name)
+        install_hooks()
     elif action == "uninstall":
         for name in HOOK_NAMES:
             uninstall_hook(name)
@@ -1617,8 +1655,13 @@ REF_PATTERNS = (
     ("review-round", r"(?<![a-z])round[\s_-]?\d"),
     ("adr-number", r"(?<![a-z0-9])adr[\s-]?\d+"),
 )
-REF_DEFAULT_EXCLUDES = ("docs/**", "**/*.md", "**/*.rst", "**/*.txt", "dist/**", "**/go.sum", "**/package-lock.json",
-                        "**/pnpm-lock.yaml", "**/yarn.lock", "**/*.lock")
+LOCKFILE_GLOBS = ("**/go.sum", "**/package-lock.json", "**/pnpm-lock.yaml", "**/yarn.lock", "**/*.lock")
+LOCKFILE_RES = [glob_re(g) for g in LOCKFILE_GLOBS]
+REF_DEFAULT_EXCLUDES = ("docs/**", "**/*.md", "**/*.rst", "**/*.txt", "dist/**") + LOCKFILE_GLOBS
+
+
+def is_lockfile(path):
+    return any(r.match(path) for r in LOCKFILE_RES)
 REF_CONFIG_KEYS = ("patterns", "disable_patterns", "exclude")
 
 
@@ -2132,7 +2175,7 @@ def cmd_risk(args):
             cats[cat] += 1
             if cat != "test":
                 non_test += add + rem
-                if not is_generated(path):
+                if not is_generated(path) and not is_lockfile(path):
                     review += add + rem
         ids = repo_ids(top)
         unseals += sum(1 for h in load_lock(ids[1])["history"] if h.get("action") == "unseal")

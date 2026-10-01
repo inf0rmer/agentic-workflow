@@ -8,9 +8,13 @@ ROOT=$(cd "$HERE/../.." && pwd)
 DIST=$ROOT/dist/codex
 DEST=${CODEX_HOME:-$HOME/.codex}
 SKILLS=$HOME/.agents/skills
-BACKUP=$DEST/backups/agentic-workflow-$(date +%Y%m%d-%H%M%S)
+BACKUPS=$DEST/backups
 
 "$ROOT/tests/run.sh"
+
+# A fresh dir per run, even for two runs in the same second.
+mkdir -p "$BACKUPS"
+BACKUP=$(mktemp -d "$BACKUPS/agentic-workflow-$(date +%Y%m%d-%H%M%S)-XXXXXX")
 
 mkdir -p "$BACKUP/agents" "$DEST/agents" "$DEST/team/bin" "$DEST/rules" "$SKILLS"
 cp "$DEST"/agents/*.toml "$BACKUP/agents/" 2>/dev/null || true
@@ -21,6 +25,22 @@ cp "$DIST"/agents/*.toml "$DEST/agents/"
 install -m 0755 "$DIST"/bin/* "$DEST/team/bin/"
 sed "s#@HOME@#$HOME#g" "$HERE/team.rules.template" > "$DEST/rules/agentic-workflow.rules"
 
+# Back up what is there, remove it, and copy fresh: nothing is written through a symlink, and files
+# of the user's never merge into ours.
+install_skill() {
+  mkdir -p "$BACKUP/skills" || return 1
+  if [[ -L "$target" ]]; then
+    cp -P "$target" "$BACKUP/skills/$name" || return 1
+    rm "$target" || return 1
+    echo "note: $target was a symlink; backed up the link and replaced it with a real directory."
+  elif [[ -e "$target" ]]; then
+    cp -RP "$target" "$BACKUP/skills/$name" || return 1
+    rm -rf "$target" || return 1
+  fi
+  mkdir -p "$target" || return 1
+  cp -R "$skill". "$target/" || return 1
+}
+
 for skill in "$DIST"/skills/*/; do
   name=$(basename "$skill")
   target="$SKILLS/$name"
@@ -29,17 +49,10 @@ for skill in "$DIST"/skills/*/; do
     saved_denylist=$(mktemp)
     cp -L "$target/denylist.txt" "$saved_denylist"   # follows a symlink to read the real file
   fi
-  mkdir -p "$BACKUP/skills"
-  if [[ -L "$target" ]]; then
-    # A symlink (for example into a skills.sh store): keep the link itself, and never write through it.
-    cp -P "$target" "$BACKUP/skills/$name"
-    rm "$target"
-    echo "note: $target was a symlink; backed up the link and replaced it with a real directory."
-  elif [[ -e "$target" ]]; then
-    cp -R "$target" "$BACKUP/skills/$name"
+  if ! install_skill; then
+    echo "agentic-workflow install: skill $name failed: could not replace $target (already-installed skills are backed up in $BACKUP)" >&2
+    exit 1
   fi
-  mkdir -p "$target"
-  cp -R "$skill". "$SKILLS/$name/"
   if [[ -n "$saved_denylist" ]]; then
     cp "$saved_denylist" "$target/denylist.txt"
     rm -f "$saved_denylist"

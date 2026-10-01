@@ -21,6 +21,7 @@ Sealing:
 
 Seals are per repo, so in a multi-repo feature you seal inside each attached worktree.
 `seal`, `unseal`, and `list` refuse to run from the workspace dir itself.
+`seal --help` and `unseal --help` (or `-h`) print usage and write nothing; any other argument that starts with `-` is refused with exit 1 and nothing is written.
 
 ## Check sealed tests
 
@@ -237,7 +238,7 @@ team-guard risk --feature payments --majors-fixed 1 --packet
 # Merge risk: high (advisory) — changes stored data or its format, which a revert may not undo.
 ```
 
-It counts the lines to review (`review_lines`: added and removed lines outside tests and generated paths, where docs count; generated means a `dist` directory, a name ending `_gen.go`, `.gen.ts`, `.pb.go` or `_pb2.py`, or starting `zz_generated`).
+It counts the lines to review (`review_lines`: added and removed lines outside tests and generated paths, where docs count; lockfiles (`go.sum`, `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `*.lock`) are left out, though they still count toward `non_test_lines` and the file count; generated means a `dist` directory, a name ending `_gen.go`, `.gen.ts`, `.pb.go` or `_pb2.py`, or starting `zz_generated`).
 When that exceeds the review budget it prints a final line `Review-size warning: <n> changed lines to review exceeds the review budget of <b>; split before asking for review.` and `large-change` fires at Medium.
 The budget is 400, or `TEAM_PR_BUDGET`, or `--pr-budget N`; the flag wins, and a value that is not a whole number of at least 1 exits 1.
 `--packet` lists `over_budget`, `pr_budget` and `review_lines`, and the log records `over_budget` and `review_lines`.
@@ -307,14 +308,15 @@ A patched skill is upstream plus a stored patch in `core/skills/patches/`, which
 
 The set is `grilling`, `codebase-design`, `writing-for-agents`, `domain-modeling`, `handoff`, `to-questionnaire`, `diagnosing-bugs` and `tdd-inner-loop`.
 
-Run `scripts/vendor-check` to see drift: it compares each copy with upstream at the pin plus its patch (`local drift`) and with a newer ref (`upstream changed`, `upstream removed`, or a `patch conflict`), exits 1 on drift and 2 when it can't run, and never changes anything.
+Run `scripts/vendor-check` to see drift: it compares each copy with upstream at the pin plus its patch (`local drift`) and with a newer ref (`upstream changed`, `upstream removed`, or a `patch conflict`), reports a LICENSE the upstream deleted as `LICENSE: upstream removed`, exits 1 on drift and 2 when it can't run, and never changes anything.
 Moving the pin is a person's decision: update the copies and patches, then the pin.
 
 ## Watch for `core.hooksPath`
 
 Tools such as Husky set `core.hooksPath`, and git then ignores the hooks in `.git/hooks` where `team-guard` installs its own.
 `team-guard verify` prints a warning that names the setting when a repo with sealed files has one and the hook there isn't team-guard's.
-Nothing else changes: `team-guard git-hook install` would write into that directory, so `verify` and the reviewer are the remaining checks.
+When that hooks directory is inside the repo's work tree (Husky's `.husky/_`, for example), it is a project directory, so `team-guard git-hook install` and `seal` write nothing there.
+They print a warning that names the path and says the guard hooks aren't installed, and exit 0; `seal` still seals, and `verify` and the reviewer are the remaining checks.
 
 ## Next steps
 
