@@ -67,7 +67,7 @@ A patched skill is upstream plus a stored patch in `core/skills/patches/`, which
 
 | Skill | Status | Used by |
 |---|---|---|
-| `grilling` | as-is | product-owner, for the upfront round of questions |
+| `grilling` | as-is | product-owner, as the chat fallback for the upfront round of questions |
 | `codebase-design` | as-is | architect, for an options brief |
 | `writing-for-agents` | as-is | whoever edits `core/` |
 | `domain-modeling` | patched | architect: ADRs as `adr/NNNN-<slug>.md` and an optional `GLOSSARY.md`, both in the workspace dir |

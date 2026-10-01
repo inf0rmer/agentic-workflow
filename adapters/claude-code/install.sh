@@ -15,13 +15,14 @@ BACKUPS=$DEST/backups
 mkdir -p "$BACKUPS"
 BACKUP=$(mktemp -d "$BACKUPS/agentic-workflow-$(date +%Y%m%d-%H%M%S)-XXXXXX")
 
-mkdir -p "$BACKUP/agents" "$DEST/agents" "$DEST/team/bin"
+mkdir -p "$BACKUP/agents" "$DEST/agents" "$DEST/team/bin" "$DEST/team/docs"
 cp "$DEST"/agents/*.md "$BACKUP/agents/" 2>/dev/null || true
 cp "$DEST/CLAUDE.md" "$BACKUP/CLAUDE.md" 2>/dev/null || true
 
 cp "$DIST"/agents/*.md "$DEST/agents/"
 cp "$DIST/CLAUDE.md" "$DEST/CLAUDE.md"
 install -m 0755 "$DIST"/bin/* "$DEST/team/bin/"
+if [[ -d "$ROOT/docs" ]]; then cp "$ROOT"/docs/*.md "$DEST/team/docs/"; fi
 
 # Back up what is there, remove it, and copy fresh: nothing is written through a symlink, and files
 # of the user's never merge into ours. Returns 2 when the backup failed (nothing was removed).

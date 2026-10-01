@@ -60,6 +60,8 @@ For each changed file, evaluate:
 
 **Missing tests** — Is there a criterion with no sealed test? Untested production code? Missing validation or race condition tests?
 
+**CLI contracts** — A contract that wraps an external CLI must record the observed behavior (commands run and real output) and carry the one smoke test that runs the real tool. Missing either is a **major**.
+
 **Mock realism** — Do mocks stand in for behavior the real dependency doesn't have? A test that passes only against a mock is a finding.
 
 **The engineer's unit tests** — These are the engineer's inner loop: not sealed and not evidence of a criterion, but still code in the repo. Check them for tautologies (an assertion that restates the code under test, or can't fail) and for mocks of the project's own modules (a test that replaces the module it is meant to exercise proves nothing). Each one is a finding, at the severity its consequence deserves.

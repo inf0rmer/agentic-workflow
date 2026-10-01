@@ -76,13 +76,21 @@ class TestRecordChat(GateCase):
             "D1: approved %s in chat (reply: approve D1)" % today(), [(sha(self.ws / "plan.md"), "plan.md")]))
         before = self.record_path().read_bytes()
         for gate, literal, replies in (("D1", "approve D1", ["approved", "Approve D1", "approve D2", "lgtm", "", "approve design"]),
-                                       ("design", "approve design", ["Approve design", "approve  design", "approve D1"]),
-                                       ("alpha", "approve design", ["approve alpha"])):
+                                       ("design", "approve design", ["Approve design", "approve  design", "approve D1"])):
             for reply in replies:
                 with self.subTest(gate=gate, reply=reply):
                     r = self.code(self.gate("record", gate, "plan.md", "--chat", reply, env=env), 1)
                     self.assertIn('team-guard: gate %s: the reply that approves this gate is exactly "%s"'
                                   % (gate, literal), r.err.splitlines())
+                    self.assertEqual(self.record_path().read_bytes(), before)
+        # Only the design gates have an approving chat reply: no reply records any other gate.
+        for gate in ("alpha", "questions"):
+            for reply in ("approve design", "approve %s" % gate):
+                with self.subTest(gate=gate, reply=reply):
+                    r = self.code(self.gate("record", gate, "plan.md", "--chat", reply, env=env), 1)
+                    self.no_traceback(r)
+                    self.assertIn("this gate has no approval record", r.err)
+                    self.assertNotIn("approves this gate is exactly", r.err)
                     self.assertEqual(self.record_path().read_bytes(), before)
         self.code(self.gate("record", "design", "--chat", "approve design", env=env), 1)
         self.code(self.gate("record", "design", "missing.md", "--chat", "approve design", env=env), 1)
@@ -109,7 +117,8 @@ class TestRecordChat(GateCase):
                 prev = now
                 target = rng.choice(["plan.md", "notes.md"])
                 (self.ws / target).write_text("# %s %d\n" % (target, rng.randint(0, 99)))
-                self.ok(self.gate("record", rng.choice(["design", "alpha"]), target, "--chat", "approve design"))
+                gate = rng.choice(["design", "D1", "D2"])
+                self.ok(self.gate("record", gate, target, "--chat", "approve " + gate))
                 now = self.record_path().read_bytes()
                 self.assertTrue(now.startswith(prev))
 

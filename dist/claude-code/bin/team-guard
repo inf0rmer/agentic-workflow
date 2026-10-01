@@ -2370,8 +2370,12 @@ def crit_available():
 
 def require_crit(gate, code=3):
     if not crit_available():
-        print(f'team-guard: gate {gate}: Crit is unavailable; use the chat fallback: the reply that approves '
-              f'this gate is exactly "{chat_literal(gate)}"', file=sys.stderr)
+        if gate in ("design", "D1", "D2"):
+            print(f'team-guard: gate {gate}: Crit is unavailable; use the chat fallback: the reply that approves '
+                  f'this gate is exactly "{chat_literal(gate)}"', file=sys.stderr)
+        else:
+            print(f'team-guard: gate {gate}: Crit is unavailable; post the questions in chat instead',
+                  file=sys.stderr)
         sys.exit(code)
 
 
@@ -2811,6 +2815,8 @@ def cmd_gate_record(a):
         heading = f"{gate}: approved {today} in Crit ({rounds_text}, approved: true)"
         rows = [(hashes[f], f) for f in stored]
     else:
+        if gate not in ("design", "D1", "D2"):
+            die(f"{label}: gate {gate}: this gate has no approval record")
         if not a.files:
             die(f"{label}: name at least one file to record")
         files = artifact_paths(ws, a.files, label)

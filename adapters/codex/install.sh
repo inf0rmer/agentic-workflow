@@ -16,13 +16,14 @@ BACKUPS=$DEST/backups
 mkdir -p "$BACKUPS"
 BACKUP=$(mktemp -d "$BACKUPS/agentic-workflow-$(date +%Y%m%d-%H%M%S)-XXXXXX")
 
-mkdir -p "$BACKUP/agents" "$DEST/agents" "$DEST/team/bin" "$DEST/rules" "$SKILLS"
+mkdir -p "$BACKUP/agents" "$DEST/agents" "$DEST/team/bin" "$DEST/team/docs" "$DEST/rules" "$SKILLS"
 cp "$DEST"/agents/*.toml "$BACKUP/agents/" 2>/dev/null || true
 cp "$DEST/AGENTS.md" "$BACKUP/AGENTS.md" 2>/dev/null || true
 
 cp "$DIST/AGENTS.md" "$DEST/AGENTS.md"
 cp "$DIST"/agents/*.toml "$DEST/agents/"
 install -m 0755 "$DIST"/bin/* "$DEST/team/bin/"
+if [[ -d "$ROOT/docs" ]]; then cp "$ROOT"/docs/*.md "$DEST/team/docs/"; fi
 sed "s#@HOME@#$HOME#g" "$HERE/team.rules.template" > "$DEST/rules/agentic-workflow.rules"
 
 # Back up what is there, remove it, and copy fresh: nothing is written through a symlink, and files

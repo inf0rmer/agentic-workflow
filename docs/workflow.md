@@ -97,7 +97,7 @@ A Chore is a checklist of up to three items and one review.
 The researcher is no longer a pipeline step.
 The architect absorbs the researcher's brief, and the researcher stays available for research requests outside the pipeline.
 The doc-writer runs only when user-facing docs change.
-The product-owner runs the upfront questions with the `grilling` skill.
+The product-owner writes the upfront questions to `questionnaire.md` for the human to review in Crit; the `grilling` skill is the chat fallback.
 
 See [Guard rails](./guard-rails.md) for what sealing does.
 
@@ -231,7 +231,7 @@ Every PR carries an advisory merge-risk footer of High, Medium or Low, with a re
 Merge risk: high (advisory) — changes the stored config format; a revert needs the old format restored.
 ```
 
-The level comes from a table checked top-down over facts about the change: persisted data, a breaking public-contract change, several repos, security or a hard revert give High.
+The level comes from a table checked top-down over facts about the change: persisted data or migrations, a breaking public-contract change (or one of unknown kind), several repos, auth or security, or a hard revert give High.
 An additive public-contract change, user-visible behavior, more than 15 files or a change over the review budget, deploy, CI or config files, a major fixed in review, an unseal, skipped mutation testing on a risk-flagged module, or any failed holdout scenario (variants with no holdouts never trigger this) give Medium; anything else (docs, tests, or an internal change) gives Low.
 Any unknown input counts as "yes", and review findings, unseals and skipped mutation testing can only raise the level.
 The footer never names size: size alone gives `Merge risk: <level> (advisory).` with no reason.
