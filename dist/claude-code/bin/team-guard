@@ -2253,22 +2253,33 @@ def sign_repo(name, top, base):
         restore(orig)
         detail = " ".join((r.stderr or r.stdout).split())[-300:]
         fail(f"the signing rebase failed and the branch was restored ({detail})")
-    now_commits = git("rev-list", rng, cwd=top).stdout.split()
-    problem = None
-    if any("\ngpgsig " not in git("cat-file", "commit", c, cwd=top).stdout for c in now_commits):
-        problem = "some commits are still unsigned"
-    elif git("log", "--reverse", "--topo-order", "--format=%T", rng, cwd=top).stdout.split() != trees0 \
-            or len(now_commits) != len(commits):
-        problem = "the rewritten commits differ from the originals"
-    elif git("diff", "--quiet", orig, "HEAD", cwd=top, check=False).returncode != 0:
-        problem = "the rewritten branch differs from the original in content"
+    def check():
+        """Why the rewritten branch is not acceptable, or None. Any git failure here raises CalledProcessError."""
+        now_commits = git("rev-list", rng, cwd=top).stdout.split()
+        if any("\ngpgsig " not in git("cat-file", "commit", c, cwd=top).stdout for c in now_commits):
+            return "some commits are still unsigned"
+        if git("log", "--reverse", "--topo-order", "--format=%T", rng, cwd=top).stdout.split() != trees0 \
+                or len(now_commits) != len(commits):
+            return "the rewritten commits differ from the originals"
+        if git("diff", "--quiet", orig, "HEAD", cwd=top, check=False).returncode != 0:
+            return "the rewritten branch differs from the original in content"
+        if verified:
+            # A verifier that exits without reading the signed payload can make git die of SIGPIPE, so a
+            # failed run of this check is a failed check rather than a clean result.
+            marks = git("log", "--format=%G?", rng, cwd=top).stdout.split()
+            if any(m not in ("G", "U") for m in marks):
+                return "a signature did not verify"
+        return None
+
     fmt = git("config", "--get", "gpg.format", cwd=top, check=False).stdout.strip()
     allowed = git("config", "--get", "gpg.ssh.allowedSignersFile", cwd=top, check=False).stdout.strip()
     verified = fmt in ("", "openpgp") or (fmt == "ssh" and bool(allowed))
-    if problem is None and verified:
-        marks = git("log", "--format=%G?", rng, cwd=top).stdout.split()
-        if any(m not in ("G", "U") for m in marks):
-            problem = "a signature did not verify"
+    try:
+        problem = check()
+    except subprocess.CalledProcessError as e:
+        why = " ".join((e.stderr or "").split())[-300:] or (
+            f"git exited with signal {-e.returncode}" if e.returncode < 0 else f"git exited with status {e.returncode}")
+        problem = f"could not check the rewritten branch (git {' '.join(e.cmd[1:3])}: {why})"
     if problem:
         restore(orig)
         fail(problem + "; the branch was restored")
