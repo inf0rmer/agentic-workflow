@@ -1,5 +1,6 @@
 """Workspace lifecycle: list status, close, gc."""
 
+import errno
 import json
 import os
 import select
@@ -34,10 +35,14 @@ def wait_exit_unreaped(pid):
             ev = select.kevent(pid, filter=select.KQ_FILTER_PROC,
                                flags=select.KQ_EV_ADD | select.KQ_EV_ONESHOT,
                                fflags=select.KQ_NOTE_EXIT)
-            try:
-                kq.control([ev], 1, None)
-            except ProcessLookupError:
-                pass  # already a zombie: it exited before the watch was added, still unreaped
+            # With room for one event, kqueue reports a failed registration as an event with
+            # EV_ERROR set rather than raising. macOS refuses to watch a child that is already a
+            # zombie with ESRCH; that still means "exited and unreaped", which is what we want.
+            # Anything else is unexpected and must not pass for an exit.
+            (got,) = kq.control([ev], 1, None)
+            if got.flags & select.KQ_EV_ERROR and got.data != errno.ESRCH:
+                raise OSError(got.data, "kqueue watch on pid %d failed: %s"
+                              % (pid, os.strerror(got.data)))
         finally:
             kq.close()
         return True
