@@ -234,7 +234,7 @@ Merge risk: high (advisory) — changes the stored config format; a revert needs
 The level comes from a table checked top-down over facts about the change: persisted data, a breaking public-contract change, several repos, security or a hard revert give High.
 An additive public-contract change, user-visible behavior, more than 15 files or a change over the review budget, deploy, CI or config files, a major fixed in review, an unseal, skipped mutation testing on a risk-flagged module, or any failed holdout scenario (variants with no holdouts never trigger this) give Medium; anything else (docs, tests, or an internal change) gives Low.
 Any unknown input counts as "yes", and review findings, unseals and skipped mutation testing can only raise the level.
-The footer never names size: size alone adds no reason text.
+The footer never names size: size alone gives `Merge risk: <level> (advisory).` with no reason.
 `team-guard risk` computes the level, and `--packet` prints the rules and inputs for your review packet.
 
 ## Close out
@@ -255,20 +255,25 @@ Separate agents only help if their contexts stay separate.
 
 ## How the lead runs the steps
 
-The lead drives each step itself and starts the next only on the previous subagent's report.
+The lead drives each step itself and starts the next only on the previous subagent's report, acting on printed evidence, never on an agent's claim alone.
 It stops at every design gate and at the human gate, and never pushes without your approval.
+The design gate runs once per feature; in Full the review, the human gate, signing and push run per slice.
 It hands to you when blockers remain after the re-check, a Jev verdict is `DEFER` and blocks the work, a security question comes up, or a step needs your decision.
-It checks in after a cap of turns per variant (Bug fix 20, Standard 40, Full 60), and shows test and `team-guard verify` output at each step.
+It checks in after a cap of turns per variant (Bug fix 20, Standard 40, Full 60, counted since your last check-in; 20 up to the design gate), and shows test and `team-guard verify` output at each step.
+No scaffolding or tests start before the design gate passes, and a sealed test changes only through the tester's logged unseal and reseal.
 
 ## Keep each PR reviewable
 
-In Full, each slice gets its own PR, opened once the slice passes review and stacked on the previous slice's branch when it depends on it.
-You review each slice's PR; the lead re-signs and pushes per slice only after your approval, and retargets the next PR with `gh pr edit` when a base merges.
+In Full, each slice gets its own PR, one at a time.
+The slice passes its review, then you take it through its human gate.
+On your approval the lead runs `team-guard sign --base <base branch>`, pushes and opens the PR with a `Where to look` section.
+You review and merge it; the next slice's PR opens only after the merge, once the lead has rebased it onto the updated base branch.
 Standard, Bug fix and Chore produce one PR; a Spike produces none.
 Each PR stays within about 400 changed lines to review, excluding tests and generated code.
 Change the budget with `--pr-budget N` or `TEAM_PR_BUDGET`.
 A slice that cannot be split into coherent vertical pieces states why in the contract, and approving the contract approves that exception.
-Otherwise, over budget at the human gate, the lead asks you to reply `approve over budget`.
+A slice over budget without an approved exception stops before signing, pushing or opening its PR.
+The lead asks you; the literal reply `approve over budget` approves it, and any other reply sends the slice back to the architect to be split.
 The reviewer who ends the review writes `review-guide.md` in the workspace dir (`Where to look first`, `Checked mechanically`, `Not verified`, `Provisional decisions`), and the PR description carries its `Where to look` section.
 
 ## Write commits and PRs in project terms

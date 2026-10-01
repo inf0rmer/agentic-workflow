@@ -105,6 +105,8 @@ def build(harness, out):
     copy_skills(adapter["vars"], out)
     for name in sorted(os.listdir(os.path.join(ROOT, "core", "bin"))):
         src = os.path.join(ROOT, "core", "bin", name)
+        if not os.path.isfile(src) or name == "__pycache__":
+            continue
         dst = os.path.join(out, "bin", name)
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         shutil.copy2(src, dst)

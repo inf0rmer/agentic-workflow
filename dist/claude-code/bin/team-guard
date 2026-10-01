@@ -38,7 +38,7 @@ Workflow tooling:
   team-guard routing summary [--json]
   team-guard risk [--base R] [--feature F] [--answer k=v]... [--contract none|additive|breaking|unknown]
                   [--majors-fixed N] [--holdouts-failed N] [--mutation-skipped yes|no|unknown]
-                  [--human-level high|medium|low] [--pr-budget N] [--packet] [--no-log]
+                  [--human-level high|medium|low] [--pr-budget N | TEAM_PR_BUDGET] [--packet] [--no-log]
   team-guard sign [--base <ref>]
   team-guard gate review <gate> [<file>...] [--new] [--no-open]
   team-guard gate reply <gate> --file <json> --author <role>
@@ -52,7 +52,7 @@ Hook entry points (read the hook event JSON on stdin):
   team-guard hook-stop          SubagentStop (Claude Code and Codex): send the subagent back if verify fails
   team-guard pre-commit         git pre-commit: refuse staged changes to sealed files
 
-Environment: TEAM_LOG_ROOT, TEAM_REFS_CONFIG, TEAM_WORKSPACE_ROOT, TEAM_HOLDOUT_ROOT, TEAM_ARCHIVE_ROOT,
+Environment: TEAM_PR_BUDGET, TEAM_LOG_ROOT, TEAM_REFS_CONFIG, TEAM_WORKSPACE_ROOT, TEAM_HOLDOUT_ROOT, TEAM_ARCHIVE_ROOT,
 TEAM_STALE_DAYS, TEAM_ARCHIVE_RETENTION_DAYS.
 
 The git hooks work with any agent harness, or none: a sealed test has to be
@@ -2009,7 +2009,7 @@ RISK_REASONS = {
 RISK_PROCESS_ONLY = "extra checks during development flagged this change for a closer look"
 RISK_LOW = "docs, tests or an internal change"
 DEFAULT_PR_BUDGET = 400
-GENERATED_MARKS = ("_gen.go", ".gen.ts", "zz_generated", ".pb.go", "_pb2.py")
+GENERATED_SUFFIXES = ("_gen.go", ".gen.ts", ".pb.go", "_pb2.py")
 
 
 def path_category(path):
@@ -2033,8 +2033,9 @@ def path_category(path):
 
 
 def is_generated(path):
-    parts = path.lower().split("/")
-    return "dist" in parts[:-1] or any(m in parts[-1] for m in GENERATED_MARKS)
+    parts = path.split("/")
+    base = parts[-1].lower()
+    return "dist" in parts[:-1] or base.endswith(GENERATED_SUFFIXES) or base.startswith("zz_generated")
 
 
 def pr_budget_or_die(flag):
