@@ -1,9 +1,3 @@
-# Installed by agentic-workflow. The team's tools need to run outside the sandbox:
-# ask-jev calls OpenRouter and reads the Keychain, mutation-check downloads pinned
-# tools, and team-guard writes git hooks and the lock file in the git directory.
-prefix_rule(pattern=["@HOME@/.codex/team/bin/team-guard"], decision="allow", justification="agentic-workflow test lock")
-prefix_rule(pattern=["~/.codex/team/bin/team-guard"], decision="allow", justification="agentic-workflow test lock")
-prefix_rule(pattern=["@HOME@/.codex/team/bin/mutation-check"], decision="allow", justification="agentic-workflow mutation testing")
-prefix_rule(pattern=["~/.codex/team/bin/mutation-check"], decision="allow", justification="agentic-workflow mutation testing")
-prefix_rule(pattern=["@HOME@/.agents/skills/jev-decide/scripts/ask-jev"], decision="allow", justification="Jev decisions via OpenRouter")
-prefix_rule(pattern=["~/.agents/skills/jev-decide/scripts/ask-jev"], decision="allow", justification="Jev decisions via OpenRouter")
+# Installed by agentic-workflow. team-guard writes the workspace dirs and signs commits, so it needs to run outside the sandbox.
+prefix_rule(pattern=["@HOME@/.codex/team/bin/team-guard"], decision="allow", justification="agentic-workflow workspaces and signing")
+prefix_rule(pattern=["~/.codex/team/bin/team-guard"], decision="allow", justification="agentic-workflow workspaces and signing")

@@ -17,7 +17,7 @@ flowchart LR
 |---|---|
 | `core/instructions.md`, `core/roles/*.md` | The workflow and role prose, with `{{placeholders}}` wherever the harnesses differ. |
 | `core/team.json` | Each role's description and model tier: `strong`, `standard`, or `fast`. |
-| `core/bin/`, `core/skills/` | `team-guard`, `mutation-check`, and the `jev-decide` skill, shared by every harness. |
+| `core/bin/`, `core/skills/` | `team-guard` and the skills, shared by every harness. |
 | `adapters/<harness>/adapter.json` | The `harness` type, the model for each tier, and a value for every placeholder. |
 
 | Tier | Claude Code | Codex CLI |
@@ -56,7 +56,7 @@ The build parses each TOML file before writing it, so it fails rather than ship 
 
 `dist/` is committed so diffs stay readable.
 Don't edit it: change `core/` or an adapter, then rebuild.
-`tests/run.sh` checks that every `dist/` is up to date; `tests/run.sh --slow` adds the `mutation-check` test.
+`tests/run.sh` checks that every `dist/` is up to date. The build also fails if the rendered instructions pass 16 KB, half of Codex's 32 KiB limit.
 
 ## Ship the vendored skills
 
@@ -67,16 +67,13 @@ A patched skill is upstream plus a stored patch in `core/skills/patches/`, which
 
 | Skill | Status | Used by |
 |---|---|---|
-| `grilling` | as-is | product-owner, as the chat fallback for the upfront round of questions |
-| `codebase-design` | as-is | architect, for an options brief |
+| `grilling` | as-is | the lead, as the chat way to ask the human numbered questions |
 | `writing-for-agents` | as-is | whoever edits `core/` |
-| `domain-modeling` | patched | architect: ADRs as `adr/NNNN-<slug>.md` and an optional `GLOSSARY.md`, both in the workspace dir |
 | `handoff` | patched | the human, as a slash command; writes `handoff-<slug>.md` in the workspace dir |
-| `to-questionnaire` | patched | the human, as a slash command; writes `to-questionnaire-<slug>.md` in the workspace dir |
-| `diagnosing-bugs` | patched | Bug fix: the tester builds the feedback loop and the regression test, the engineer fixes |
-| `tdd-inner-loop` | patched (upstream `tdd`) | software-engineer only |
+| `diagnosing-bugs` | patched | the engineer, on a Quick bug fix |
+| `tdd` | patched | software-engineer only |
 
-`build.py` ships only the directories of `core/skills/` that hold a `SKILL.md`, so `UPSTREAM.json` and `patches/` stay behind. It renders each `SKILL.md` with the adapter's vars: `skill_call`, `skill_sigil` and `user_skill_sigil` say how a skill names another one (Claude Code calls the Skill tool; Codex mentions `$name`).
+`build.py` ships only the directories of `core/skills/` that hold a `SKILL.md`, so `UPSTREAM.json` and `patches/` stay behind. It renders each `SKILL.md` with the adapter's vars: `skill_call` and `skill_sigil` say how a skill names another one (Claude Code calls the Skill tool; Codex mentions `$name`).
 
 Run `scripts/vendor-check` to see drift: it compares each copy with upstream at the pin plus its patch (`local drift`) and with a newer ref (`upstream changed`, `upstream removed`, or a `patch conflict`), reports a LICENSE the upstream deleted as `LICENSE: upstream removed`, exits 1 on drift and 2 when it can't run, and never changes anything.
 Moving the pin is a person's decision: update the copies and patches, then the pin.
@@ -85,20 +82,57 @@ The byte-for-byte checks need a local clone of upstream at the pin. Run the suit
 
 ## Know what is unverified
 
-On Codex, the engineer loads `$tdd-inner-loop` by mentioning it in its developer instructions. The Codex docs say an explicit `$skill` mention still works when implicit invocation is off, but that loading from developer instructions rather than a user turn is unverified.
-If it doesn't load, the lead can put `$tdd-inner-loop` in the engineer's spawn prompt, which is a user turn.
+On Codex, the engineer loads `$tdd` by mentioning it in its developer instructions. The Codex docs say an explicit `$skill` mention still works when implicit invocation is off, but that loading from developer instructions rather than a user turn is unverified.
+If it doesn't load, the lead can put `$tdd` in the engineer's spawn prompt, which is a user turn.
 
 ## Install
 
 Each installer runs `tests/run.sh` first, backs up what it replaces to `backups/agentic-workflow-<timestamp>-<suffix>/` in the harness home (a new directory on every run, even within one second), and copies the build.
 That includes every skill directory it is about to write, under `skills/` in the backup.
 If a skill's target is a symlink, for example into a `skills.sh` store, the installer backs up the link itself and replaces it with a real directory, so it never writes through the link.
-An existing skill directory is backed up, then removed and copied fresh, so nothing is written through a symlink inside it and your own files never merge into ours.
-If the skills root is itself a symlink into a store, replacing a skill deletes inside that store, and the backup holds the original.
+An existing skill directory, an upstream `tdd` skill included, is backed up, then removed and copied fresh, so nothing is written through a symlink inside it and your own files never merge into ours.
 If a skill can't be installed, the installer prints `agentic-workflow install: skill <name> failed: ...` and exits non-zero.
-The Jev denylist is never emptied: when `jev-decide` is replaced, including through a symlink, the installer reads your existing `denylist.txt` (following the link) and copies it into the new directory, and it creates the empty default only when no denylist existed. A denylist that is a symlink is restored as the same link, without writing through it, and a regular one keeps its mode. If saving or restoring it fails, the installer names `jev-decide`, exits non-zero, and leaves no copy in the temp dir. It prints a note either way.
-If an upstream `tdd` skill is installed, it warns that its trigger phrases can fire in the tester and suggests removing it; it never deletes it.
-Neither installer edits your settings or merges hooks.
+
+Then `scripts/install-cleanup` tidies up, and never deletes anything:
+
+```mermaid
+flowchart LR
+    A[install.sh] --> B[Run tests and build checks]
+    B --> C[Copy the new build in,<br/>backing up what it replaces]
+    C --> G[Remove our hooks from settings,<br/>after a backup]
+    G --> D{In the old manifest<br/>or the first-time list,<br/>but not in the new build?}
+    D -->|no| H
+    D -->|yes| E{Still mentioned in your<br/>settings or hooks?}
+    E -->|yes| E1[Leave it, print a warning]
+    E -->|no| E2[Move it to the backup dir]
+    E1 --> H
+    E2 --> H[Write the new manifest]
+```
+
+- **Manifest.** Each install writes `team/installed.json` in the harness home, listing every file and directory it put in place. On the next install, anything in the old manifest that is not in the new build is retired. With no manifest yet, a fixed list stands in: `agents/tester.*`, the skills `jev-decide`, `codebase-design`, `domain-modeling`, `to-questionnaire` and `tdd-inner-loop`, `team/bin/mutation-check`, and `team/docs/guard-rails.md` and `decisions-with-jev.md`.
+- **Retire means move.** A retired file goes into `<backup>/retired/`.
+- **Something of yours still uses it? It stays.** Before retiring a file, the installer checks whether your settings or your `hooks/` directory still mention its path, and if they do it leaves the file and prints a warning. For example, a Jev permission hook that imports `~/.claude/skills/jev-decide` keeps that skill in place.
+- **Settings.** The installer backs up `settings.json` (`hooks.json` on Codex), removes only entries whose command runs `team-guard hook-…` or `mutation-check`, adds the one `team-guard` allow rule on Claude Code if it is missing, and prints what it changed. It exits with an error if a `team-guard hook-…` entry is still there. Your other hooks are never touched.
+- **Left for you.** The old hidden-scenario directory, `routing-log.jsonl` and old archives under `~/.agentic-workflow` are your data. Delete them by hand when you no longer want them, for example `rm -rf ~/.agentic-workflow/holdout ~/.agentic-workflow/routing-log.jsonl`.
+
+After installing, check that nothing stale is left in the harness home (it should print nothing, apart from any file the installer warned it left in place for your own hooks):
+
+```bash
+grep -rlE 'hook-pretool|hook-stop|hook-task|mutation-check|agents/tester' ~/.claude/CLAUDE.md ~/.claude/agents ~/.claude/team ~/.claude/skills
+grep -rlE 'hook-pretool|hook-stop|mutation-check|agents/tester' ~/.codex/AGENTS.md ~/.codex/agents ~/.codex/team ~/.codex/rules ~/.agents/skills
+```
+
+### Remove old git hooks first
+
+An earlier version installed `pre-commit` and `pre-push` git hooks in project repos. Run this once, before you reinstall:
+
+```bash
+scripts/remove-old-git-hooks            # every repo named in a workspace or archive under ~/.agentic-workflow
+scripts/remove-old-git-hooks --dry-run ~/code/api    # preview, plus an extra repo
+```
+
+It removes the hooks team-guard installed, puts back any hook they had wrapped, and removes the old lock record from the git directory.
+As a safety net, `team-guard pre-commit` and `team-guard pre-push` stay for one release as silent no-ops, so a repo the script missed can still commit. They are not listed in `team-guard help`.
 
 ### Install for Claude Code
 
@@ -106,12 +140,7 @@ Neither installer edits your settings or merges hooks.
 adapters/claude-code/install.sh
 ```
 
-It installs `~/.claude/CLAUDE.md`, `~/.claude/agents/*.md`, the tools in `~/.claude/team/bin/`, and the skills in `~/.claude/skills/`.
-Then merge `adapters/claude-code/settings.hooks.json` into `~/.claude/settings.json`:
-
-- Add the `PreToolUse` entry, which runs `team-guard hook-pretool` on `Edit`, `Write`, `MultiEdit`, `NotebookEdit`, `Read`, `Grep`, and `Glob`, alongside your existing entries.
-- Add the `SubagentStop` hook, which runs `team-guard hook-stop`, and the `TaskCompleted` hook, which runs `team-guard hook-task` (for agent-team teammates).
-- Add the allow rules for `team-guard` and `mutation-check`.
+It installs `~/.claude/CLAUDE.md`, `~/.claude/agents/*.md`, the tools in `~/.claude/team/bin/`, and the skills in `~/.claude/skills/`, then cleans up as above.
 
 > **Caution:** The installer overwrites `~/.claude/CLAUDE.md` and the agent files, after backing them up. Make future edits in `core/`, rebuild, and reinstall, or the copies drift.
 
@@ -122,12 +151,7 @@ adapters/codex/install.sh
 ```
 
 It installs `~/.codex/AGENTS.md`, `~/.codex/agents/<role>.toml`, the tools in `~/.codex/team/bin/`, and the skills in `~/.agents/skills/`.
-It also writes `~/.codex/rules/agentic-workflow.rules`, which lets `team-guard`, `mutation-check`, and `ask-jev` run outside the sandbox.
-Then:
-
-1. Merge `adapters/codex/hooks.json` into `~/.codex/hooks.json`, keeping your existing hooks. It adds a `PreToolUse` hook on `apply_patch`, `Edit`, and `Write`, and a `SubagentStop` hook that runs `team-guard hook-stop`.
-2. Turn hooks on with `[features] hooks = true` in `config.toml`.
-3. Run `/hooks` in Codex and trust the two `team-guard` hooks. Codex doesn't run untrusted hooks.
+It also writes `~/.codex/rules/agentic-workflow.rules`, which lets `team-guard` run outside the sandbox, then cleans up as above.
 
 ## Compare the harnesses
 
@@ -135,17 +159,10 @@ Then:
 |---|---|---|
 | Instructions | `~/.claude/CLAUDE.md` | `~/.codex/AGENTS.md`, with no `@imports` and a 32 KiB cap together with project `AGENTS.md` files |
 | Step ordering | The lead starts one subagent per step and waits for its report | The lead spawns each step with `spawn_agent` and waits with `wait_agent` |
-| Agent-to-agent messages | `SendMessage` | None between subagents: the engineer reports a disputed test to the lead |
-| Edit guard | `PreToolUse` on `Edit` and `Write` (`file_path`) | `PreToolUse` on `apply_patch`, with paths parsed from the patch |
-| Completion guard | `SubagentStop` (a JSON `block` decision, once per stop) and `TaskCompleted` (exit 2, agent teams) | `SubagentStop`, a JSON `block` decision, once per stop |
-| Agent identification | `agent_type` inside subagents, none documented for agent-team teammates | `agent_type` for subagents, omitted on the main thread |
-| Tool permissions | Allow rules in `settings.json` | `prefix_rule`s in `~/.codex/rules/` |
-| Skills | `~/.claude/skills/` | `~/.agents/skills/` (`$jev-decide`) |
+| Tool permissions | One allow rule in `settings.json` | `prefix_rule`s in `~/.codex/rules/` |
+| Skills | `~/.claude/skills/` | `~/.agents/skills/` (`$tdd`) |
 
-Where the harness doesn't identify the agent, the git hooks and `team-guard verify` still catch changes to sealed tests.
-Codex has no `Read` tool to hook, so holdout isolation there relies on instructions and paths.
-
-Both harnesses share the workspace, holdout, and archive directories under `~/.agentic-workflow/`, so one team can mix them.
+Both harnesses share the workspace and archive directories under `~/.agentic-workflow/`, so one team can mix them.
 
 ## Add a harness
 
@@ -156,4 +173,4 @@ Both harnesses share the workspace, holdout, and archive directories under `~/.a
 ## Next steps
 
 - Follow the steps in [Workflow](./workflow.md).
-- See what the hooks enforce in [Guard rails](./guard-rails.md).
+- Set up a task: [Workspaces](./workspaces.md).

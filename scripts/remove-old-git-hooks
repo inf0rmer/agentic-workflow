@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+"""Remove the git hooks and lock records that the old test lock left in project repos. Run it once.
+
+  scripts/remove-old-git-hooks [--dry-run] [--state-dir <dir>] [<repo-path>...]
+
+It finds every repo named in a workspace or an archive under the state dir (default
+~/.agentic-workflow), plus the paths you pass. In each repo it
+  - removes the pre-commit and pre-push hooks that team-guard installed,
+  - puts back any hook they had wrapped, and
+  - removes the old test-lock record (team-test-lock.json) from the git directories.
+A hook that is not team-guard's is never touched. Nothing else in the repo changes.
+"""
+import argparse
+import glob
+import json
+import os
+import subprocess
+import sys
+
+MARKER = "# managed by team-guard"
+CHAINED = ".team-guard-chained"
+LOCK = "team-test-lock.json"
+HOOKS = ("pre-commit", "pre-push")
+
+
+def git(repo, *args):
+    p = subprocess.run(["git", "-C", repo, *args], capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    return p.stdout.strip() if p.returncode == 0 else None
+
+
+def named_repos(state_dir):
+    found = []
+    pattern = [os.path.join(state_dir, "work", "*", "workspace.json"),
+               os.path.join(state_dir, "archive", "*", "workspace.json")]
+    for path in sorted(p for pat in pattern for p in glob.glob(pat)):
+        try:
+            with open(path) as f:
+                for e in json.load(f).get("repos", []):
+                    found.append(e["source"])
+        except (OSError, ValueError, KeyError, TypeError):
+            print(f"skipped {path}: could not read it", file=sys.stderr)
+    return found
+
+
+def clean_repo(repo, dry):
+    top = git(repo, "rev-parse", "--show-toplevel")
+    if top is None:
+        print(f"skipped {repo}: not a git repository")
+        return
+    common = os.path.realpath(os.path.join(top, git(top, "rev-parse", "--git-common-dir")))
+    hooks_dir = os.path.realpath(os.path.join(top, git(top, "rev-parse", "--git-path", "hooks")))
+    did = False
+    for name in HOOKS:
+        hook = os.path.join(hooks_dir, name)
+        chained = hook + CHAINED
+        try:
+            with open(hook, errors="replace") as f:
+                ours = MARKER in f.read()
+        except OSError:
+            ours = False
+        if ours:
+            did = True
+            back = os.path.exists(chained)
+            print(f"{top}: removed {name} hook" + (" and put back the one it wrapped" if back else ""))
+            if not dry:
+                os.remove(hook)
+                if back:
+                    os.replace(chained, hook)
+        elif os.path.exists(chained) and not os.path.exists(hook):
+            did = True
+            print(f"{top}: put back the {name} hook that was wrapped")
+            if not dry:
+                os.replace(chained, hook)
+    locks = [os.path.join(common, LOCK)] + glob.glob(os.path.join(common, "worktrees", "*", LOCK))
+    for lock in locks:
+        if os.path.isfile(lock):
+            did = True
+            print(f"{top}: removed {lock}")
+            if not dry:
+                os.remove(lock)
+    if not did:
+        print(f"{top}: nothing to remove")
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--dry-run", action="store_true", help="print what would change and change nothing")
+    p.add_argument("--state-dir", default=os.path.expanduser("~/.agentic-workflow"))
+    p.add_argument("repos", nargs="*")
+    a = p.parse_args()
+    seen = []
+    for r in named_repos(a.state_dir) + a.repos:
+        r = os.path.realpath(os.path.expanduser(r))
+        if r not in seen:
+            seen.append(r)
+    for r in seen:
+        clean_repo(r, a.dry_run)
+    if not seen:
+        print("no repos found")
+
+
+if __name__ == "__main__":
+    main()

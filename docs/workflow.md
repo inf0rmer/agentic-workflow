@@ -1,293 +1,90 @@
 # Workflow
 
-Every task runs as one of five variants, sized to the work, with a design gate before tests are sealed and a human gate before anything is pushed.
+You ask for something. The lead picks a variant, the team builds it, a fresh reviewer checks it, and you review every PR before anything is pushed.
 
 ```mermaid
 flowchart TD
-    Start["Task arrives"] --> Route{"Choose a variant<br/>checklist and rule table<br/>you confirm in one line"}
-    Route -->|"Chore"| Chore["Chore<br/>checklist, one review"]
-    Route -->|"Bug fix"| BugTest["Bug fix<br/>one sealed regression test"]
-    Route -->|"Spike"| Spike["Spike<br/>time box, findings.md, one review"]
-    Route -->|"Standard"| StdDesign["Design<br/>upfront questions, spec, lean contract"]
-    Route -->|"Full"| FullDesign["Design<br/>upfront questions, spec, options brief if needed, contract"]
-    StdDesign --> Gate["Design gate<br/>one review, zero comments to pass"]
-    FullDesign --> Gate
-    Gate --> Tests["Tests in parallel with the scaffold<br/>sealed tests and holdouts"]
-    Tests --> Build["Build<br/>inner red-green loop"]
-    BugTest --> Build
-    Build --> Review["Fresh review<br/>Standard and Full add a re-check of the fix diff"]
-    Chore --> Review
-    Review --> Human["Human gate<br/>code review, questions, re-sign"]
-    Spike --> SpikeHuman["Human reviews the branch and findings.md<br/>never merges as-is; re-run as Standard or Full"]
-    Human -->|"approved"| Close["Docs if user-facing, close-out"]
-    Human -->|"sent back"| Rework["Fix, then back to review"]
-    Rework --> Review
+    A[You ask for something] --> B{Lead proposes a variant<br/>with a one-line reason.<br/>You confirm.}
+    B -->|Quick| Q[Lead posts a 3-5 line plan.<br/>Engineer writes a failing test,<br/>then the fix]
+    B -->|Spike| S[Engineer explores on a branch<br/>within a time box,<br/>writes findings.md]
+    B -->|Feature| F1[Architect asks a few<br/>questions in chat]
+    F1 --> F2[Architect writes design.md:<br/>plain language, diagrams]
+    F2 --> F3{You review design.md<br/>in Crit, or in chat}
+    F3 -->|comments| F2
+    F3 -->|approved| F4[Engineer builds each PR in the plan:<br/>tests and code together]
+    Q --> R
+    F4 --> R[Fresh reviewer: checks the diff and tests<br/>against the doc, runs the real tools]
+    R -->|blockers or majors| X[Engineer fixes] --> R2[New fresh reviewer<br/>checks only the fix]
+    R2 --> P
+    R -->|clean| P[Lead drafts the PR description:<br/>what changed, where to look,<br/>decisions made, not verified, risk line]
+    S --> SR[One review] --> SH[You read the findings.<br/>A spike never merges as is]
+    P --> H{You review the code}
+    H -->|changes| F4
+    H -->|approved| G[team-guard sign, push, open the PR]
+    G --> W[Lead watches the PR:<br/>answers comments, fixes checks]
+    W --> M[You merge]
+    M --> C[Follow-ups become issues,<br/>workspace close]
 ```
 
-Run the whole team from one [workspace](./workspaces.md).
-The lead starts one subagent per step and waits for its report.
+The lead stops and asks you at four points: the variant, the design doc (Feature only), the code review before anything is pushed, and any problem it cannot settle alone (a blocker left after the re-check, a security question, or a design change during the build).
 
-## Choose a variant
+## Pick a variant
 
-The lead answers ten questions about the task without reading any code, then applies a rule table top-down.
-The first match wins, and an unknown answer counts as "yes", so uncertainty routes to more process.
+| Variant | For | Design doc | What happens |
+|---|---|---|---|
+| **Quick** | A chore, or a bug with a repro, with no open design question | No. A 3 to 5 line plan in chat. | The engineer writes a failing test (for a bug, following `diagnosing-bugs`), fixes it, gets one review, and you review the code. |
+| **Feature** | Any new or changed behavior, or any open design question | Yes | The full flow above. |
+| **Spike** | "Can this work?" or "what shape would it have?" | No. A time box. | A branch plus `findings.md`, one review. To ship it, run it again as a Feature with the findings as input. |
 
-1. How many repos does it touch?
-2. Roughly how many files and lines change: 3 files or fewer, 4–15, or more than 15?
-3. Does it change a public contract?
-4. Does it touch persisted data or migrations?
-5. Does it touch security?
-6. Is it cross-team?
-7. Can a plain `git revert` undo it?
-8. Does it change behavior a user can see?
-9. Is there an open design question?
-10. Is there a repro for a defect?
+The lead picks by judgment and says why in one line. Security, stored data, a public interface others rely on, and work in more than one repo always mean Feature. A task can move up, never down.
 
-| # | Condition | Variant |
+## What you see and approve
+
+| When | What you get | What you do |
 |---|---|---|
-| 1 | The request is exploratory ("can this work?", "what's the shape of it?") | Spike |
-| 2 | Security-relevant (the lead flags it to you now) | Full |
-| 3 | More than one repo, a public contract, persisted data, cross-team, or not revertible | Full |
-| 4 | An open design question, or more than 15 files | Standard |
-| 5 | A defect with a repro, 15 files or fewer, no flags | Bug fix |
-| 6 | No behavior change a user can see, 3 files or fewer, no flags | Chore |
-| 7 | Anything else | Standard |
+| Start | The variant and a one-line reason (plus the short plan for Quick) | Confirm or change it in one line |
+| Feature, before the doc | A few numbered questions, each with a recommendation | Answer, or accept the recommendations |
+| Feature, design | `design.md` in Crit (diagrams render there), or in chat | Comment until you are happy, then approve in Crit, or reply `approve design` in chat |
+| During the build | Nothing, unless there is a blocker, a security question or a design change | Answer in one line |
+| Before any push | The draft PR description and the full diff, test changes included | Approve, or ask for changes |
+| Open PR | Replies to your comments, and fixes | Resolve threads, merge |
 
-The lead proposes the variant, and you confirm or override it in one line before work starts.
-Jev does not route.
-A variant can be upgraded mid-run and is never downgraded, and an open design question moves a task up to at least Standard.
+When you approve the doc, the lead adds "Approved on <date>" at its top and saves a copy as `design-approved.md`. If the design must change during the build, the lead adds a "Changes after approval" note at the end of the doc and asks you in one line.
 
-What each variant gets:
+## Read a design doc
 
-| | Chore | Bug fix | Spike | Standard | Full |
-|---|---|---|---|---|---|
-| Spec / criteria | checklist of up to 3 items | lead writes it, 1–5 | none; a time box | 5–20 | 20–40 per slice |
-| Design gate | none | none | none | one gate | one gate (D1 + D2 if split) |
-| Sealed tests | none | regression test only | none | yes | yes |
-| Holdouts | 0 | 0 | 0 | 1–2 | 2–4 |
-| Mutation testing | off | off | off | off | off; opt-in for risk-flagged modules |
-| Review | 1 | 1 (2 if blockers) | 1 | 1 + fix re-check | 1 + fix re-check |
-| Human code review | always | always | always | always | always |
+Every Feature gets one `design.md` in its workspace, never in the project repo. It is plain language, has at least one Mermaid diagram, and aims for under five pages.
 
-A **Spike** is time-boxed exploration by one engineer, with no spec, contract, seal or holdouts.
-It produces a branch and a `findings.md`, gets one review and then your review, and never merges as-is.
-To ship it, re-run as Standard or Full with the findings as input.
+| Section | What goes in it |
+|---|---|
+| Title and summary | What we are building and the approach, in one line |
+| 1. The problem | What is wrong or missing, who feels it, and what "done" looks like |
+| 2. How it will work | A component diagram, a sequence diagram of the main and failure paths, and examples of what a user will see |
+| 3. What changes | The files, commands or data added, changed or removed (when it helps) |
+| 4. Decisions and alternatives | For each real choice: what we chose, what we didn't, and why |
+| 5. How we'll know it works | The behaviors the tests cover, the scenarios the reviewer runs against the real tool, and what can't be verified |
+| 6. Risks | Data, security, compatibility and how hard it is to undo |
+| 7. Rollout and PR plan | The PRs in order, their rough size (about 400 changed lines, tests not counted), how each is reverted |
+| 8. Open questions | Anything undecided, each with a recommendation |
 
-The lead records the routing decision with `team-guard routing record route` at kickoff, and the wall time of each step with `team-guard routing record step` after each step.
-Each record goes to `routing.md` in the workspace dir (a Chore has no workspace, so its record goes in the git directory) and to the shared log `~/.agentic-workflow/routing-log.jsonl`.
-`team-guard routing summary` shows override and upgrade rates and time per variant.
+## Who does what
 
-## Steps by variant
+| Role | Does | Produces |
+|---|---|---|
+| Lead (the main session) | Proposes the variant, starts each agent, checks test output itself, drafts the PR description, signs, pushes, watches the PR | The PR |
+| Architect | Asks a few questions, writes and revises the design doc | `design.md` |
+| Engineer | Writes tests and code together (red, then green), keeps `tests.md`, notes decisions made during the build | Code, tests |
+| Reviewer (fresh each time) | Checks code and tests against the doc, confirms the tests cover its test section, runs the real-tool scenarios, writes "Where to look" and the risk line | Findings, `review-guide.md` |
+| Doc-writer | Updates user-facing docs, only when they change | Docs |
+| Researcher, product-owner | On request, outside the flow | Notes, issues |
 
-Full and Standard both have five steps, followed by the human gate.
+The agents keep a few files for themselves, in the workspace: `tests.md` (one line per behavior in the doc's test section, with the test that covers it), `followups.md` (side findings that become issues after the merge), `questions.md`, the review reports and `review-guide.md`.
 
-**Full**
+## Commit and sign
 
-1. **Design.** The product-owner opens with one round of questions to you, then writes the spec (at most 40 criteria per slice). The architect writes an options brief only if there are real design options, then `contract.md`.
-2. **Design gate.** One review of the spec, the contract and any brief.
-3. **Tests in parallel with the scaffold.** The tester seals one test per criterion for each slice and writes 2–4 holdout scenarios, while the engineer scaffolds the contract as failing stubs.
-4. **Build.** The engineer makes the sealed tests pass with an inner red-green loop.
-5. **Review.** One fresh reviewer, then a targeted re-check of the fix diff only. The holdouts run in the pass that ends the review: the first pass if it has no blockers or majors, otherwise the re-check.
-
-**Standard** has the same five steps, lighter: a lean contract, no options brief unless there is an open design question, 1–2 holdouts and no mutation testing.
-
-A Bug fix is one cycle: the lead writes 1–5 criteria, the tester seals one regression test that covers them and fails on the defect, the engineer fixes it, and one fresh review follows.
-A Chore is a checklist of up to three items and one review.
-
-The researcher is no longer a pipeline step.
-The architect absorbs the researcher's brief, and the researcher stays available for research requests outside the pipeline.
-The doc-writer runs only when user-facing docs change.
-The product-owner writes the upfront questions to `questionnaire.md` for the human to review in Crit; the `grilling` skill is the chat fallback.
-
-See [Guard rails](./guard-rails.md) for what sealing does.
-
-## Design gate
-
-The default is one design gate over the spec, `contract.md` and any brief.
-You discuss them, and each decision is recorded as an ADR in the workspace `adr/` directory.
-D1 (spec and brief) and D2 (contract and ADRs) run as separate reviews only when the brief has an open option and the contract depends on the choice.
-
-Nothing is sealed until the gate passes (Bug fix and Chore have no gate).
-The gate passes when you finish the review with zero comments.
-The lead then records the approval in `design-gate.md` with the sha256 of each reviewed file.
-If `contract.md` changes afterwards, `team-guard gate check` exits 2 and the gate reopens.
-
-The lead runs the review with `team-guard gate review`, a local Crit session.
-Its output stays under `<workspace>/.crit`, each comment goes to the owner of the file, who answers with `team-guard gate reply`, and the lead never shares or pushes a review.
-Approval deletes Crit's review data, so `gate review` exports each round's comments to `reviews/` as it runs.
-If the wait is stopped, the lead re-runs it and the same session continues.
-When you approve, the lead runs `team-guard gate record <gate> --crit` to save the approved hashes.
-The tester never reads `.crit/` or `reviews/`, and its hook denies them: it sees only the approved spec and contract.
-
-Where Crit is unavailable, or in Codex, the lead posts numbered questions in chat.
-Reply `approve design` to pass the single gate, or `approve D1` or `approve D2` when the gates are split.
-No other reply counts as approval, and the lead records it with `team-guard gate record`.
-
-## Double-loop tests
-
-The tester seals one test per criterion at a contract seam, plus a second only for a documented error or a stated invariant.
-End-to-end tests aren't a default; the holdouts cover whole flows.
-When end-to-end tests are written, the tester runs them once against the live base app before sealing, so a failure means "feature missing" and not a wrong selector, route or setup.
-
-Underneath, the engineer drives each sealed test green with an inner loop of unit tests it owns.
-Those tests aren't sealed and don't count as evidence for a criterion.
-The reviewer checks them for tautologies and for mocks of the project's own modules.
-
-In Full the tester seals per slice, just in time.
-
-Code, comments, test names and file names never cite spec criterion IDs, contract sections, addenda or review rounds.
-They describe behavior and the reason for it.
-`team-guard refs` checks changed lines and file names for it, and the reviewer treats a violation as a finding.
-
-```mermaid
-sequenceDiagram
-    participant L as Lead
-    participant E as Engineer
-    participant R as Fresh reviewer
-    participant R2 as Re-check reviewer
-    participant H as Human
-
-    E->>E: Make the sealed tests pass, inner loop underneath
-    L->>R: Spawn with spec, contract.md, base branch
-    R->>R: Guard rails first, then review the diff
-    alt No blockers or majors
-        R->>R: Run the holdout scenarios
-        R->>L: Report and holdout satisfaction
-    else Findings
-        R->>L: Findings
-        L->>E: Relay the findings
-        E->>E: Fix blockers and majors
-        L->>R2: Spawn fresh with the first report
-        R2->>R2: Re-check the fix diff, run the holdout scenarios
-        R2->>L: Report and holdout satisfaction
-    end
-    L->>H: Summary, report, satisfaction, decision log, questions
-    alt Human approves
-        H->>L: Approve
-        Note over H,L: Human re-signs every commit, lead adds the footer, then push or PR
-    else Human sends it back
-        H->>L: Feedback
-    end
-```
-
-Blockers that remain after the re-check go to you.
-There's no further round.
-
-### What the reviewer checks
-
-The reviewer runs the mechanical checks before any judgment:
-
-- `team-guard verify` from the workspace dir. Any modified sealed test is a blocker.
-- `team-guard list` in each attached worktree. Every unseal in the lock history must match a tester note, or it's a blocker.
-- The sealed tests and the project's relevant suite, run by the reviewer.
-- Mutation notes, if mutation testing was run.
-- The decision log. The reviewer confirms or rejects every `PROVISIONAL` decision.
-
-The re-check only confirms that the blockers and majors are fixed without breaking anything.
-
-### When a sealed test looks wrong
-
-The engineer doesn't change it.
-Instead, the engineer reports the failing assertion, the spec clause, and their reading of it to the tester.
-In Claude Code the engineer messages the tester; in Codex, the engineer reports to the lead, who relays it.
-
-Only the tester changes a sealed test, and only when it contradicts the spec.
-The tester unseals it, fixes it, commits, reseals, and notes the reason.
-
-## Mutation testing
-
-Mutation testing is off by default in every variant.
-In Full it is opt-in for risk-flagged modules, and then it is sampled and time-boxed.
-Python has no supported mutation path.
-`mutation-check` bounds every run: it refuses to start below `--min-free-gb` (default 20; exit 3), runs `--max-concurrency` workers (default 2), samples `--sample` changed lines (default 50) and stops at `--time-box` minutes (default 15; exit 4).
-It removes its temp files on every exit.
-
-## Speed rules
-
-- **Questions are batched.** Non-blocking questions and Jev `DEFER` verdicts go into `questions.md` while the agent continues with a `PROVISIONAL` choice. You answer them together at the next gate. Only blocking or security questions interrupt you at once.
-- **Subagents by default.** The lead starts one subagent per step. Agent-team teammates are used only for parallel work within one step.
-- **Scope stays fixed.** A finding that is neither a blocker nor security goes to `followups.md`, not into the current run.
-- **Warm environment.** The dev or e2e environment stays running between rounds and restarts only when its config changes.
-- **Unsigned commits, re-signed once.** Agents commit unsigned with `git -c commit.gpgsign=false commit …`, a per-command setting that writes no config. After you approve the code review and before anything is pushed, the lead runs `team-guard sign` to re-sign every commit on the branch in every attached repo, with the human's key through their configured signer. Whether that prompts you depends on the signer's approval settings; see [Re-sign the branch](./guard-rails.md#re-sign-the-branch).
-
-## Human gate
-
-Before any push, the lead hands you:
-
-- A summary of the change.
-- The final review report.
-- The holdout satisfaction.
-- The decision log (`jev-decisions.md`) and the questions waiting in `questions.md`.
-- For a feature that spans repos, the ship order and its reason, which the architect records in the workspace dir.
-
-You approve, or send it back.
-Nothing is pushed without your approval.
-
-## Merge-risk footer
-
-Every PR carries an advisory merge-risk footer of High, Medium or Low, with a reason in project terms, added after you approve the human-gate summary:
-
-```text
-Merge risk: high (advisory) — changes the stored config format; a revert needs the old format restored.
-```
-
-The level comes from a table checked top-down over facts about the change: persisted data or migrations, a breaking public-contract change (or one of unknown kind), several repos, auth or security, or a hard revert give High.
-An additive public-contract change, user-visible behavior, more than 15 files or a change over the review budget, deploy, CI or config files, a major fixed in review, an unseal, skipped mutation testing on a risk-flagged module, or any failed holdout scenario (variants with no holdouts never trigger this) give Medium; anything else (docs, tests, or an internal change) gives Low.
-Any unknown input counts as "yes", and review findings, unseals and skipped mutation testing can only raise the level.
-The footer never names size: size alone gives `Merge risk: <level> (advisory).` with no reason.
-`team-guard risk` computes the level, and `--packet` prints the rules and inputs for your review packet.
-
-## Close out
-
-The doc-writer runs only when user-facing docs changed, and the product-owner updates the roadmap and issues, turning `followups.md` into issues.
-
-After you merge, the product-owner runs `team-guard workspace close <feature>` from outside the workspace.
-It archives the artifacts, removes the attached worktrees and holdouts, and keeps every branch.
-See [Close a workspace](./workspaces.md#close-a-workspace).
-
-## Keep context separate
-
-Separate agents only help if their contexts stay separate.
-
-- **Tester:** the spawn prompt holds only the paths to the spec and `contract.md` in their approved state, and the task. No design notes, plans, review comments, or engineer output.
-- **Reviewer:** the spawn prompt holds the spec, `contract.md`, and the base branch. The re-check gets a new reviewer, with the first report but not the engineer's explanations.
-- **Holdout scenarios:** they live outside every repo and the workspace dir. Nobody mentions their content to the engineer.
-
-## How the lead runs the steps
-
-The lead drives each step itself and starts the next only on the previous subagent's report, acting on printed evidence, never on an agent's claim alone.
-It stops at every design gate and at the human gate, and never pushes without your approval.
-The design gate runs once per feature; in Full the review, the human gate, signing and push run per slice.
-It hands to you when blockers remain after the re-check, a Jev verdict is `DEFER` and blocks the work, a security question comes up, or a step needs your decision.
-It checks in after a cap of turns per variant (Bug fix 20, Standard 40, Full 60, counted since your last check-in; 20 up to the design gate), and shows test and `team-guard verify` output at each step.
-No scaffolding or tests start before the design gate passes, and a sealed test changes only through the tester's logged unseal and reseal.
-
-## Keep each PR reviewable
-
-In Full, each slice gets its own PR, one at a time.
-The slice passes its review, then you take it through its human gate.
-On your approval the lead runs `team-guard sign --base origin/<base branch>` (the same ref the slice is rebased onto), pushes and opens the PR with a `Where to look` section.
-Each later slice is built on its own local branch, cut from the previous slice's tip, so the pushed branch only ever holds the slice under review; changes you request in its PR are committed there, and the later branch is rebased onto it.
-You review and merge it; the next slice's PR opens only after the merge.
-Before that slice's human gate, the lead fetches the merged base (`git fetch`) and rebases the slice onto `origin/<base branch>`.
-Standard, Bug fix and Chore produce one PR; a Spike produces none.
-Each PR stays within about 400 changed lines to review, excluding tests and generated code.
-Change the budget with `--pr-budget N` or `TEAM_PR_BUDGET`.
-A slice that cannot be split into coherent vertical pieces states why in the contract, and approving the contract approves that exception.
-A slice over budget without an approved exception stops before signing, pushing or opening its PR.
-The lead asks you; the literal reply `approve over budget` approves it, and any other reply sends the slice back to the architect to be split.
-The reviewer who ends the review writes `review-guide.md` in the workspace dir (`Where to look first`, `Checked mechanically`, `Not verified`, `Provisional decisions`), and the PR description carries its `Where to look` section.
-
-## Write commits and PRs in project terms
-
-Commit messages and PR descriptions read as ordinary project changes.
-Don't use workflow jargon such as "sealed", "holdout", "Jev", or "mutation survivors" in them.
-
-- **Good:** "Add rate-limit middleware to the API handler"
-- **Bad:** "Sealed tests for rate limiting; mutation survivors killed"
+Agents commit unsigned with `git -c commit.gpgsign=false commit`. After you approve the code, the lead runs `team-guard sign --base origin/<base branch>`, which re-signs the branch's commits with your own key, then pushes and opens the PR. See [Watch an open PR](./pr-loop.md) for what happens next.
 
 ## Next steps
 
-- Set up a feature in [Workspaces](./workspaces.md).
-- Learn how sealing and verification work in [Guard rails](./guard-rails.md).
-- Unblock small choices with [Decisions with Jev](./decisions-with-jev.md).
+- Set up a workspace: [Workspaces](./workspaces.md).
+- Install the workflow: [Harnesses](./harnesses.md).

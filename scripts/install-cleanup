@@ -1,0 +1,230 @@
+#!/usr/bin/env python3
+"""Tidy a harness install after the new build has been copied in. Called by both installers.
+
+  scripts/install-cleanup --harness claude-code|codex --dest <dir> --skills <dir> --backup <dir> --dist <dir> --docs <dir>
+                          [--settings <file>] [--rules <file>]
+
+It does three things, and never deletes anything:
+
+1. Retires files an earlier install put there that this build no longer ships. It reads the
+   previous manifest (<dest>/team/installed.json); with none, it uses a fixed list. A retired
+   file is moved into <backup>/retired. A file that your settings or hooks still mention stays,
+   with a warning.
+2. Removes the `team-guard hook-...` and `mutation-check` entries from your settings file, after
+   backing it up, and adds the one `team-guard` allow rule when it is missing. It exits 1 if a
+   `team-guard hook-` entry is still there afterwards.
+3. Writes the new manifest.
+"""
+import argparse
+import json
+import os
+import re
+import shutil
+import sys
+import time
+
+# What installs before the manifest existed put in place and this build no longer ships.
+FIRST_TIME = [
+    ("dest", "agents/tester.*"),
+    ("skills", "jev-decide"), ("skills", "codebase-design"), ("skills", "domain-modeling"),
+    ("skills", "to-questionnaire"), ("skills", "tdd-inner-loop"),
+    ("dest", "team/bin/mutation-check"),
+    ("dest", "team/docs/guard-rails.md"), ("dest", "team/docs/decisions-with-jev.md"),
+]
+OURS = re.compile(r"team-guard\s+hook-|mutation-check")
+GUARD_RULE = "Bash(~/.claude/team/bin/team-guard:*)"
+
+
+def listing(root, prefix):
+    out = []
+    if os.path.isdir(root):
+        for name in sorted(os.listdir(root)):
+            if os.path.isfile(os.path.join(root, name)):
+                out.append(("dest", f"{prefix}/{name}"))
+    return out
+
+
+def new_entries(a):
+    entries = [("dest", "team/bin/" + n) for n in sorted(os.listdir(os.path.join(a.dist, "bin")))]
+    entries += listing(os.path.join(a.dist, "agents"), "agents")
+    entries += [("dest", n) for n in sorted(os.listdir(a.dist)) if n.endswith(".md")]
+    entries += listing(a.docs, "team/docs")
+    skills = os.path.join(a.dist, "skills")
+    entries += [("skills", n) for n in sorted(os.listdir(skills))]
+    if a.rules:
+        entries.append(("dest", os.path.relpath(a.rules, a.dest)))
+    return entries
+
+
+def root_dir(a, root):
+    return a.dest if root == "dest" else a.skills
+
+
+def read_manifest(a):
+    try:
+        with open(os.path.join(a.dest, "team", "installed.json")) as f:
+            data = json.load(f)
+        return [(e["root"], e["path"]) for e in data["entries"]]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def expand(a, entries):
+    out = []
+    for root, path in entries:
+        if "*" in path:
+            d, _, pat = path.rpartition("/")
+            base = os.path.join(root_dir(a, root), d)
+            stem = pat.rstrip("*")
+            for n in sorted(os.listdir(base)) if os.path.isdir(base) else []:
+                if n.startswith(stem):
+                    out.append((root, f"{d}/{n}"))
+        else:
+            out.append((root, path))
+    return out
+
+
+def mention_forms(a, full):
+    home = os.path.expanduser("~")
+    forms = {full}
+    for h in {home, os.environ.get("HOME", home)}:
+        if full.startswith(h.rstrip("/") + "/"):
+            rest = full[len(h.rstrip("/")):]
+            forms |= {"~" + rest, "$HOME" + rest, "${HOME}" + rest}
+    return forms
+
+
+def reference_files(a):
+    files = [p for p in a.settings_files if os.path.isfile(p)]
+    hooks = os.path.join(a.dest, "hooks")
+    for dirpath, _, names in os.walk(hooks):
+        files += [os.path.join(dirpath, n) for n in sorted(names)]
+    return files
+
+
+def mentioned_in(a, full):
+    forms = mention_forms(a, full)
+    for path in reference_files(a):
+        try:
+            with open(path, errors="replace") as f:
+                text = f.read()
+        except OSError:
+            continue
+        if any(f in text for f in forms):
+            return path
+    return None
+
+
+def retire(a, entries):
+    for root, path in entries:
+        full = os.path.join(root_dir(a, root), path)
+        if not os.path.lexists(full):
+            continue
+        where = mentioned_in(a, full)
+        if where:
+            print(f"warning: left {full} in place: {where} still mentions it. Remove it yourself once nothing uses it.",
+                  file=sys.stderr)
+            continue
+        dst = os.path.join(a.backup, "retired", root, path)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.move(full, dst)
+        print(f"retired {full} (moved to {dst})")
+
+
+def edit_hooks(data):
+    """Drop our hook entries; returns the removed commands."""
+    removed = []
+    hooks = data.get("hooks")
+    if not isinstance(hooks, dict):
+        return removed
+    for event in list(hooks):
+        groups = hooks[event]
+        if not isinstance(groups, list):
+            continue
+        for g in groups:
+            kept = []
+            for h in g.get("hooks", []) if isinstance(g, dict) else []:
+                if isinstance(h, dict) and OURS.search(str(h.get("command", ""))):
+                    removed.append(f"{event}: {h['command']}")
+                else:
+                    kept.append(h)
+            if isinstance(g, dict) and "hooks" in g:
+                g["hooks"] = kept
+        hooks[event] = [g for g in groups if not (isinstance(g, dict) and "hooks" in g and not g["hooks"])]
+        if not hooks[event]:
+            del hooks[event]
+    return removed
+
+
+def edit_settings(a):
+    path = a.settings
+    if not path or not os.path.isfile(path):
+        return
+    with open(path) as f:
+        raw = f.read()
+    try:
+        data = json.loads(raw)
+    except ValueError as e:
+        sys.exit(f"install-cleanup: {path} is not valid JSON ({e}); nothing in it was changed")
+    changes = [f"removed hook {r}" for r in edit_hooks(data)]
+    if a.harness == "claude-code":
+        perms = data.setdefault("permissions", {})
+        allow = perms.setdefault("allow", [])
+        for rule in [r for r in allow if isinstance(r, str) and "mutation-check" in r]:
+            allow.remove(rule)
+            changes.append(f"removed allow rule {rule}")
+        if GUARD_RULE not in allow:
+            allow.append(GUARD_RULE)
+            changes.append(f"added allow rule {GUARD_RULE}")
+    if changes:
+        os.makedirs(a.backup, exist_ok=True)
+        shutil.copy2(path, os.path.join(a.backup, os.path.basename(path)))
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+            f.write("\n")
+        os.replace(tmp, path)
+        print(f"updated {path} (backup in {a.backup}):")
+        for c in changes:
+            print("  " + c)
+    with open(path) as f:
+        if re.search(r"team-guard\s+hook-", f.read()):
+            sys.exit(f"install-cleanup: {path} still has a team-guard hook entry that was not removed; "
+                     "remove it by hand, since the command no longer exists")
+
+
+def write_manifest(a, entries):
+    path = os.path.join(a.dest, "team", "installed.json")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    data = {"version": 1, "harness": a.harness, "installed": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "entries": [{"root": r, "path": p} for r, p in entries]}
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(data, f, indent=2)
+        f.write("\n")
+    os.replace(tmp, path)
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    for name in ("harness", "dest", "skills", "backup", "dist", "docs"):
+        p.add_argument("--" + name, required=True)
+    p.add_argument("--settings")
+    p.add_argument("--rules")
+    a = p.parse_args()
+    a.settings_files = [a.settings] if a.settings else []
+    if a.harness == "codex":
+        a.settings_files.append(os.path.join(a.dest, "config.toml"))
+    else:
+        a.settings_files.append(os.path.join(a.dest, "settings.local.json"))
+    new = new_entries(a)
+    old = read_manifest(a)
+    candidates = expand(a, old if old is not None else FIRST_TIME)
+    gone = [e for e in candidates if e not in set(new)]
+    edit_settings(a)  # first: our own hook and allow entries must not count as something still using a file
+    retire(a, gone)
+    write_manifest(a, new)
+
+
+if __name__ == "__main__":
+    main()
