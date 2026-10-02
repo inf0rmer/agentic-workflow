@@ -7,18 +7,9 @@
       "upstream_path": "skills/productivity/grilling",
       "status": "as-is"
     },
-    "codebase-design": {
-      "upstream_path": "skills/engineering/codebase-design",
-      "status": "as-is"
-    },
     "writing-for-agents": {
       "upstream_path": "skills/productivity/writing-for-agents",
       "status": "as-is"
-    },
-    "domain-modeling": {
-      "upstream_path": "skills/engineering/domain-modeling",
-      "status": "patched",
-      "patch": "patches/domain-modeling.patch"
     },
     "handoff": {
       "upstream_path": "skills/productivity/handoff",
@@ -30,15 +21,10 @@
       "status": "patched",
       "patch": "patches/diagnosing-bugs.patch"
     },
-    "to-questionnaire": {
-      "upstream_path": "skills/productivity/to-questionnaire",
-      "status": "patched",
-      "patch": "patches/to-questionnaire.patch"
-    },
-    "tdd-inner-loop": {
+    "tdd": {
       "upstream_path": "skills/engineering/tdd",
       "status": "patched",
-      "patch": "patches/tdd-inner-loop.patch"
+      "patch": "patches/tdd.patch"
     }
   }
 }

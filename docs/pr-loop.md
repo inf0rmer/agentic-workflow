@@ -40,7 +40,7 @@ The first push of a PR needs the human's approval and is signed with `team-guard
 After that, a fix for a review comment or a failing check is committed, signed with `team-guard sign --base origin/<PR branch>`, which signs only the commits not yet on the PR branch, and pushed with a plain `git push`, without asking again.
 The lead never force-pushes without asking the human, because a force-push rewrites what reviewers already saw.
 
-If a fix changes scope (new behavior, a changed contract, or a sealed-test change), the lead stops and asks the human before pushing.
+If a fix changes scope (new behavior or a changed interface), the lead stops and asks the human before pushing.
 The same goes for a fix that touches security (authentication, authorization, secrets, crypto, input validation, or anything that looks like a vulnerability fix): the lead asks the human before pushing.
 
 If a check still fails after two fix attempts, or the failure is outside the change (flaky, infra, missing secret), the lead stops fixing.
@@ -48,7 +48,6 @@ It reports the check name, a log excerpt and what it tried, and keeps watching f
 
 ## Caps
 
-Waiting turns do not count toward the per-variant turn caps.
 Claude Code: 4 hours of waiting and 10 fix pushes per PR.
 Codex: 10 fix pushes only, since it checks once per turn.
 At a cap the lead reports and waits for the human.

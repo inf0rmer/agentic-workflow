@@ -7,21 +7,14 @@
   },
   "vars": {
     "team_intro": "For significant features or changes that are more than a few lines of code, run a structured multi-agent workflow. You are the lead: start each role as a subagent using its agent type, and wait for its report before moving to the next step. Claude Code [agent teams](https://code.claude.com/docs/en/agent-teams) are an option only for parallel work within one step.",
-    "guard_hooks": "A `PreToolUse` hook blocks the engineer's edits to sealed files (in whichever attached repo the file lives) and holdout reads where the agent is identifiable, a `SubagentStop` hook sends a subagent back to work while a sealed test is modified, and a `TaskCompleted` hook blocks completing any agent-team task while one is.",
-    "bin": "~/.claude/team/bin",
     "docs": "~/.claude/team/docs",
     "agents_dir": "~/.claude/agents",
     "project_agents_dir": ".claude/agents",
     "instructions_file": "CLAUDE.md",
-    "jev_skill": "`jev-decide` skill",
     "worktree_section": "**All agents share one workspace dir.** Before starting any agent, run `team-guard workspace new <feature>`, then `team-guard workspace attach <repo-path>` from the workspace dir for each repo the feature touches. Each attached worktree is on the same branch name in its repo. Start the session from the workspace dir so every subagent inherits it as its working directory; each agent edits code inside `repos/<repo>/`, and the workflow artifacts stay in the workspace dir.",
-    "phase_intro": "You enforce step ordering as the lead: start the next step's subagent only after the previous step's report is in and you have checked it. A subagent runs one task, hands back a final report and stops, so there is nothing to poll and no idle teammate to resend to. The harness passes each subagent's `agent_type`, which lets `team-guard` block the engineer's edits to sealed tests before they happen.",
     "agent_ext": ".md",
-    "ask_tester": "stop and message the tester",
-    "skills_dir": "~/.claude/skills",
     "skill_call": "call the Skill tool with",
-    "skill_sigil": "",
-    "user_skill_sigil": "/"
+    "skill_sigil": ""
   },
   "instructions_footer": "@RTK.md\n"
 }

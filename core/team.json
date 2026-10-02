@@ -1,7 +1,7 @@
 {
   "roles": {
     "architect": {
-      "description": "Translate design decisions into implementable architecture documentation, write the options brief when a design has real options, and write the test contract. Use when the user asks to define system components, critical flows, bootstrap sequences, disaster recovery procedures, observability strategies, or any architectural specification that engineers will build from.",
+      "description": "Write the design doc for a feature: ask a few questions up front, then one plain-language document with diagrams, and revise it from the human's comments. Use when the user asks to design a feature or change that the engineer will build from.",
       "tier": "strong"
     },
     "doc-writer": {
@@ -17,16 +17,12 @@
       "tier": "strong"
     },
     "reviewer": {
-      "description": "Review production code and tests. Identify correctness bugs, spec deviations, security issues, missing error handling, test gaps, and architectural drift. Use when code is ready for review before merging.",
+      "description": "Review code and tests against the design doc and run the real tools. Identify correctness bugs, deviations from the design, security issues, weakened tests and test gaps; write the review guide and the merge-risk line. Use when code is ready for review before merging.",
       "tier": "strong"
     },
     "software-engineer": {
-      "description": "Build production-ready code aligned with the project's roadmap and architecture. Delivers small, incremental, testable units. Implements components based on architecture specifications.",
+      "description": "Build production-ready code from an approved design doc, writing tests and code together in small, working increments. Use when there is a design doc or a Quick plan to implement.",
       "tier": "standard"
-    },
-    "tester": {
-      "description": "Write one sealed test per criterion from the spec before implementation, seal them, keep holdout scenarios, and run opt-in mutation testing on risk-flagged modules. Use when the user asks to add tests, verify a component's behavior, or validate acceptance criteria.",
-      "tier": "strong"
     }
   }
 }

@@ -12,21 +12,14 @@
   },
   "vars": {
     "team_intro": "For significant features or changes that are more than a few lines of code, run a team of Codex subagents with a structured multi-agent approach. You are the lead: spawn each role with `spawn_agent` using its agent type, leave `fork_context` off so every role starts with only the prompt you give it, and use `wait_agent` to finish a step before starting the next.",
-    "guard_hooks": "A `PreToolUse` hook blocks subagents other than the tester from `apply_patch` edits to sealed files (in whichever attached repo the file lives), and a `SubagentStop` hook sends a subagent back to work while a sealed test is modified.",
-    "bin": "~/.codex/team/bin",
     "docs": "~/.codex/team/docs",
     "agents_dir": "~/.codex/agents",
     "project_agents_dir": ".codex/agents",
     "instructions_file": "AGENTS.md",
-    "jev_skill": "`jev-decide` skill (`$jev-decide`)",
     "worktree_section": "**All agents share one workspace dir.** Before spawning any agent, run `team-guard workspace new <feature>`, then `team-guard workspace attach <repo-path>` from the workspace dir for each repo the feature touches. Each attached worktree is on the same branch name in its repo. Start Codex from the workspace dir so every subagent inherits it as its working directory; each agent edits code inside `repos/<repo>/`, and the workflow artifacts stay in the workspace dir.",
-    "phase_intro": "Codex has no task dependencies, so you enforce step ordering as the lead: don't spawn the next step's agent until the previous one has finished and you've checked its output. Spawn agents in parallel only for parallel work within one step.",
     "agent_ext": ".toml",
-    "ask_tester": "stop and report to the lead, who relays it to the tester,",
-    "skills_dir": "~/.agents/skills",
     "skill_call": "mention",
-    "skill_sigil": "$",
-    "user_skill_sigil": "$"
+    "skill_sigil": "$"
   },
   "instructions_footer": ""
 }

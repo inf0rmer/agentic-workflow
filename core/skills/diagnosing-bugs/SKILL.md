@@ -4,11 +4,9 @@ description: Diagnosis loop for hard bugs and performance regressions. Use when 
 ---
 <!-- vendored from https://github.com/mattpocock/skills skills/engineering/diagnosing-bugs at d81f3a183412e71a5b1e84ca21bc1a35eea03a60; license: MIT (see LICENSE); modified by agentic-workflow (core/skills/patches/diagnosing-bugs.patch) -->
 
-## In the Bug fix variant
+## In a Quick task
 
-The phases below are split between two roles. The **tester** builds the feedback loop (Phase 1), reproduces and minimises (Phase 2), and turns the minimised repro into the one regression test, which it seals. The tester never edits production code.
-
-The **engineer** hypothesises, instruments and fixes (Phases 3 to 5), then cleans up (Phase 6). The sealed regression test is never edited: if it looks wrong, report the failing assertion to the lead rather than changing it.
+The engineer does all the phases: build the feedback loop (Phase 1), reproduce and minimise (Phase 2), hypothesise, instrument and fix (Phases 3 to 5), then clean up (Phase 6). The regression test is written before the fix and fails on the defect. If an existing test looks wrong, say so rather than changing it quietly.
 
 Throwaway loop scripts, prototypes and captured artifacts go under `$(team-guard workspace-path)`, never in a project repo. If `team-guard workspace-path` fails because there is no workspace, use `git rev-parse --absolute-git-dir` instead, never the working tree.
 
