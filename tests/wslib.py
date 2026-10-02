@@ -1,7 +1,7 @@
 """Shared helpers for the workspace test suites (tests/test_workspace_*.py).
 
 Every test gets its own sandbox: a fresh temp dir (outside any git repo) holding
-the workspace, holdout and archive roots, an empty HOME, throwaway source repos
+the workspace and archive roots, an empty HOME, throwaway source repos
 and local bare repos standing in for remotes. Nothing touches the network or the
 real home directory.
 """
@@ -21,7 +21,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 GUARD = ROOT / "core" / "bin" / "team-guard"
-ASK_JEV = ROOT / "core" / "skills" / "jev-decide" / "scripts" / "ask-jev"
 
 Result = namedtuple("Result", "code out err")
 
@@ -98,7 +97,6 @@ class Sandbox:
     def __init__(self):
         self.tmp = Path(realpath(tempfile.mkdtemp(prefix="tg-ws-")))
         self.ws_root = self.tmp / "ws"
-        self.ho_root = self.tmp / "holdout"
         self.ar_root = self.tmp / "archive"
         self.home = self.tmp / "home"
         self.home.mkdir()
@@ -116,7 +114,6 @@ class Sandbox:
             "HTTPS_PROXY": "http://127.0.0.1:9", "HTTP_PROXY": "http://127.0.0.1:9",
             "https_proxy": "http://127.0.0.1:9", "http_proxy": "http://127.0.0.1:9",
             "TEAM_WORKSPACE_ROOT": str(self.ws_root),
-            "TEAM_HOLDOUT_ROOT": str(self.ho_root),
             "TEAM_ARCHIVE_ROOT": str(self.ar_root),
         })
         self.env = env
@@ -152,9 +149,6 @@ class Sandbox:
 
     def tg(self, *args, cwd=None, input=None, env=None, unset=()):
         return self.run([str(GUARD), *args], cwd=cwd, input=input, env=env, unset=unset)
-
-    def jev(self, *args, cwd=None, input=None, env=None):
-        return self.run([str(ASK_JEV), *args], cwd=cwd, input=input, env=env)
 
     def git(self, cwd, *args, check=True, env=None):
         r = self.run(["git", *args], cwd=cwd, env=env)
@@ -236,7 +230,6 @@ class Sandbox:
     def roots_snapshot(self):
         return {
             "ws": tree_snapshot(self.ws_root),
-            "ho": tree_snapshot(self.ho_root),
             "ar": tree_snapshot(self.ar_root),
         }
 
@@ -316,49 +309,6 @@ class WSTestCase(unittest.TestCase):
         wtA = self.attach(A, feature)
         wtB = self.attach(B, feature)
         return ws, A, B, wtA, wtB
-
-    def pretool(self, cwd, agent, tool, path=None, patch=None, proc_cwd=None):
-        ev = {"cwd": str(cwd), "tool_name": tool}
-        if agent is not None:
-            ev["agent_type"] = agent
-        if patch is not None:
-            ev["tool_input"] = {"command": patch}
-        else:
-            ev["tool_input"] = {"file_path": str(path)}
-        return self.sb.tg("hook-pretool", input=json.dumps(ev), cwd=proc_cwd or self.sb.scratch)
-
-    def assert_deny(self, r, *needles):
-        self.code(r, 0, "hook-pretool always exits 0")
-        try:
-            data = json.loads(r.out)
-        except ValueError:
-            self.fail("expected a JSON deny decision\n%s" % self.show(r))
-        hso = data.get("hookSpecificOutput", {})
-        self.assertEqual(hso.get("permissionDecision"), "deny", self.show(r))
-        self.assertEqual(hso.get("hookEventName"), "PreToolUse", self.show(r))
-        reason = hso.get("permissionDecisionReason", "")
-        for n in needles:
-            self.has(reason, n, r)
-        return reason
-
-    def assert_no_decision(self, r):
-        self.code(r, 0, "hook-pretool always exits 0")
-        self.assertEqual(r.out, "", "expected no decision\n%s" % self.show(r))
-        self.no_traceback(r)
-
-
-def patch_text(*ops):
-    """Build apply_patch text. ops: ('update'|'add'|'delete', path)."""
-    lines = ["*** Begin Patch"]
-    for op, path in ops:
-        if op == "update":
-            lines += ["*** Update File: %s" % path, "@@", "+// y"]
-        elif op == "add":
-            lines += ["*** Add File: %s" % path, "+package x"]
-        elif op == "delete":
-            lines += ["*** Delete File: %s" % path]
-    lines.append("*** End Patch")
-    return "\n".join(lines)
 
 
 LIST_LINE = re.compile(r"^(?P<feature>[^\t]+)\t(?P<status>active|merged|stale|invalid)\t(?P<age>[0-9]+d|-)\t(?P<size>[0-9]+(\.[0-9])?[BKMGT]|-)$")

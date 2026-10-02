@@ -21,24 +21,18 @@ CLONE_REASON = "set VENDOR_UPSTREAM_CLONE to a local clone of mattpocock/skills 
 
 SKILLS = {
     "grilling": ("skills/productivity/grilling", "as-is"),
-    "codebase-design": ("skills/engineering/codebase-design", "as-is"),
     "writing-for-agents": ("skills/productivity/writing-for-agents", "as-is"),
-    "domain-modeling": ("skills/engineering/domain-modeling", "patched"),
     "handoff": ("skills/productivity/handoff", "patched"),
     "diagnosing-bugs": ("skills/engineering/diagnosing-bugs", "patched"),
-    "to-questionnaire": ("skills/productivity/to-questionnaire", "patched"),
-    "tdd-inner-loop": ("skills/engineering/tdd", "patched"),
+    "tdd": ("skills/engineering/tdd", "patched"),
 }
-ALL_DIRS = sorted(list(SKILLS) + ["jev-decide"])
+ALL_DIRS = sorted(SKILLS)
 FILES = {
     "grilling": {"SKILL.md", "LICENSE", "agents/openai.yaml"},
-    "codebase-design": {"SKILL.md", "LICENSE", "agents/openai.yaml", "DEEPENING.md", "DESIGN-IT-TWICE.md"},
     "writing-for-agents": {"SKILL.md", "LICENSE", "agents/openai.yaml", "SKILL-MECHANICS.md"},
-    "domain-modeling": {"SKILL.md", "LICENSE", "agents/openai.yaml", "ADR-FORMAT.md", "GLOSSARY-FORMAT.md"},
     "handoff": {"SKILL.md", "LICENSE", "agents/openai.yaml"},
-    "to-questionnaire": {"SKILL.md", "LICENSE", "agents/openai.yaml"},
     "diagnosing-bugs": {"SKILL.md", "LICENSE", "agents/openai.yaml", "scripts/hitl-loop.template.sh"},
-    "tdd-inner-loop": {"SKILL.md", "LICENSE", "agents/openai.yaml", "tests.md", "mocking.md"},
+    "tdd": {"SKILL.md", "LICENSE", "agents/openai.yaml", "tests.md", "mocking.md"},
 }
 
 

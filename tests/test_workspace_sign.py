@@ -195,13 +195,17 @@ class TestSignRewrite(SignCase):
         chook = self.git_dir(C) / "hooks" / "pre-commit"
         chook.write_text("#!/bin/sh\nexit 0\n")
         chook.chmod(0o755)
-        self.ok(self.sb.tg("seal", "pkg/a_test.go", cwd=C))
-        self.assertTrue((self.git_dir(C) / "hooks" / "pre-commit.team-guard-chained").exists(), "harness: chained")
+        # What an earlier version left behind: its own hook, wrapping the hook that was there before.
+        chook.rename(self.git_dir(C) / "hooks" / "pre-commit.team-guard-chained")
+        chook.write_text("#!/bin/sh\n# managed by team-guard\nexit 0\n")
+        chook.chmod(0o755)
         r = self.ok(self.sign(C, "--base", "main"))
         self.has(r.err, "team-guard: warning: C: another pre-commit hook runs on every amend (", r)
         N = self.branch_repo("N", commits=1)
         self.signing(N)
-        self.ok(self.sb.tg("seal", "pkg/a_test.go", cwd=N))
+        nhook = self.git_dir(N) / "hooks" / "pre-commit"
+        nhook.write_text("#!/bin/sh\n# managed by team-guard\nexit 0\n")
+        nhook.chmod(0o755)
         r = self.ok(self.sign(N, "--base", "main"))
         self.lacks(r.err, "another pre-commit hook", r)
 

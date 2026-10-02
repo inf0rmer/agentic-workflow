@@ -20,8 +20,6 @@ from wsskills import (ALL_DIRS, FILES, PIN, SK, SKILLS, SOURCE, clone_or_skip, f
 
 FORBIDDEN = [r"docs/adr", r"\$TMPDIR", r"\.scratch", r"temporary directory", r"/tmp\b", r"repo(sitory)? root",
              r"root of the repo"]
-# The seams now come from this file; its name is assembled so the reference scanner doesn't flag this test.
-CONTRACT_FILE = "contract" + "." + "md"
 
 
 def read(d, f="SKILL.md"):
@@ -33,7 +31,6 @@ class TestVendoredSet(unittest.TestCase):
     def test_exactly_the_pinned_skills_are_vendored_with_their_files(self):
         dirs = sorted(p.name for p in SK.iterdir() if p.is_dir() and p.name != "patches")
         self.assertEqual(dirs, ALL_DIRS)
-        self.assertFalse((SK / "tdd").exists())
         self.assertTrue((SK / "UPSTREAM.json").is_file())
         self.assertTrue((SK / "patches").is_dir())
         for d in ALL_DIRS:
@@ -60,7 +57,7 @@ class TestVendoredSet(unittest.TestCase):
                            capture_output=True, text=True, timeout=120) if (ROOT / "scripts" / "vendor-check").exists() \
             else None
         self.assertIsNotNone(p, "scripts/vendor-check exists")
-        for d in ("codebase-design", "grilling", "writing-for-agents"):
+        for d in ("grilling", "writing-for-agents"):
             self.assertIn("%s: ok" % d, p.stdout.splitlines(), p.stdout + p.stderr)
 
     def test_every_copy_carries_an_exact_provenance_line(self):
@@ -138,8 +135,7 @@ class TestPatchedContent(unittest.TestCase):
                 for pat in FORBIDDEN:
                     with self.subTest(file="%s/%s" % (d, f), pattern=pat):
                         self.assertNotRegex(text, re.compile(pat, re.I))
-        need = {"domain-modeling": ["adr/NNNN-<slug>.md", "GLOSSARY.md"], "handoff": ["handoff-<slug>.md"],
-                "to-questionnaire": ["to-questionnaire-<slug>.md"], "diagnosing-bugs": []}
+        need = {"handoff": ["handoff-<slug>.md"], "diagnosing-bugs": []}
         for d, paths in need.items():
             text = "\n".join((SK / d / f).read_text(encoding="utf-8") for f in sorted(files_under(SK / d))
                              if f != "LICENSE")
@@ -148,22 +144,29 @@ class TestPatchedContent(unittest.TestCase):
                 for p in paths:
                     self.assertIn(p, text)
 
-    def test_bug_fix_preamble_splits_the_loop_between_tester_and_engineer(self):
+    def test_no_skill_mentions_the_removed_roles_or_locks(self):
+        for d in SKILLS:
+            for f in sorted(files_under(SK / d)):
+                text = (SK / d / f).read_text(encoding="utf-8", errors="replace")
+                for word in ("sealed", "tester", "holdout", "codebase-design", "domain-modeling"):
+                    with self.subTest(file="%s/%s" % (d, f), word=word):
+                        self.assertNotIn(word, text)
+
+    def test_bug_fix_section_gives_the_whole_loop_to_the_engineer(self):
         _, rest = split_frontmatter(read("diagnosing-bugs"))
         body = [l for l in rest[1:]]
         first = next(l for l in body if l.strip())
-        self.assertEqual(first, "## In the Bug fix variant")
+        self.assertEqual(first, "## In a Quick task")
         start = body.index(first)
         end = next((i for i in range(start + 1, len(body)) if body[i].startswith("## ")), len(body))
         sec = "\n".join(body[start:end])
-        for word in ("tester", "feedback loop", "minimi", "regression test", "sealed", "engineer", "hypothes",
-                     "instrument", "fix", "never edits production code", "never edited"):
+        for word in ("engineer", "feedback loop", "reproduce", "regression test", "before the fix", "fails on the defect"):
             with self.subTest(word=word):
                 self.assertIn(word.lower(), sec.lower())
 
-    def test_inner_loop_skill_is_upstream_tdd_bound_to_the_sealed_tests(self):
-        text = read("tdd-inner-loop")
-        self.assertEqual(frontmatter_value(text, "name"), "tdd-inner-loop")
+    def test_tdd_skill_is_upstream_tdd_bound_to_the_design_doc(self):
+        text = read("tdd")
+        self.assertEqual(frontmatter_value(text, "name"), "tdd")
         desc = frontmatter_value(text, "description") or ""
         for w in ("software-engineer", "by name"):
             self.assertIn(w, desc)
@@ -175,23 +178,23 @@ class TestPatchedContent(unittest.TestCase):
         start = rest.index("## Seams: where tests go")
         end = next((i for i in range(start + 1, len(rest)) if rest[i].startswith("## ")), len(rest))
         seams = "\n".join(rest[start:end])
-        for w in (CONTRACT_FILE, "sealed tests", "unit tests"):
+        for w in ("How we'll know it works", "tests.md"):
             self.assertIn(w, seams)
-        lines = text.splitlines()
-        self.assertTrue(any("sealed" in l and "never edit" in l for l in lines), "sealed tests are never edited")
-        self.assertTrue(any("report" in l and "sealed" in l for l in lines), "a wrong sealed test is reported")
+        self.assertTrue(any("bend an existing test" in l for l in text.splitlines()), "no bending existing tests")
 
+    def test_tdd_skill_differs_from_upstream_only_where_the_workflow_needs(self):
+        _, rest = split_frontmatter(read("tdd"))
         clone = clone_or_skip(self)
         up = upstream_file(clone, "skills/engineering/tdd", "agents/openai.yaml").decode()
-        mine = (SK / "tdd-inner-loop" / "agents" / "openai.yaml").read_text()
+        mine = (SK / "tdd" / "agents" / "openai.yaml").read_text()
         self.assertIn("\npolicy:\n  allow_implicit_invocation: false", "\n" + mine)
         extra = {"policy:", "  allow_implicit_invocation: false", ""}
         self.assertEqual([l for l in mine.splitlines() if l not in extra], [l for l in up.splitlines() if l != ""])
         for f in ("tests.md", "mocking.md"):
-            self.assertEqual((SK / "tdd-inner-loop" / f).read_bytes(), upstream_file(clone, "skills/engineering/tdd", f))
-            patch = (SK / "patches" / "tdd-inner-loop.patch").read_text()
+            self.assertEqual((SK / "tdd" / f).read_bytes(), upstream_file(clone, "skills/engineering/tdd", f))
+            patch = (SK / "patches" / "tdd.patch").read_text()
             self.assertIn("similarity index 100%%\nrename from skills/engineering/tdd/%s\n"
-                          "rename to core/skills/tdd-inner-loop/%s" % (f, f), patch)
+                          "rename to core/skills/tdd/%s" % (f, f), patch)
 
         up_md = upstream_file(clone, "skills/engineering/tdd", "SKILL.md").decode()
         _, up_body = split_frontmatter(up_md)
@@ -209,8 +212,6 @@ class TestPatchedContent(unittest.TestCase):
                     seen_text = True
                 elif seen_text:
                     first_para_done = True
-            if "GLOSSARY.md" in l or "Skill tool" in l:
-                continue
             keep.append(l)
         mine_lines = rest[1:]
         it = iter(mine_lines)
@@ -220,7 +221,7 @@ class TestPatchedContent(unittest.TestCase):
 
 class TestBuiltSkills(unittest.TestCase):
 
-    def test_both_harnesses_ship_exactly_the_nine_skills(self):
+    def test_both_harnesses_ship_exactly_the_vendored_skills(self):
         for harness in ("claude-code", "codex"):
             out = ROOT / "dist" / harness / "skills"
             with self.subTest(harness=harness):
@@ -243,15 +244,15 @@ class TestBuiltSkills(unittest.TestCase):
             if f.is_file() and f.relative_to(SK).parts[0] not in ("patches", "UPSTREAM.json"):
                 with self.subTest(file=str(f.relative_to(ROOT))):
                     self.assertNotIn(b"Skill tool", f.read_bytes())
-        want = {"claude-code": {"skill_call": "call the Skill tool with", "skill_sigil": "", "user_skill_sigil": "/"},
-                "codex": {"skill_call": "mention", "skill_sigil": "$", "user_skill_sigil": "$"}}
+        want = {"claude-code": {"skill_call": "call the Skill tool with", "skill_sigil": ""},
+                "codex": {"skill_call": "mention", "skill_sigil": "$"}}
         for harness, vars_ in want.items():
             adapter = json.loads((ROOT / "adapters" / harness / "adapter.json").read_text())
             for k, v in vars_.items():
                 with self.subTest(harness=harness, var=k):
                     self.assertEqual(adapter["vars"].get(k), v)
         callers = [d for d in SKILLS if "{{skill_call}}" in read(d)]
-        self.assertIn("tdd-inner-loop", callers)
+        self.assertIn("handoff", callers)
         for d in callers:
             cc = (ROOT / "dist" / "claude-code" / "skills" / d / "SKILL.md").read_text(encoding="utf-8")
             cx = (ROOT / "dist" / "codex" / "skills" / d / "SKILL.md").read_text(encoding="utf-8")
@@ -259,10 +260,6 @@ class TestBuiltSkills(unittest.TestCase):
                 self.assertIn("Skill tool", cc)
                 self.assertNotIn("Skill tool", cx)
                 self.assertRegex(cx, r"`\$[a-z][a-z0-9-]*`")
-        tdd_cc = (ROOT / "dist" / "claude-code" / "skills" / "tdd-inner-loop" / "SKILL.md").read_text(encoding="utf-8")
-        tdd_cx = (ROOT / "dist" / "codex" / "skills" / "tdd-inner-loop" / "SKILL.md").read_text(encoding="utf-8")
-        self.assertIn("call the Skill tool with `codebase-design`", tdd_cc)
-        self.assertIn("mention `$codebase-design`", tdd_cx)
 
         with tempfile.TemporaryDirectory() as t:
             copy = Path(t) / "repo"

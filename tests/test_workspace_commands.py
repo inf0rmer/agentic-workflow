@@ -42,7 +42,6 @@ class TestWorkspaceNew(WSTestCase):
         self.assertEqual(os.listdir(ws / "repos"), [])
         for dirpath, dirnames, filenames in os.walk(ws):
             self.assertNotIn(".git", dirnames + filenames, "no git repo or worktree under the workspace")
-        self.assertFalse((self.sb.ho_root / "f").exists(), "no holdout dir is created by new")
 
     def test_new_leaves_existing_dir_alone(self):
         ws = self.sb.ws_dir("f")
@@ -216,10 +215,9 @@ class TestBadWorkspaceJson(WSTestCase):
             "show": dict(args=("workspace", "show", "f"), cwd=self.sb.scratch),
             "attach": dict(args=("workspace", "attach", str(A)), cwd=ws),
             "attach --feature": dict(args=("workspace", "attach", str(A), "--feature", "f"), cwd=self.sb.scratch),
-            "verify": dict(args=("verify",), cwd=ws),
+            "sign": dict(args=("sign",), cwd=ws),
             "close": dict(args=("workspace", "close", "f"), cwd=self.sb.scratch),
             "list": dict(args=("workspace", "list"), cwd=self.sb.scratch),
-            "gc": dict(args=("gc",), cwd=self.sb.scratch),
         }
         if not corrupt:
             cases["workspace-path"] = dict(args=("workspace-path",), cwd=ws)
@@ -233,7 +231,7 @@ class TestBadWorkspaceJson(WSTestCase):
         self.assertEqual(os.listdir(ws / "repos"), [], "attach must not have created a worktree")
         self.assertEqual(len(self.sb.worktrees(A)), 1)
         # Each failure has its own documented exit code.
-        self.code(self.sb.tg("verify", cwd=ws), 2, "verify fails closed on a bad workspace.json")
+        self.code(self.sb.tg("sign", cwd=ws), 1, "sign refuses a bad workspace.json")
         r = self.sb.tg("workspace", "list")
         self.code(r, 1)
         self.assertIn("f\tinvalid\t-\t-", r.out.splitlines(), self.show(r))
@@ -717,59 +715,6 @@ class TestWorkspacePath(WSTestCase):
         r = self.sb.tg("workspace-path", cwd=A)
         self.code(r, 1, "a pointer in a main checkout's .git is ignored")
         self.assertEqual(r.out, "")
-
-
-class TestHoldoutPath(WSTestCase):
-
-    def test_holdout_path_lives_under_workspace_feature(self):
-        A = self.sb.new_repo("A")
-        ws = self.new_ws("f")
-        wt = self.attach(A)
-        for cwd in (ws, wt, wt / "pkg"):
-            with self.subTest(cwd=str(cwd)):
-                r = self.ok(self.sb.tg("holdout-path", cwd=cwd))
-                path = r.out.strip()
-                self.assertEqual(path, realpath(self.sb.ho_root / "f"))
-                self.assertTrue(os.path.isdir(path))
-                self.assertFalse(path.startswith(realpath(ws) + os.sep))
-                self.assertFalse(path.startswith(realpath(wt) + os.sep))
-                marker = json.loads(Path(path, ".workspace").read_text())
-                self.assertEqual(marker["feature"], "f")
-                self.assertEqual(marker["workspace"], realpath(ws))
-        self.assertEqual(self.sb.git(wt, "status", "--porcelain", "--ignored"), "")
-
-    def test_holdout_root_inside_workspace_refused(self):
-        ws = self.new_ws("f")
-        r = self.sb.tg("holdout-path", cwd=ws, env={"TEAM_HOLDOUT_ROOT": str(ws / "ho")})
-        self.code(r, 1)
-        self.has(r.err, "holdout root", r)
-        self.assertFalse((ws / "ho" / "f").exists())
-
-    def test_holdout_collision_refused(self):
-        ws = self.new_ws("f")
-        (self.sb.ho_root / "f" / "stuff").mkdir(parents=True)
-        (self.sb.ho_root / "f" / "stuff" / "x.md").write_text("legacy\n")
-        before = tree_snapshot(self.sb.ho_root)
-        r = self.sb.tg("holdout-path", cwd=ws)
-        self.code(r, 1)
-        self.has(r.err, "collides", r)
-        self.assertEqual(tree_snapshot(self.sb.ho_root), before)
-
-    def test_holdout_dangling_pointer_refused(self):
-        A = self.sb.new_repo("A")
-        self.new_ws("f")
-        wt = self.attach(A)
-        pointer = Path(self.sb.git(wt, "rev-parse", "--absolute-git-dir")) / "team-workspace"
-        pointer.write_text("/nonexistent\n")
-        r = self.sb.tg("holdout-path", cwd=wt)
-        self.code(r, 1)
-        self.has(r.err, "dangling", r)
-
-    def test_holdout_path_outside_workspace_is_per_repo_and_branch(self):
-        repo = self.sb.new_repo("repo", branch="feat/x")
-        r = self.ok(self.sb.tg("holdout-path", cwd=repo))
-        self.assertEqual(r.out.strip(), realpath(self.sb.ho_root) + "/repo/feat-x")
-        self.assertFalse(Path(r.out.strip(), ".workspace").exists())
 
 
 if __name__ == "__main__":
