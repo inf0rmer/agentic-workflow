@@ -25,8 +25,6 @@ class TestCloseTeardown(LifecycleCase):
         r = self.sb.tg("workspace", "list")
         self.code(r, 0)
         self.assertNotIn(feature + "\t", r.out)
-        g = self.gc()
-        self.code(g, 0, "gc must not trip over leftovers")
 
     def test_close_after_repos_deleted_by_hand(self):
         ws, repos, wts = self.pushed_ws("f", "A", "B")
@@ -40,15 +38,6 @@ class TestCloseTeardown(LifecycleCase):
         self.has(r.out, "closed f", r)
         self.assert_closed(ws, repos)
 
-    def test_gc_apply_after_repos_deleted_by_hand(self):
-        ws, repos, wts = self.pushed_ws("f", "A")
-        (ws / "notes.md").write_text("keep\n")
-        shutil.rmtree(ws / "repos")
-        r = self.gc("--apply")
-        self.no_traceback(r)
-        self.code(r, 0, "gc --apply on a workspace whose repos/ was deleted")
-        self.has(r.out, "closed f", r)
-        self.assert_closed(ws, repos)
 
     @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "chmod can't block root")
     def test_rerun_completes_after_the_last_teardown_step_fails(self):

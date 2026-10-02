@@ -20,6 +20,8 @@ import tempfile
 import tomllib
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
+# The rendered instructions stay under half of Codex's 32 KiB limit.
+INSTRUCTIONS_LIMIT = 16 * 1024
 
 
 def load(path):
@@ -35,6 +37,14 @@ def render(text, vars_, where):
     return re.sub(r"\{\{([a-z_]+)\}\}", sub, text)
 
 
+def instructions(adapter):
+    text = render(load("core/instructions.md"), adapter["vars"], "instructions") + adapter.get("instructions_footer", "")
+    size = len(text.encode())
+    if size > INSTRUCTIONS_LIMIT:
+        sys.exit(f"build: the rendered instructions are {size} bytes; the limit is {INSTRUCTIONS_LIMIT}")
+    return text
+
+
 def write(path, text, mode=None):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
@@ -45,8 +55,7 @@ def write(path, text, mode=None):
 
 def build_claude_code(adapter, team, out):
     vars_ = adapter["vars"]
-    write(os.path.join(out, "CLAUDE.md"),
-          render(load("core/instructions.md"), vars_, "instructions") + adapter.get("instructions_footer", ""))
+    write(os.path.join(out, "CLAUDE.md"), instructions(adapter))
     for name, role in team["roles"].items():
         frontmatter = f"---\nname: {name}\nmodel: {adapter['models'][role['tier']]}\ndescription: {role['description']}\n---\n"
         write(os.path.join(out, "agents", f"{name}.md"), frontmatter + render(load(f"core/roles/{name}.md"), vars_, name))
@@ -58,8 +67,7 @@ def toml_str(value):
 
 def build_codex(adapter, team, out):
     vars_ = adapter["vars"]
-    write(os.path.join(out, "AGENTS.md"),
-          render(load("core/instructions.md"), vars_, "instructions") + adapter.get("instructions_footer", ""))
+    write(os.path.join(out, "AGENTS.md"), instructions(adapter))
     for name, role in team["roles"].items():
         body = render(load(f"core/roles/{name}.md"), vars_, name).strip("\n")
         if "'''" in body:
