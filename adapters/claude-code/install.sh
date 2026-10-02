@@ -61,3 +61,6 @@ done
 
 echo
 echo "Installed agents, CLAUDE.md, skills, and $DEST/team/bin. Backup: $BACKUP"
+echo "If you used an earlier version, remove its git hooks from your repos: run"
+echo "  $ROOT/scripts/remove-old-git-hooks --scan ~/Code --dry-run"
+echo "then the same command without --dry-run. Restart any Claude Code or Codex session that was open during the install."

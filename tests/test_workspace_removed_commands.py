@@ -1,8 +1,9 @@
-"""Commands that no longer exist, the one-release no-ops for old git hooks, and the cleanup script.
+"""Commands that no longer exist, the permanent no-ops for old hooks, and the cleanup script.
 
 An earlier version installed git hooks in project repos that call `team-guard pre-commit` and
-`team-guard pre-push`. Those two stay as silent no-ops for one release so such a repo can still
-commit; `scripts/remove-old-git-hooks` removes the hooks themselves.
+`team-guard pre-push`, and agent-harness hooks that call `team-guard hook-pretool`, `hook-stop` and
+`hook-task`. Those commands stay as silent no-ops so an old hook entry can never block a commit or
+a tool call; `scripts/remove-old-git-hooks` removes the git hooks themselves.
 """
 
 import json
@@ -12,8 +13,8 @@ import unittest
 
 from wslib import GUARD, ROOT, WSTestCase
 
-REMOVED = ["seal", "unseal", "verify", "list", "holdout-path", "hook-pretool", "hook-stop", "hook-task",
-           "git-hook", "gc", "refs", "routing", "risk", "gate"]
+REMOVED = ["seal", "unseal", "verify", "list", "holdout-path", "gc", "refs", "routing", "risk", "gate"]
+HARNESS_NOOPS = ["hook-pretool", "hook-stop", "hook-task", "git-hook"]
 KEPT = ["workspace new", "workspace attach", "workspace list", "workspace show", "workspace close", "workspace-path",
         "sign"]
 SCRIPT = ROOT / "scripts" / "remove-old-git-hooks"
@@ -33,7 +34,7 @@ class TestRemovedCommands(WSTestCase):
         for cmd in REMOVED:
             with self.subTest(command=cmd):
                 r = self.sb.tg(cmd)
-                self.code(r, 2)
+                self.code(r, 1)
                 self.has(r.err, "unknown command '%s'" % cmd, r)
                 self.assertEqual(r.out, "")
 
@@ -43,10 +44,33 @@ class TestRemovedCommands(WSTestCase):
                 r = self.ok(self.sb.tg(*args))
                 for cmd in KEPT:
                     self.assertIn("team-guard " + cmd, r.out)
-                for word in REMOVED + ["pre-commit", "pre-push"]:
+                for word in REMOVED + HARNESS_NOOPS + ["pre-commit", "pre-push"]:
                     self.assertIsNone(re.search(r"team-guard %s(?![\w-])" % re.escape(word), r.out), word)
                 for word in ("mutation", "holdout", "sealed", "gate", "routing"):
                     self.assertNotIn(word, r.out)
+
+
+class TestOldHarnessHooksDoNotBlock(WSTestCase):
+    """A harness blocks the action when a hook exits 2, so a leftover entry must exit 0 and stay quiet."""
+
+    PRE_TOOL_USE = json.dumps({"hook_event_name": "PreToolUse", "tool_name": "Bash",
+                               "tool_input": {"command": "ls"}, "cwd": "/tmp", "session_id": "s1"})
+
+    def test_old_hook_commands_exit_zero_silently_with_json_on_stdin(self):
+        for cmd in HARNESS_NOOPS:
+            with self.subTest(command=cmd):
+                r = self.ok(self.sb.tg(cmd, input=self.PRE_TOOL_USE, cwd=self.sb.scratch))
+                self.assertEqual((r.out, r.err), ("", ""))
+
+    def test_old_hook_commands_do_not_wait_on_an_open_stdin(self):
+        for cmd in HARNESS_NOOPS:
+            with self.subTest(command=cmd):
+                r = self.ok(self.sb.tg(cmd, cwd=self.sb.scratch))
+                self.assertEqual((r.out, r.err), ("", ""))
+
+    def test_an_unknown_command_never_exits_two(self):
+        r = self.sb.tg("no-such-command", input=self.PRE_TOOL_USE)
+        self.code(r, 1)
 
 
 class TestOldGitHooksStillCommit(WSTestCase):
@@ -142,6 +166,48 @@ class TestRemoveOldGitHooks(WSTestCase):
         self.ok(self.run_script(str(repo)))
         r = self.ok(self.run_script(str(repo)))
         self.has(r.out, "nothing to remove", r)
+
+    def make_tree(self):
+        """A scratch tree: two repos with old hooks (one deep), one in node_modules, one past the depth limit."""
+        root = self.sb.tmp / "code"
+        self.sb.new_repo("top", parent=root)
+        self.sb.new_repo("deep", parent=root / "grafana")
+        self.sb.new_repo("vendored", parent=root / "app" / "node_modules" / "pkg")
+        self.sb.new_repo("toodeep", parent=root / "a" / "b" / "c" / "d" / "e" / "f")
+        out = {}
+        for n, repo in (("top", root / "top"), ("deep", root / "grafana" / "deep"),
+                        ("vendored", root / "app" / "node_modules" / "pkg" / "vendored"),
+                        ("toodeep", root / "a" / "b" / "c" / "d" / "e" / "f" / "toodeep")):
+            for h in ("pre-commit", "pre-push"):
+                (repo / ".git" / "hooks" / h).write_text(old_hook(h, GUARD))
+            out[n] = repo
+        # a repo with an unrelated hook is reported as having nothing to remove and left alone
+        self.sb.new_repo("other", parent=root)
+        (root / "other" / ".git" / "hooks" / "pre-commit").write_text("#!/bin/sh\necho mine\n")
+        out["other"] = root / "other"
+        return root, out
+
+    def test_scan_finds_repos_under_a_directory_and_skips_vendored_and_too_deep(self):
+        root, repos = self.make_tree()
+        self.ok(self.run_script("--scan", str(root)))
+        for n in ("top", "deep"):
+            self.assertFalse((repos[n] / ".git" / "hooks" / "pre-commit").exists(), n)
+            self.assertFalse((repos[n] / ".git" / "hooks" / "pre-push").exists(), n)
+        for n in ("vendored", "toodeep"):
+            self.assertTrue((repos[n] / ".git" / "hooks" / "pre-commit").exists(), n)
+        self.assertEqual((repos["other"] / ".git" / "hooks" / "pre-commit").read_text(), "#!/bin/sh\necho mine\n")
+
+    def test_scan_dry_run_reports_and_changes_nothing(self):
+        root, repos = self.make_tree()
+        r = self.ok(self.run_script("--scan", str(root), "--dry-run"))
+        self.has(r.out, str(repos["deep"].resolve()), r)
+        for n in ("top", "deep", "vendored", "toodeep"):
+            self.assertTrue((repos[n] / ".git" / "hooks" / "pre-commit").exists(), n)
+
+    def test_scan_stays_quiet_about_repos_without_our_hooks(self):
+        root, repos = self.make_tree()
+        r = self.ok(self.run_script("--scan", str(root)))
+        self.lacks(r.out, str(repos["other"].resolve()), r)
 
     def test_a_path_that_is_not_a_repo_is_skipped(self):
         r = self.ok(self.run_script(str(self.sb.scratch)))

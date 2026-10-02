@@ -118,21 +118,22 @@ flowchart LR
 After installing, check that nothing stale is left in the harness home (it should print nothing, apart from any file the installer warned it left in place for your own hooks):
 
 ```bash
-grep -rlE 'hook-pretool|hook-stop|hook-task|mutation-check|agents/tester' ~/.claude/CLAUDE.md ~/.claude/agents ~/.claude/team ~/.claude/skills
-grep -rlE 'hook-pretool|hook-stop|mutation-check|agents/tester' ~/.codex/AGENTS.md ~/.codex/agents ~/.codex/team ~/.codex/rules ~/.agents/skills
+grep -rlE 'mutation-check|agents/tester' ~/.claude/CLAUDE.md ~/.claude/agents ~/.claude/team/bin ~/.claude/skills
+grep -rlE 'mutation-check|agents/tester' ~/.codex/AGENTS.md ~/.codex/agents ~/.codex/team/bin ~/.codex/rules ~/.agents/skills
 ```
 
 ### Remove old git hooks first
 
-An earlier version installed `pre-commit` and `pre-push` git hooks in project repos. Run this once, before you reinstall:
+An earlier version installed `pre-commit` and `pre-push` git hooks in project repos. Run this once, before you reinstall. `--scan` finds every repo under a directory (a few levels deep, skipping `node_modules` and similar), including repos you never used through a workspace:
 
 ```bash
-scripts/remove-old-git-hooks            # every repo named in a workspace or archive under ~/.agentic-workflow
-scripts/remove-old-git-hooks --dry-run ~/code/api    # preview, plus an extra repo
+scripts/remove-old-git-hooks --scan ~/Code --dry-run    # list what it would change
+scripts/remove-old-git-hooks --scan ~/Code              # then do it
 ```
 
-It removes the hooks team-guard installed, puts back any hook they had wrapped, and removes the old lock record from the git directory.
-As a safety net, `team-guard pre-commit` and `team-guard pre-push` stay for one release as silent no-ops, so a repo the script missed can still commit. They are not listed in `team-guard help`.
+Without `--scan` it knows only the repos named in a workspace or archive under `~/.agentic-workflow`, plus any paths you pass. It removes only the hooks team-guard installed, puts back any hook they had wrapped, and removes the old lock record from the git directory.
+
+As a safety net, `team-guard pre-commit`, `pre-push`, `git-hook`, `hook-pretool`, `hook-stop` and `hook-task` stay as silent no-ops that exit 0, and are not listed in `team-guard help`. They are a few lines, so they stay for good: a repo the script missed can still commit, and a Claude Code or Codex session that was already open when you installed (it still runs the hook entries it loaded) keeps working. Restart open sessions after installing. Any other unknown command exits 1.
 
 ### Install for Claude Code
 

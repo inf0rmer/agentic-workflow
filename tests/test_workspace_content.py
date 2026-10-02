@@ -83,6 +83,13 @@ class TestRoles(ContentCase):
         self.must_contain(CORE / "roles" / "software-engineer.md",
                           "tdd", "tests.md", "Never weaken a test", "decisions made")
 
+    def test_each_harness_tells_the_engineer_to_load_tdd_in_its_own_way(self):
+        # Implicit invocation is off for tdd, so Codex only loads it when the role mentions $tdd.
+        codex = text(ROOT / "dist" / "codex" / "agents" / "software-engineer.toml")
+        self.assertIn("mention `$tdd`", codex)
+        claude = text(ROOT / "dist" / "claude-code" / "agents" / "software-engineer.md")
+        self.assertIn("call the Skill tool with `tdd`", claude)
+
     def test_reviewer_runs_the_real_tools_checks_test_changes_and_writes_the_risk_line(self):
         self.must_contain(CORE / "roles" / "reviewer.md",
                           "real", "base branch", "weakened", "review-guide.md", "Merge risk:")

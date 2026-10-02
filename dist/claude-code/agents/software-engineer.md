@@ -17,7 +17,7 @@ You work in the attached worktree of the repo you're changing, `repos/<repo>/` u
 
 ## How you work
 
-1. **Write the tests with the code.** For each behavior in section 5 of the design, use the `tdd` skill: write a failing test, make it pass with the smallest change, refactor, repeat. Test through the public interface. Where the work wraps a real command-line tool, add the one test that runs the real tool.
+1. **Write the tests with the code.** For each behavior in section 5 of the design, use the `tdd` skill (call the Skill tool with `tdd`): write a failing test, make it pass with the smallest change, refactor, repeat. Test through the public interface. Where the work wraps a real command-line tool, add the one test that runs the real tool.
 2. **Keep `tests.md`** in the workspace dir: one line per behavior from section 5, with the test that covers it. The reviewer reads it.
 3. **Never weaken a test to get green.** Don't delete, skip or loosen an existing test. If one looks wrong, say why. If it must change, list the change under "decisions made", so it reaches the PR description.
 4. **Handle errors explicitly.** Wrap errors with context, and use appropriate error types at API boundaries.

@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Remove the git hooks and lock records that the old test lock left in project repos. Run it once.
 
-  scripts/remove-old-git-hooks [--dry-run] [--state-dir <dir>] [<repo-path>...]
+  scripts/remove-old-git-hooks [--dry-run] [--scan <dir>]... [--state-dir <dir>] [<repo-path>...]
+
+Start with `--scan ~/Code --dry-run`, read what it lists, then run it again without `--dry-run`.
 
 It finds every repo named in a workspace or an archive under the state dir (default
-~/.agentic-workflow), plus the paths you pass. In each repo it
+~/.agentic-workflow), every git repo found under each --scan dir (down to a few levels, skipping
+node_modules and similar), plus the paths you pass. In each repo it
   - removes the pre-commit and pre-push hooks that team-guard installed,
   - puts back any hook they had wrapped, and
   - removes the old test-lock record (team-test-lock.json) from the git directories.
@@ -21,6 +24,8 @@ MARKER = "# managed by team-guard"
 CHAINED = ".team-guard-chained"
 LOCK = "team-test-lock.json"
 HOOKS = ("pre-commit", "pre-push")
+SCAN_DEPTH = 4
+SKIP_DIRS = {"node_modules", "vendor", "target", "dist", "build", "venv", ".venv", "__pycache__", ".cache", "Library"}
 
 
 def git(repo, *args):
@@ -40,6 +45,49 @@ def named_repos(state_dir):
         except (OSError, ValueError, KeyError, TypeError):
             print(f"skipped {path}: could not read it", file=sys.stderr)
     return found
+
+
+def scan_repos(root, depth=SCAN_DEPTH):
+    """Git repos under root, at most `depth` directory levels down. A repo is not searched further."""
+    found = []
+
+    def walk(d, level):
+        if os.path.exists(os.path.join(d, ".git")):
+            found.append(d)
+            return
+        if level >= depth:
+            return
+        try:
+            names = sorted(os.listdir(d))
+        except OSError:
+            return
+        for n in names:
+            sub = os.path.join(d, n)
+            if n in SKIP_DIRS or n.startswith(".") or os.path.islink(sub) or not os.path.isdir(sub):
+                continue
+            walk(sub, level + 1)
+
+    walk(root, 0)
+    return found
+
+
+def has_ours(repo):
+    top = git(repo, "rev-parse", "--show-toplevel")
+    if top is None:
+        return False
+    common = os.path.realpath(os.path.join(top, git(top, "rev-parse", "--git-common-dir")))
+    hooks_dir = os.path.realpath(os.path.join(top, git(top, "rev-parse", "--git-path", "hooks")))
+    for name in HOOKS:
+        hook = os.path.join(hooks_dir, name)
+        if os.path.exists(hook + CHAINED):
+            return True
+        try:
+            with open(hook, errors="replace") as f:
+                if MARKER in f.read():
+                    return True
+        except OSError:
+            pass
+    return os.path.isfile(os.path.join(common, LOCK))
 
 
 def clean_repo(repo, dry):
@@ -86,10 +134,15 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--dry-run", action="store_true", help="print what would change and change nothing")
     p.add_argument("--state-dir", default=os.path.expanduser("~/.agentic-workflow"))
+    p.add_argument("--scan", action="append", default=[], metavar="DIR",
+                   help="also find git repos under DIR (a few levels deep, skipping node_modules and the like)")
     p.add_argument("repos", nargs="*")
     a = p.parse_args()
+    scanned = []
+    for d in a.scan:
+        scanned += [r for r in scan_repos(os.path.realpath(os.path.expanduser(d))) if has_ours(r)]
     seen = []
-    for r in named_repos(a.state_dir) + a.repos:
+    for r in named_repos(a.state_dir) + a.repos + scanned:
         r = os.path.realpath(os.path.expanduser(r))
         if r not in seen:
             seen.append(r)

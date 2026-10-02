@@ -917,8 +917,29 @@ def cmd_sign(args):
         sys.stdout.flush()
 
 
-def cmd_old_git_hook(args):
-    """Old git hooks call these two; they do nothing now and exist for one release so those repos can still commit."""
+def drain_stdin(seconds=2.0):
+    """Read and discard what a harness pipes to a hook, but never wait on a stdin that stays open."""
+    import select
+    deadline = time.time() + seconds
+    try:
+        fd = sys.stdin.fileno()
+        while time.time() < deadline:
+            ready, _, _ = select.select([fd], [], [], max(0.0, deadline - time.time()))
+            if not ready or not os.read(fd, 65536):
+                return
+    except (OSError, ValueError):
+        return
+
+
+def cmd_old_hook(args):
+    """Old git hooks and old harness hooks still call these commands. They do nothing, on purpose and for good:
+    a harness blocks the action when a hook exits 2, and git refuses a commit when a hook fails, so a leftover
+    entry must never fail. They print nothing and exit 0."""
+
+
+def cmd_old_harness_hook(args):
+    """The same, for the harness hooks, which are given a JSON event on stdin: read it and throw it away."""
+    drain_stdin()
 
 
 def main():
@@ -928,11 +949,12 @@ def main():
     cmd, args = sys.argv[1], sys.argv[2:]
     commands = {
         "workspace": cmd_workspace, "workspace-path": cmd_workspace_path, "sign": cmd_sign,
-        "pre-commit": cmd_old_git_hook, "pre-push": cmd_old_git_hook,
+        "pre-commit": cmd_old_hook, "pre-push": cmd_old_hook, "git-hook": cmd_old_hook,
+        "hook-pretool": cmd_old_harness_hook, "hook-stop": cmd_old_harness_hook, "hook-task": cmd_old_harness_hook,
     }
     if cmd not in commands:
         print(f"team-guard: unknown command {cmd!r}\n" + __doc__, file=sys.stderr)
-        sys.exit(2)
+        sys.exit(1)
     try:
         commands[cmd](args)
     except WorkspaceFileError as e:

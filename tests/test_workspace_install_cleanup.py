@@ -203,6 +203,41 @@ class TestClaudeCodeCleanup(CleanupCase):
         r = self.run_install_expecting_failure("claude-code")
         self.has(r.err, "still has a team-guard hook entry", r)
 
+    def test_the_install_says_how_to_remove_old_git_hooks_from_every_repo(self):
+        self.old_claude_home()
+        r = self.install("claude-code")
+        self.has(r.out, "scripts/remove-old-git-hooks --scan ~/Code --dry-run", r)
+        self.has(r.out, "without --dry-run", r)
+
+    def test_the_settings_rewrite_keeps_the_file_mode(self):
+        d = self.old_claude_home()
+        (d / "settings.json").chmod(0o600)
+        self.install("claude-code")
+        self.assertEqual((d / "settings.json").stat().st_mode & 0o777, 0o600)
+        self.assertNotIn("team-guard hook-", (d / "settings.json").read_text())
+
+    def test_the_settings_rewrite_goes_through_a_symlink_to_its_target(self):
+        d = self.old_claude_home()
+        target = self.home / "dotfiles" / "settings.json"
+        target.parent.mkdir()
+        (d / "settings.json").rename(target)
+        (d / "settings.json").symlink_to(target)
+        self.install("claude-code")
+        self.assertTrue((d / "settings.json").is_symlink(), "the link stays a link")
+        self.assertEqual((d / "settings.json").resolve(), target.resolve())
+        self.assertNotIn("team-guard hook-", target.read_text())
+        self.assertIn(GUARD_RULE, json.loads(target.read_text())["permissions"]["allow"])
+
+    def test_a_number_json_cannot_write_back_stops_the_install_and_leaves_the_file_alone(self):
+        d = self.old_claude_home()
+        raw = json.dumps(self.old_claude_settings()).replace('"model": "opus"', '"model": "opus", "limit": 1e400')
+        self.assertIn("1e400", raw)
+        (d / "settings.json").write_text(raw)
+        r = self.run_install_expecting_failure("claude-code")
+        self.has(r.err, "settings.json", r)
+        self.has(r.err, "not a finite number", r)
+        self.assertEqual((d / "settings.json").read_text(), raw)
+
     def run_install_expecting_failure(self, harness):
         env = {"HOME": str(self.home), "CLAUDE_HOME": str(self.home / ".claude"), "CODEX_HOME": str(self.home / ".codex")}
         r = self.sb.run(["bash", str(self.repo / "adapters" / harness / "install.sh")], cwd=self.sb.scratch, env=env)

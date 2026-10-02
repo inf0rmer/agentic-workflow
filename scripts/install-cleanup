@@ -17,6 +17,7 @@ It does three things, and never deletes anything:
 """
 import argparse
 import json
+import math
 import os
 import re
 import shutil
@@ -156,6 +157,16 @@ def edit_hooks(data):
     return removed
 
 
+def has_non_finite(value):
+    if isinstance(value, float):
+        return not math.isfinite(value)
+    if isinstance(value, dict):
+        return any(has_non_finite(v) for v in value.values())
+    if isinstance(value, list):
+        return any(has_non_finite(v) for v in value)
+    return False
+
+
 def edit_settings(a):
     path = a.settings
     if not path or not os.path.isfile(path):
@@ -166,6 +177,9 @@ def edit_settings(a):
         data = json.loads(raw)
     except ValueError as e:
         sys.exit(f"install-cleanup: {path} is not valid JSON ({e}); nothing in it was changed")
+    if has_non_finite(data):
+        sys.exit(f"install-cleanup: {path} has a number that is not a finite number (such as 1e400 or NaN), "
+                 "which JSON cannot write back; nothing in it was changed. Fix that value and rerun")
     changes = [f"removed hook {r}" for r in edit_hooks(data)]
     if a.harness == "claude-code":
         perms = data.setdefault("permissions", {})
@@ -179,11 +193,13 @@ def edit_settings(a):
     if changes:
         os.makedirs(a.backup, exist_ok=True)
         shutil.copy2(path, os.path.join(a.backup, os.path.basename(path)))
-        tmp = path + ".tmp"
+        real = os.path.realpath(path)  # write through a symlink to its target, so the link stays a link
+        tmp = real + ".tmp"
         with open(tmp, "w") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
+            json.dump(data, f, indent=2, ensure_ascii=False, allow_nan=False)
             f.write("\n")
-        os.replace(tmp, path)
+        shutil.copymode(real, tmp)
+        os.replace(tmp, real)
         print(f"updated {path} (backup in {a.backup}):")
         for c in changes:
             print("  " + c)

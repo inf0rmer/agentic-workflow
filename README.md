@@ -91,7 +91,7 @@ adapters/claude-code/install.sh                # ~/.claude
 adapters/codex/install.sh                      # ~/.codex and ~/.agents
 ```
 
-Each installer runs the tests first, backs up what it replaces, retires files this build no longer ships (moved to the backup, never deleted), and removes the old `team-guard hook-…` entries from your settings. It leaves a file in place, with a warning, if your settings or hooks still use it. If you used an earlier version, run `scripts/remove-old-git-hooks` once first. Details are in [Harnesses](./docs/harnesses.md).
+Each installer runs the tests first, backs up what it replaces, retires files this build no longer ships (moved to the backup, never deleted), and removes the old `team-guard hook-…` entries from your settings. It leaves a file in place, with a warning, if your settings or hooks still use it. If you used an earlier version, run `scripts/remove-old-git-hooks --scan ~/Code --dry-run` first, then again without `--dry-run`. Details are in [Harnesses](./docs/harnesses.md).
 
 ## Known limits
 
