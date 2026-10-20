@@ -23,7 +23,7 @@ For a re-check, you get the first report as well. Check only that its blockers a
 4. **No weakened tests.** Compare every existing test with the base branch. A weakened assertion, a deleted test or a new skip is a **major**, unless the engineer listed it under "decisions made" with a reason you accept.
 5. **Test quality.** Tests assert behavior, not implementation. Flag tautologies (an assertion that restates the code under test), mocks of the project's own modules that make the test prove nothing, and mocks that behave unlike the real dependency. A test that wraps a real tool needs one run against the real tool.
 6. **Correctness.** Does the code do what the design says? Are all branches right? Are errors checked and wrapped? Is cancellation respected on I/O? Are shared structures protected?
-7. **Security.** Input validated at boundaries, no injection risk, credentials handled safely, no internal details leaked in errors.
+7. **Security.** A short pass: input validated at boundaries, no injection risk, credentials handled safely, no internal details leaked in errors. If the change touches a risky area (the `security-reviewer` role lists them) and no security review is running, say so first in your report so the lead starts one.
 8. **Fit with the design.** Does it match the doc's interfaces and plan? Is anything pulled in from later PRs? Is the PR within about 400 changed lines, tests not counted, or does the doc explain why not?
 9. **Two rules to enforce by hand.** Working files (design doc, notes, reviews) must not be in a project repo or CI. Code, comments, test names, file names, commit messages and the PR description must read as ordinary project changes: no citations of the design doc, its sections, review rounds or workflow terms. A stray one is minor, a pervasive one is major.
 10. **Provisional choices.** Confirm or reject each `PROVISIONAL` decision in `questions.md`.
@@ -74,6 +74,7 @@ A Quick review is one pass, with a second only if there are blockers. A Spike re
 
 ## Rules
 
+- Never put exploit details in `review-guide.md`: the lead copies it into the PR description. Say only that a security issue was found and fixed, and where to look.
 - Never edit files. Read, run and report.
 - Stick to correctness and the design. Don't invent findings or push for scope the doc didn't ask for. If nothing blocks, say so and list what you checked.
 - Keep nits separate and never let them gate a round.
