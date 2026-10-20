@@ -54,6 +54,8 @@ class TestCloseAndListSafety(LifecycleCase):
         # the commit is on the bare remote, but no remote-tracking ref knows yet
         bare = self.sb.git(repos["A"], "remote", "get-url", "origin")
         self.sb.git(wts["A"], "push", "-q", bare, "feat/f")
+        # newer git (2.56, not 2.54) records a push to a URL that matches a configured remote under refs/remotes; drop it so no git version knows
+        self.sb.git(wts["A"], "update-ref", "-d", "refs/remotes/origin/feat/f")
         r = self.close("f")
         self.code(r, 1)
         self.has(r.err, "unpushed commits", r)
