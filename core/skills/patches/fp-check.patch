@@ -1,0 +1,351 @@
+diff --git a/plugins/fp-check/skills/fp-check/SKILL.md b/core/skills/fp-check/SKILL.md
+similarity index 68%
+rename from plugins/fp-check/skills/fp-check/SKILL.md
+rename to core/skills/fp-check/SKILL.md
+index b7e7278..e84ac2c 100644
+--- a/plugins/fp-check/skills/fp-check/SKILL.md
++++ b/core/skills/fp-check/SKILL.md
+@@ -1,7 +1,7 @@
+ ---
+ name: fp-check
+-description: "Systematically verifies suspected security bugs to eliminate false positives, producing a TRUE POSITIVE or FALSE POSITIVE verdict with documented evidence for each. Use when asked whether a specific finding is real, exploitable, or a false positive, or to verify or validate a suspected vulnerability — not for hunting or discovering new bugs."
+-allowed-tools: Read Grep Glob LSP Bash Task Write Edit AskUserQuestion TaskCreate TaskUpdate TaskList TaskGet
++description: "Verifies one suspected security finding and returns a TRUE POSITIVE or FALSE POSITIVE verdict with documented evidence. Loaded by name from the security-reviewer role only."
++allowed-tools: Read Grep Glob Bash
+ ---
+ 
+ # False Positive Check
+@@ -26,7 +26,7 @@ If you catch yourself thinking any of these, STOP.
+ 
+ | Rationalization | Why It's Wrong | Required Action |
+ |---|---|---|
+-| "Rapid analysis of remaining bugs" | Every bug gets full verification | Return to task list, verify next bug through all phases |
++| "Rapid analysis of remaining bugs" | Every bug gets full verification | Return to the list of claims, verify the next bug through all phases |
+ | "This pattern looks dangerous, so it's a vulnerability" | Pattern recognition is not analysis | Complete data flow tracing before any conclusion |
+ | "Skipping full verification for efficiency" | No partial analysis allowed | Execute all steps per the chosen verification path |
+ | "The code looks unsafe, reporting without tracing data flow" | Unsafe-looking code may have upstream validation | Trace the complete path from source to sink |
+@@ -37,7 +37,7 @@ If you catch yourself thinking any of these, STOP.
+ 
+ ## Step 0: Understand the Claim and Context
+ 
+-Before any analysis, restate the bug in your own words. If you cannot do this clearly, ask the user for clarification. Half of false positives collapse at this step — the claim doesn't make coherent sense when restated precisely.
++Before any analysis, restate the bug in your own words. If you cannot do this clearly, return the claim as unclear and say what is missing. Half of false positives collapse at this step — the claim doesn't make coherent sense when restated precisely.
+ 
+ Document:
+ 
+@@ -46,7 +46,7 @@ Document:
+ - **What is the supposed trigger?** (e.g., "attacker sends HTTP request with oversized Content-Length header")
+ - **What is the claimed impact?** (e.g., "remote code execution via controlled heap corruption")
+ - **What is the threat model?** What privilege level does this code run at? Is it sandboxed? What can the attacker already do before triggering this bug? (e.g., "unauthenticated remote attacker vs privileged local user"; "runs inside Chrome renderer sandbox" vs "runs as root with no sandbox")
+-- **What is the bug class?** Classify the bug and consult [bug-class-verification.md]({baseDir}/references/bug-class-verification.md) for class-specific verification requirements that supplement the generic phases below.
++- **What is the bug class?** Classify the bug and consult [bug-class-verification.md](references/bug-class-verification.md) for class-specific verification requirements that supplement the generic phases below.
+ - **Execution context**: When and how is this code path reached during normal execution?
+ - **Caller analysis**: What functions call this code and what input constraints do they impose?
+ - **Architectural context**: Is this part of a larger security system with multiple protection layers?
+@@ -66,7 +66,7 @@ Use when ALL of these hold:
+ - No concurrency or async involved in the trigger
+ - Straightforward data flow from source to sink
+ 
+-Follow [standard-verification.md]({baseDir}/references/standard-verification.md). No task tracking — work through the linear checklist sequentially, documenting findings inline.
++Follow [standard-verification.md](references/standard-verification.md). Work through the linear checklist sequentially, documenting findings inline.
+ 
+ ### Deep Verification
+ 
+@@ -79,7 +79,7 @@ Use when ANY of these hold:
+ - Standard verification was inconclusive or escalated
+ - User explicitly requests full verification
+ 
+-Follow [deep-verification.md]({baseDir}/references/deep-verification.md). Track each phase as a task with explicit dependencies, and execute the phases using the plugin's analysis agents.
++Follow [deep-verification.md](references/deep-verification.md). Do each phase yourself, in order, documenting the evidence for each before the next.
+ 
+ ### Default
+ 
+@@ -104,9 +104,9 @@ After processing ALL suspected bugs, provide:
+ 
+ ## References
+ 
+-- [Standard Verification]({baseDir}/references/standard-verification.md) — Linear single-pass checklist for straightforward bugs
+-- [Deep Verification]({baseDir}/references/deep-verification.md) — Full task-based orchestration for complex bugs
+-- [Gate Reviews]({baseDir}/references/gate-reviews.md) — Six mandatory gates and verdict format
+-- [Bug-Class Verification]({baseDir}/references/bug-class-verification.md) — Class-specific verification requirements for memory corruption, logic bugs, race conditions, integer issues, crypto, injection, info disclosure, DoS, and deserialization
+-- [False Positive Patterns]({baseDir}/references/false-positive-patterns.md) — 13-item checklist and red flags for common false positive patterns
+-- [Evidence Templates]({baseDir}/references/evidence-templates.md) — Documentation templates for data flow, mathematical proofs, attacker control, and devil's advocate reviews
++- [Standard Verification](references/standard-verification.md) — Linear single-pass checklist for straightforward bugs
++- [Deep Verification](references/deep-verification.md) — Full phase-by-phase verification for complex bugs
++- [Gate Reviews](references/gate-reviews.md) — Six mandatory gates and verdict format
++- [Bug-Class Verification](references/bug-class-verification.md) — Class-specific verification requirements for memory corruption, logic bugs, race conditions, integer issues, crypto, injection, info disclosure, DoS, and deserialization
++- [False Positive Patterns](references/false-positive-patterns.md) — 13-item checklist and red flags for common false positive patterns
++- [Evidence Templates](references/evidence-templates.md) — Documentation templates for data flow, mathematical proofs, attacker control, and devil's advocate reviews
+diff --git a/plugins/fp-check/skills/fp-check/agents/openai.yaml b/core/skills/fp-check/agents/openai.yaml
+similarity index 85%
+rename from plugins/fp-check/skills/fp-check/agents/openai.yaml
+rename to core/skills/fp-check/agents/openai.yaml
+index 11ca756..16413e9 100644
+--- a/plugins/fp-check/skills/fp-check/agents/openai.yaml
++++ b/core/skills/fp-check/agents/openai.yaml
+@@ -4,3 +4,5 @@ interface:
+   icon_small: "assets/trail-of-bits-mark.svg"
+   icon_large: "assets/trail-of-bits-mark.svg"
+   brand_color: "#D83A34"
++policy:
++  allow_implicit_invocation: false
+diff --git a/plugins/fp-check/skills/fp-check/assets/trail-of-bits-mark.svg b/core/skills/fp-check/assets/trail-of-bits-mark.svg
+similarity index 100%
+rename from plugins/fp-check/skills/fp-check/assets/trail-of-bits-mark.svg
+rename to core/skills/fp-check/assets/trail-of-bits-mark.svg
+diff --git a/plugins/fp-check/skills/fp-check/references/bug-class-verification.md b/core/skills/fp-check/references/bug-class-verification.md
+similarity index 100%
+rename from plugins/fp-check/skills/fp-check/references/bug-class-verification.md
+rename to core/skills/fp-check/references/bug-class-verification.md
+diff --git a/plugins/fp-check/skills/fp-check/references/deep-verification.md b/core/skills/fp-check/references/deep-verification.md
+similarity index 45%
+rename from plugins/fp-check/skills/fp-check/references/deep-verification.md
+rename to core/skills/fp-check/references/deep-verification.md
+index 1b2499d..72a1291 100644
+--- a/plugins/fp-check/skills/fp-check/references/deep-verification.md
++++ b/core/skills/fp-check/references/deep-verification.md
+@@ -1,6 +1,6 @@
+ # Deep Verification
+ 
+-Full task-based verification for complex bugs. Use when routing from SKILL.md selects the deep path, or when standard verification escalates.
++Full phase-by-phase verification for complex bugs. Use when routing from SKILL.md selects the deep path, or when standard verification escalates.
+ 
+ ## If Escalated from Standard
+ 
+@@ -8,76 +8,47 @@ When a bug escalates from standard verification:
+ 
+ 1. Review all evidence gathered during the standard pass — do not repeat completed work
+ 2. Identify which phases below are already satisfied by existing evidence
+-3. Create tasks only for remaining phases, starting from where standard left off
+-4. Preserve and reference all prior findings in new task descriptions
++3. Do only the remaining phases, starting from where standard left off
++4. Preserve and reference all prior findings in the later phases
+ 
+-## Verification Task List
++## Phases
+ 
+-For each bug (Bug #N), create one task per phase with the dependency structure below. Wire the dependencies so each phase stays blocked until every task it depends on is complete.
++Work through the phases in order. Record the evidence for each before starting the next, and
++never start a phase until the ones it depends on are done.
+ 
+ ```
+-── Phase 1: Data Flow Analysis ──────────────────────────────────
+-"BUG #N - Phase 1.1: Map trust boundaries and trace data flow"
+-  Then in parallel (each blocked by 1.1):
+-  "BUG #N - Phase 1.2: Research API contracts and safety guarantees"
+-  "BUG #N - Phase 1.3: Environment protection analysis"
+-  "BUG #N - Phase 1.4: Cross-reference analysis"
+-
+-── Phase 2: Exploitability Verification (blocked by Phase 1) ───
+-  In parallel:
+-  "BUG #N - Phase 2.1: Confirm attacker controls input data"
+-  "BUG #N - Phase 2.2: Mathematical bounds verification"
+-  "BUG #N - Phase 2.3: Race condition feasibility proof"
+-  Then (blocked by 2.1, 2.2, 2.3):
+-  "BUG #N - Phase 2.4: Adversarial analysis"
+-
+-── Phase 3: Impact Assessment (blocked by Phase 2) ─────────────
+-  In parallel:
+-  "BUG #N - Phase 3.1: Demonstrate real security impact"
+-  "BUG #N - Phase 3.2: Primary control vs defense-in-depth"
+-
+-── Phase 4: PoC Creation (blocked by Phase 3) ──────────────────
+-  "BUG #N - Phase 4.1: Create pseudocode PoC with data flow diagrams"
+-  Then in parallel (each blocked by 4.1):
+-  "BUG #N - Phase 4.2: Create executable PoC if feasible"
+-  "BUG #N - Phase 4.3: Create unit test PoC if feasible"
+-  "BUG #N - Phase 4.4: Negative PoC — show exploit preconditions"
+-  Then (blocked by 4.2, 4.3, 4.4):
+-  "BUG #N - Phase 4.5: Verify PoC demonstrates the vulnerability"
+-
+-── Phase 5: Devil's Advocate (blocked by Phase 4) ──────────────
+-  "BUG #N - Phase 5.1: Devil's advocate review"
+-
+-── Gate Review (blocked by Phase 5) ────────────────────────────
+-  "BUG #N - GATE REVIEW: Evaluate all six gates before verdict"
++Phase 1: Data Flow Analysis
++  1.1 Map trust boundaries and trace data flow
++  1.2 Research API contracts and safety guarantees
++  1.3 Environment protection analysis
++  1.4 Cross-reference analysis
++Phase 2: Exploitability Verification (after Phase 1)
++  2.1 Confirm attacker controls input data
++  2.2 Mathematical bounds verification
++  2.3 Race condition feasibility proof
++  2.4 Adversarial analysis (after 2.1, 2.2, 2.3)
++Phase 3: Impact Assessment (after Phase 2)
++  3.1 Demonstrate real security impact
++  3.2 Primary control vs defense-in-depth
++Phase 4: PoC (after Phase 3)
++  4.1 Pseudocode PoC with data flow diagram
++  4.2 Executable PoC: skipped, read-only
++  4.3 Unit test PoC: skipped, read-only
++  4.4 Negative PoC: show exploit preconditions
++  4.5 Verify the PoC demonstrates the vulnerability
++Phase 5: Devil's advocate review (after Phase 4)
++Gate review: evaluate all six gates before the verdict
+ ```
+ 
+-## Execution Rules
+-
+-- Mark each task as in-progress when starting, completed only with concrete evidence
+-- **Parallel sub-phases**: Launch independent sub-phases concurrently using the plugin's agents. Collect all results before proceeding to the next dependency gate.
+-- **Dependency gates**: Never start a phase until all tasks it depends on are completed.
+-- Apply all 13 checklist items from [false-positive-patterns.md]({baseDir}/references/false-positive-patterns.md) to each bug
+-
+-## Agents
+-
+-Delegate these agents to their respective phases. Pass the bug description and any prior phase results as context.
+-
+-| Agent | Phases | Purpose |
+-|-------|--------|---------|
+-| `data-flow-analyzer` | 1.1–1.4 | Trace data flow, map trust boundaries, check API contracts and environment protections |
+-| `exploitability-verifier` | 2.1–2.4 | Prove attacker control, mathematical bounds, race condition feasibility |
+-| `poc-builder` | 4.1–4.5 | Create pseudocode, executable, unit test, and negative PoCs |
+-
+-Phases 3 (Impact Assessment), 5 (Devil's Advocate), and the Gate Review are handled directly — they require synthesizing results across phases and should not be delegated.
++Apply all 13 checklist items from [false-positive-patterns.md](false-positive-patterns.md) to each bug.
+ 
+ ## Phase Requirements
+ 
+-The task list above names every phase. Below are the key pitfalls and decision criteria for each — focus on what you might get wrong.
++The list above names every phase. Below are the key pitfalls and decision criteria for each — focus on what you might get wrong.
+ 
+ ### Phase 1: Data Flow Analysis
+ 
+-**1.1**: Map trust boundaries (internal/trusted vs external/untrusted) and trace data from source to alleged vulnerability. Apply class-specific verification from [bug-class-verification.md]({baseDir}/references/bug-class-verification.md). **Key pitfall**: Analyzing code in isolation without tracing the full validation chain. Conditional logic upstream may make the vulnerable code mathematically unreachable (see [false-positive-patterns.md]({baseDir}/references/false-positive-patterns.md) items 1 and 1a).
++**1.1**: Map trust boundaries (internal/trusted vs external/untrusted) and trace data from source to alleged vulnerability. Apply class-specific verification from [bug-class-verification.md](bug-class-verification.md). **Key pitfall**: Analyzing code in isolation without tracing the full validation chain. Conditional logic upstream may make the vulnerable code mathematically unreachable (see [false-positive-patterns.md](false-positive-patterns.md) items 1 and 1a).
+ 
+ **1.2**: Check API contracts before claiming overflows — many APIs have built-in bounds protection that prevents the alleged issue regardless of inputs.
+ 
+@@ -89,7 +60,7 @@ The task list above names every phase. Below are the key pitfalls and decision c
+ 
+ **2.1**: Prove attacker controls the data reaching the vulnerability. **Key pitfall**: Assuming network/external data reaches the operation without tracing the actual path — internal storage set by trusted components is not attacker-controlled.
+ 
+-**2.2**: Create explicit algebraic proofs for bounds-related issues. Use the template in [evidence-templates.md]({baseDir}/references/evidence-templates.md). Verify: IF validation_check_passes THEN bounds_guarantee_holds.
++**2.2**: Create explicit algebraic proofs for bounds-related issues. Use the template in [evidence-templates.md](evidence-templates.md). Verify: IF validation_check_passes THEN bounds_guarantee_holds.
+ 
+ **2.3**: For race conditions, prove concurrent access is actually possible. **Key pitfall**: Assuming race conditions in single-threaded initialization or synchronized contexts.
+ 
+@@ -103,13 +74,13 @@ The task list above names every phase. Below are the key pitfalls and decision c
+ 
+ ### Phase 4: PoC Creation
+ 
+-**Always create a pseudocode PoC.** Additionally, create executable and/or unit test PoCs when feasible:
++**Always create a pseudocode PoC.** Executable and unit test PoCs are skipped, because you are read-only: write "skipped: read-only" for them.
+ 
+ 1. **Pseudocode with data flow diagrams** showing the attack path (always)
+-2. **Executable PoC** in the target language demonstrating the vulnerability (if feasible)
+-3. **Unit test PoC** exercising the vulnerable code path with crafted inputs (if feasible)
++2. **Executable PoC**: skipped, read-only
++3. **Unit test PoC**: skipped, read-only
+ 
+-See [evidence-templates.md]({baseDir}/references/evidence-templates.md) for PoC templates.
++See [evidence-templates.md](evidence-templates.md) for PoC templates.
+ 
+ **Negative PoC (Phase 4.4)**: Demonstrate the gap between normal operation and the exploit path — what preconditions must hold for the vulnerability to trigger, and why they don't hold under normal conditions.
+ 
+@@ -136,8 +107,8 @@ Before final verdict, systematically challenge the vulnerability claim. Assume y
+ 12. Am I dismissing a real vulnerability because the exploit seems complex or unlikely?
+ 13. Am I inventing mitigations or validation logic that I haven't verified in the actual source code? Re-read the code after reaching a conclusion.
+ 
+-See [evidence-templates.md]({baseDir}/references/evidence-templates.md) for the devil's advocate documentation template.
++See [evidence-templates.md](evidence-templates.md) for the devil's advocate documentation template.
+ 
+ ## Gate Review
+ 
+-Apply the six gates from [gate-reviews.md]({baseDir}/references/gate-reviews.md) to reach a verdict.
++Apply the six gates from [gate-reviews.md](gate-reviews.md) to reach a verdict.
+diff --git a/plugins/fp-check/skills/fp-check/references/evidence-templates.md b/core/skills/fp-check/references/evidence-templates.md
+similarity index 100%
+rename from plugins/fp-check/skills/fp-check/references/evidence-templates.md
+rename to core/skills/fp-check/references/evidence-templates.md
+diff --git a/plugins/fp-check/skills/fp-check/references/false-positive-patterns.md b/core/skills/fp-check/references/false-positive-patterns.md
+similarity index 100%
+rename from plugins/fp-check/skills/fp-check/references/false-positive-patterns.md
+rename to core/skills/fp-check/references/false-positive-patterns.md
+diff --git a/plugins/fp-check/skills/fp-check/references/gate-reviews.md b/core/skills/fp-check/references/gate-reviews.md
+similarity index 84%
+rename from plugins/fp-check/skills/fp-check/references/gate-reviews.md
+rename to core/skills/fp-check/references/gate-reviews.md
+index b9dd2f4..e7808b3 100644
+--- a/plugins/fp-check/skills/fp-check/references/gate-reviews.md
++++ b/core/skills/fp-check/references/gate-reviews.md
+@@ -1,13 +1,13 @@
+ # Gate Reviews and Verdicts
+ 
+-Before reporting ANY bug as a vulnerability, all six gate reviews must pass. Evaluate these during the GATE REVIEW task after all phases are complete:
++Before reporting ANY bug as a vulnerability, all six gate reviews must pass. Evaluate these in the gate review after all phases are complete:
+ 
+ | Gate | Criterion | Pass | Fail |
+ |------|-----------|------|------|
+ | **1. Process** | All phases completed with documented evidence | Evidence exists for every phase | Phases lack concrete evidence |
+ | **2. Reachability** | Attacker can reach and control data at the vulnerability | Clear evidence of attacker-controlled path + PoC confirms | Cannot demonstrate attacker control or reachability |
+ | **3. Real Impact** | Exploitation leads to RCE, privesc, or info disclosure | Direct impact with concrete scenarios | Only operational robustness issue |
+-| **4. PoC Validation** | PoC (pseudocode, executable, or unit test) demonstrates the attack path | Shows attacker control, trigger, and impact | PoC fails to show attack path or impact |
++| **4. PoC Validation** | PoC (pseudocode; executable and unit test PoCs are skipped when read-only) demonstrates the attack path | Shows attacker control, trigger, and impact | PoC fails to show attack path or impact |
+ | **5. Math Bounds** | Mathematical analysis confirms vulnerable condition is possible | Algebraic proof shows condition is possible | Math proves validation prevents it |
+ | **6. Environment** | No environmental protections entirely prevent exploitation | Protections do not eliminate vulnerability | Environmental protections block it entirely |
+ 
+diff --git a/plugins/fp-check/skills/fp-check/references/standard-verification.md b/core/skills/fp-check/references/standard-verification.md
+similarity index 82%
+rename from plugins/fp-check/skills/fp-check/references/standard-verification.md
+rename to core/skills/fp-check/references/standard-verification.md
+index c9e5b90..ba54c7d 100644
+--- a/plugins/fp-check/skills/fp-check/references/standard-verification.md
++++ b/core/skills/fp-check/references/standard-verification.md
+@@ -1,10 +1,10 @@
+ # Standard Verification
+ 
+-Linear single-pass checklist for straightforward bugs. No task tracking — work through each step sequentially and document findings inline.
++Linear single-pass checklist for straightforward bugs. Work through each step sequentially and document findings inline.
+ 
+ ## Escalation Checkpoints
+ 
+-Two points in this checklist may trigger escalation to [deep-verification.md]({baseDir}/references/deep-verification.md):
++Two points in this checklist may trigger escalation to [deep-verification.md](deep-verification.md):
+ 
+ 1. **After Step 1 (Data Flow)**: Escalate if 3+ trust boundaries, callbacks/async control flow, or ambiguous validation chain
+ 2. **After Step 5 (Devil's Advocate)**: Escalate if any question produces genuine uncertainty you cannot resolve
+@@ -21,7 +21,7 @@ Trace data from source to the alleged vulnerability sink.
+ - Identify all validation and sanitization between source and sink
+ - Check API contracts — many APIs have built-in bounds protection that prevents the alleged issue
+ - Check for environmental protections (compiler, runtime, OS, framework) that prevent exploitation entirely (not just raise the bar)
+-- Apply class-specific checks from [bug-class-verification.md]({baseDir}/references/bug-class-verification.md)
++- Apply class-specific checks from [bug-class-verification.md](bug-class-verification.md)
+ 
+ **Key pitfall**: Analyzing the vulnerable code in isolation. Conditional logic upstream may make the vulnerability mathematically unreachable. Trace the full validation chain.
+ 
+@@ -32,7 +32,7 @@ Trace data from source to the alleged vulnerability sink.
+ Prove the attacker can trigger the vulnerability.
+ 
+ - **Attacker control**: Prove the attacker controls data reaching the vulnerable operation. Internal storage set by trusted components is not attacker-controlled.
+-- **Bounds proof**: For integer/bounds issues, create an explicit algebraic proof using the template in [evidence-templates.md]({baseDir}/references/evidence-templates.md). Verify: IF validation_check_passes THEN bounds_guarantee_holds.
++- **Bounds proof**: For integer/bounds issues, create an explicit algebraic proof using the template in [evidence-templates.md](evidence-templates.md). Verify: IF validation_check_passes THEN bounds_guarantee_holds.
+ - **Race feasibility**: For race conditions, prove concurrent access is actually possible. Single-threaded initialization and synchronized contexts cannot have races.
+ 
+ ### Step 3: Impact
+@@ -44,7 +44,7 @@ Determine whether exploitation has real security consequences.
+ 
+ ### Step 4: PoC Sketch
+ 
+-Create a pseudocode PoC showing the attack path. Executable and unit test PoCs are optional for standard verification.
++Create a pseudocode PoC showing the attack path. Executable and unit test PoCs are skipped: you are read-only, so say "skipped: read-only" where the gate asks for one.
+ 
+ ```
+ Data Flow: [Source] → [Validation?] → [Transform?] → [Vulnerable Op] → [Impact]
+@@ -52,7 +52,7 @@ Attacker controls: [what input, how]
+ Trigger: [pseudocode showing the exploit path]
+ ```
+ 
+-See [evidence-templates.md]({baseDir}/references/evidence-templates.md) for the full PoC template.
++See [evidence-templates.md](evidence-templates.md) for the full PoC template.
+ 
+ ### Step 5: Devil's Advocate Spot-Check
+ 
+@@ -75,4 +75,4 @@ Answer these 7 questions. If any produces genuine uncertainty, escalate to deep
+ 
+ ### Step 6: Gate Review
+ 
+-Apply all six gates from [gate-reviews.md]({baseDir}/references/gate-reviews.md) and all 13 items from [false-positive-patterns.md]({baseDir}/references/false-positive-patterns.md) to reach a verdict.
++Apply all six gates from [gate-reviews.md](gate-reviews.md) and all 13 items from [false-positive-patterns.md](false-positive-patterns.md) to reach a verdict.

@@ -2,6 +2,7 @@
 # Self-tests for team-guard, the installers and the build, run offline in throwaway sandboxes.
 #   tests/run.sh
 #   VENDOR_UPSTREAM_CLONE=<clone of mattpocock/skills at the pin> tests/run.sh   also checks the vendored skills byte for byte
+#   VENDOR_UPSTREAM_CLONE_TRAILOFBITS=<clone of trailofbits/skills at the pin>    does the same for the second source
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)

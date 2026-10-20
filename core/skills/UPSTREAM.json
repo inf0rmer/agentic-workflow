@@ -5,6 +5,12 @@
       "sha": "d81f3a183412e71a5b1e84ca21bc1a35eea03a60",
       "date": "2026-09-29",
       "license": "MIT"
+    },
+    "trailofbits": {
+      "url": "https://github.com/trailofbits/skills",
+      "sha": "5c99c03fb8a9ea568432ecbcba5d86e9f4ac2bf0",
+      "date": "2026-10-15",
+      "license": "CC-BY-SA-4.0"
     }
   },
   "skills": {
@@ -35,6 +41,18 @@
       "upstream_path": "skills/engineering/tdd",
       "status": "patched",
       "patch": "patches/tdd.patch"
+    },
+    "differential-review": {
+      "source": "trailofbits",
+      "upstream_path": "plugins/differential-review/skills/differential-review",
+      "status": "patched",
+      "patch": "patches/differential-review.patch"
+    },
+    "fp-check": {
+      "source": "trailofbits",
+      "upstream_path": "plugins/fp-check/skills/fp-check",
+      "status": "patched",
+      "patch": "patches/fp-check.patch"
     }
   }
 }

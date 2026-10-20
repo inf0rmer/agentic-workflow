@@ -15,7 +15,7 @@ import unittest
 from pathlib import Path
 
 from wslib import ROOT
-from wsskills import (ALL_DIRS, FILES, PIN, SK, SKILLS, SOURCE, clone_or_skip, files_under, frontmatter_value,
+from wsskills import (ALL_DIRS, FILES, PIN, SK, SKILLS, SOURCE, SOURCE_OF, SOURCES, TOB_PIN, clone_or_skip, files_under, frontmatter_value,
                       git_bytes, insert_note, note_for, split_frontmatter, strip_note, upstream_file, upstream_files)
 
 FORBIDDEN = [r"docs/adr", r"\$TMPDIR", r"\.scratch", r"temporary directory", r"/tmp\b", r"repo(sitory)? root",
@@ -61,12 +61,13 @@ class TestVendoredSet(unittest.TestCase):
             self.assertIn("%s: ok" % d, p.stdout.splitlines(), p.stdout + p.stderr)
 
     def test_every_copy_carries_an_exact_provenance_line(self):
-        sha = json.loads((SK / "UPSTREAM.json").read_text())["sources"]["mattpocock"]["sha"]
+        sources = json.loads((SK / "UPSTREAM.json").read_text())["sources"]
         for d, (_, status) in SKILLS.items():
             with self.subTest(skill=d):
                 fm, rest = split_frontmatter(read(d))
                 self.assertIsNotNone(fm)
-                self.assertEqual(rest[0], note_for(d, sha))
+                self.assertEqual(rest[0], note_for(d, sources[SOURCE_OF[d]]["sha"]))
+                self.assertIn("license: %s (see LICENSE)" % SOURCES[SOURCE_OF[d]]["license"], rest[0])
                 self.assertEqual("modified" in rest[0], status == "patched")
                 self.assertEqual(sum(1 for l in rest if l.startswith("<!-- vendored from ")), 1)
 
@@ -76,12 +77,24 @@ class TestVendoredSet(unittest.TestCase):
         self.assertIn(b"MIT License", lic)
         self.assertIn(b"Matt Pocock", lic)
         for d in SKILLS:
+            if SOURCE_OF[d] == "mattpocock":
+                with self.subTest(skill=d):
+                    self.assertEqual((SK / d / "LICENSE").read_bytes(), lic)
+
+    def test_trail_of_bits_copies_carry_the_share_alike_license(self):
+        clone = clone_or_skip(self, "trailofbits")
+        lic = git_bytes(clone, "show", "%s:LICENSE" % TOB_PIN)
+        self.assertIn(b"Attribution-ShareAlike 4.0", lic)
+        for d in ("differential-review", "fp-check"):
             with self.subTest(skill=d):
                 self.assertEqual((SK / d / "LICENSE").read_bytes(), lic)
 
     def test_upstream_record_names_the_pin_and_every_patch(self):
         data = json.loads((SK / "UPSTREAM.json").read_text())
         self.assertEqual(set(data), {"sources", "skills"})
+        self.assertEqual(set(data["sources"]), set(SOURCES))
+        tob = data["sources"]["trailofbits"]
+        self.assertEqual(tob, {k: SOURCES["trailofbits"][k] for k in ("url", "sha", "date", "license")})
         src = data["sources"]["mattpocock"]
         self.assertEqual(set(src), {"url", "sha", "date", "license"})
         self.assertEqual((src["url"], src["sha"], src["date"], src["license"]), (SOURCE, PIN, "2026-09-29", "MIT"))
@@ -91,7 +104,7 @@ class TestVendoredSet(unittest.TestCase):
         for d, entry in data["skills"].items():
             with self.subTest(skill=d):
                 path, status = SKILLS[d]
-                self.assertEqual(entry["source"], "mattpocock")
+                self.assertEqual(entry["source"], SOURCE_OF[d])
                 self.assertEqual(entry["upstream_path"], path)
                 self.assertEqual(entry["status"], status)
                 if status == "patched":
@@ -104,24 +117,29 @@ class TestVendoredSet(unittest.TestCase):
         self.assertEqual({"patches/" + p.name for p in (SK / "patches").iterdir()}, named)
 
     def test_each_patched_copy_is_upstream_plus_its_stored_patch(self):
-        clone = clone_or_skip(self)
-        lic = git_bytes(clone, "show", "%s:LICENSE" % PIN)
+        self.check_patched_copies(clone_or_skip(self), "mattpocock", PIN)
+
+    def test_each_patched_trail_of_bits_copy_is_upstream_plus_its_stored_patch(self):
+        self.check_patched_copies(clone_or_skip(self, "trailofbits"), "trailofbits", TOB_PIN)
+
+    def check_patched_copies(self, clone, source, pin):
+        lic = git_bytes(clone, "show", "%s:LICENSE" % pin)
         for d, (path, status) in SKILLS.items():
-            if status != "patched":
+            if status != "patched" or SOURCE_OF[d] != source:
                 continue
             with self.subTest(skill=d), tempfile.TemporaryDirectory() as t:
                 T = Path(t)
-                for f in upstream_files(clone, path):
+                for f in upstream_files(clone, path, pin):
                     dst = T / path / f
                     dst.parent.mkdir(parents=True, exist_ok=True)
-                    dst.write_bytes(upstream_file(clone, path, f))
+                    dst.write_bytes(upstream_file(clone, path, f, pin))
                 patch = (SK / "patches" / ("%s.patch" % d)).resolve()
                 p = subprocess.run(["git", "apply", str(patch)], cwd=t, capture_output=True, text=True,
                                    env=dict(os.environ, GIT_CONFIG_NOSYSTEM="1"))
                 self.assertEqual(p.returncode, 0, p.stderr)
                 out = T / "core" / "skills" / d
                 skill = out / "SKILL.md"
-                skill.write_text(insert_note(skill.read_text(encoding="utf-8"), note_for(d)), encoding="utf-8")
+                skill.write_text(insert_note(skill.read_text(encoding="utf-8"), note_for(d, pin)), encoding="utf-8")
                 (out / "LICENSE").write_bytes(lic)
                 self.assertEqual(files_under(out), files_under(SK / d))
                 for f in files_under(out):
@@ -154,6 +172,28 @@ class TestPatchedContent(unittest.TestCase):
                 for word in ("sealed", "tester", "holdout", "codebase-design", "domain-modeling"):
                     with self.subTest(file="%s/%s" % (d, f), word=word):
                         self.assertNotIn(word, text)
+
+    def test_trail_of_bits_skills_are_loaded_by_name_and_cannot_edit_or_delegate(self):
+        for d in ("differential-review", "fp-check"):
+            text = read(d)
+            with self.subTest(skill=d):
+                self.assertIn("Loaded by name from the security-reviewer role only", frontmatter_value(text, "description"))
+                self.assertEqual(frontmatter_value(text, "allowed-tools"), "Read Grep Glob Bash")
+                self.assertIn("\npolicy:\n  allow_implicit_invocation: false",
+                              "\n" + read(d, "agents/openai.yaml"))
+
+    def test_trail_of_bits_skills_return_the_report_and_never_name_removed_machinery(self):
+        for d in ("differential-review", "fp-check"):
+            for f in sorted(files_under(SK / d)):
+                if f == "LICENSE" or f.endswith(".svg"):
+                    continue
+                text = read(d, f)
+                for word in ("adversarial-modeler", "issue-writer", "audit-context-building", "{baseDir}",
+                             "AskUserQuestion", "TaskCreate", "poc-builder", "data-flow-analyzer",
+                             "exploitability-verifier", "DIFFERENTIAL_REVIEW"):
+                    with self.subTest(file="%s/%s" % (d, f), word=word):
+                        self.assertNotIn(word, text)
+        self.assertIn("final message", read("differential-review", "reporting.md"))
 
     def test_bug_fix_section_gives_the_whole_loop_to_the_engineer(self):
         _, rest = split_frontmatter(read("diagnosing-bugs"))

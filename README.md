@@ -54,7 +54,7 @@ Workspaces are under `~/.agentic-workflow/work/` (`TEAM_WORKSPACE_ROOT`). See [W
 
 ## Vendored skills
 
-These are [Matt Pocock's skills](https://github.com/mattpocock/skills), MIT licensed, copied into `core/skills/` and pinned at one commit recorded in `core/skills/UPSTREAM.json`.
+These are [Matt Pocock's skills](https://github.com/mattpocock/skills), MIT licensed, and two skills from [Trail of Bits](https://github.com/trailofbits/skills), CC-BY-SA-4.0 licensed. They are copied into `core/skills/` and pinned at one commit per source, recorded in `core/skills/UPSTREAM.json`.
 The copies never auto-update. Each carries its `LICENSE` and a provenance line, and a patched skill is upstream plus a stored patch in `core/skills/patches/`.
 
 | Skill | Status | Used by |
@@ -64,6 +64,12 @@ The copies never auto-update. Each carries its `LICENSE` and a provenance line, 
 | `handoff` | patched | the human, as a slash command |
 | `diagnosing-bugs` | patched | the engineer, on a Quick bug fix |
 | `tdd` | patched | the engineer |
+| `differential-review` | patched | the security reviewer, to review a diff |
+| `fp-check` | patched | the security reviewer, to try to disprove one finding |
+
+### Third-party licenses
+
+The Matt Pocock copies are MIT licensed. The two Trail of Bits skills, and our patches to them, are licensed under [CC-BY-SA-4.0](https://creativecommons.org/licenses/by-sa/4.0/): the copies are by Trail of Bits, our changes are marked in each provenance line and kept in `core/skills/patches/`, and each copy carries the upstream `LICENSE`. The Trail of Bits logo in their `assets/` stays only as upstream attribution. This repository has no license of its own yet.
 
 `scripts/vendor-check` reports drift from upstream and changes nothing.
 
