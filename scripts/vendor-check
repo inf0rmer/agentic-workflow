@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
 """Report drift between the pinned skill copies in core/skills and an upstream ref.
 
-  scripts/vendor-check [--upstream <path|url>] [--ref <ref>] [--skills-dir <dir>]
+  scripts/vendor-check [--source <name>] [--upstream <path|url>] [--ref <ref>] [--skills-dir <dir>]
 
-Reads core/skills/UPSTREAM.json (the pin, each skill's upstream path, and its patch), the
-copies, the stored patches and the upstream repo, and changes none of them: moving the pin
-stays a person's decision. One line per skill, in sorted order:
+Reads core/skills/UPSTREAM.json (the named upstream sources with their pins and licenses,
+and for each skill its source, upstream path and patch), the copies, the stored patches and
+the upstream repos, and changes none of them: moving a pin stays a person's decision. Every
+source is cloned and checked; --source limits the run to one. --upstream and --ref apply to
+a single source, so they need --source when the record holds more than one. One line per
+skill, in sorted order:
 
   <dir>: upstream removed                     the path is gone at the ref
   <dir>: local drift                          the copy differs from upstream at the pin plus its patch
   <dir>: upstream changed[, patch conflict]   the path differs between the pin and the ref
   <dir>: ok
-  LICENSE: upstream removed                   the upstream LICENSE is gone at the ref (also drift)
+  LICENSE <source>: upstream removed          the upstream LICENSE is gone at the ref (also drift)
+  LICENSE <source>: upstream changed          the upstream LICENSE differs between the pin and the ref (also drift)
 
 Exit 0 and "no drift" when every skill is ok, 1 and "drift in <n> skill(s)" otherwise, and 2
 with a message on stderr (nothing on stdout) when it cannot run. A URL upstream is cloned
@@ -27,7 +31,8 @@ import sys
 import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SOURCE_KEYS = {"source", "sha", "date", "skills"}
+RECORD_KEYS = {"sources", "skills"}
+SOURCE_KEYS = {"url", "sha", "date", "license"}
 STATUSES = ("as-is", "patched")
 
 
@@ -55,21 +60,29 @@ def load_record(skills_dir):
         raise Cannot(f"can't read {path}: {e.strerror}")
     except ValueError as e:
         raise Cannot(f"{path} is not valid JSON: {e}")
-    if not isinstance(data, dict) or set(data) != SOURCE_KEYS:
-        raise Cannot(f"{path} must have exactly the keys {', '.join(sorted(SOURCE_KEYS))}")
-    if not isinstance(data["source"], str) or not data["source"]:
-        raise Cannot(f"{path}: source must be a string")
-    if not isinstance(data["sha"], str) or not re.fullmatch(r"[0-9a-f]{40}", data["sha"]):
-        raise Cannot(f"{path}: sha must be 40 lowercase hex digits")
-    if not isinstance(data["date"], str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", data["date"]):
-        raise Cannot(f"{path}: date must be YYYY-MM-DD")
+    if not isinstance(data, dict) or set(data) != RECORD_KEYS:
+        raise Cannot(f"{path} must have exactly the keys {', '.join(sorted(RECORD_KEYS))}")
+    sources = data["sources"]
+    if not isinstance(sources, dict) or not sources:
+        raise Cannot(f"{path}: sources must be a non-empty object")
+    for sname, src in sources.items():
+        if not isinstance(src, dict) or set(src) != SOURCE_KEYS:
+            raise Cannot(f"{path}: source {sname!r} must have exactly the keys {', '.join(sorted(SOURCE_KEYS))}")
+        if not isinstance(src["url"], str) or not src["url"] or not isinstance(src["license"], str) or not src["license"]:
+            raise Cannot(f"{path}: source {sname!r} needs a url and a license")
+        if not isinstance(src["sha"], str) or not re.fullmatch(r"[0-9a-f]{40}", src["sha"]):
+            raise Cannot(f"{path}: source {sname!r}: sha must be 40 lowercase hex digits")
+        if not isinstance(src["date"], str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", src["date"]):
+            raise Cannot(f"{path}: source {sname!r}: date must be YYYY-MM-DD")
     skills = data["skills"]
     if not isinstance(skills, dict) or not skills:
         raise Cannot(f"{path}: skills must be a non-empty object")
     for name, e in skills.items():
         if not isinstance(e, dict) or e.get("status") not in STATUSES or not isinstance(e.get("upstream_path"), str):
             raise Cannot(f"{path}: skill {name!r} needs an upstream_path and a status of as-is or patched")
-        want = {"upstream_path", "status"} | ({"patch"} if e["status"] == "patched" else set())
+        if e.get("source") not in sources:
+            raise Cannot(f"{path}: skill {name!r} names an unknown source {e.get('source')!r}")
+        want = {"source", "upstream_path", "status"} | ({"patch"} if e["status"] == "patched" else set())
         if set(e) != want:
             raise Cannot(f"{path}: skill {name!r} must have exactly the keys {', '.join(sorted(want))}")
         if e["status"] == "patched":
@@ -95,9 +108,9 @@ def write_upstream(repo, sha, path, dest):
             fh.write(blob(repo, sha, f"{path}/{f}"))
 
 
-def provenance(name, e, sha, source):
+def provenance(name, e, src):
     tail = "copied as-is" if e["status"] == "as-is" else f"modified by agentic-workflow (core/skills/patches/{name}.patch)"
-    return f"<!-- vendored from {source} {e['upstream_path']} at {sha}; license: MIT (see LICENSE); {tail} -->"
+    return f"<!-- vendored from {src['url']} {e['upstream_path']} at {src['sha']}; license: {src['license']} (see LICENSE); {tail} -->"
 
 
 def insert_note(text, note):
@@ -121,9 +134,9 @@ def files_under(d):
     return out
 
 
-def expected_copy(repo, record, name, e, skills_dir, tmp):
+def expected_copy(repo, src, name, e, skills_dir, tmp):
     """Directory holding what the copy should be at the pin: upstream (plus its patch), the note and LICENSE."""
-    sha = record["sha"]
+    sha = src["sha"]
     work = tempfile.mkdtemp(dir=tmp)
     write_upstream(repo, sha, e["upstream_path"], work)
     if e["status"] == "patched":
@@ -139,7 +152,7 @@ def expected_copy(repo, record, name, e, skills_dir, tmp):
         with open(skill, encoding="utf-8") as f:
             text = f.read()
         with open(skill, "w", encoding="utf-8") as f:
-            f.write(insert_note(text, provenance(name, e, sha, record["source"])))
+            f.write(insert_note(text, provenance(name, e, src)))
     with open(os.path.join(out, "LICENSE"), "wb") as f:
         f.write(blob(repo, sha, "LICENSE"))
     return out
@@ -182,69 +195,93 @@ def patch_conflicts(repo, ref, e, skills_dir, tmp):
     return subprocess.run(["git", "apply", "--check", patch], cwd=work, capture_output=True).returncode != 0
 
 
+def open_upstream(location, tmp, label):
+    """A local git repo for an upstream location: a path is used as is, a URL is cloned into tmp."""
+    repo = location
+    if re.match(r"^[a-z][a-z0-9+.-]*://|^git@", location):
+        repo = os.path.join(tmp, "upstream-" + label)
+        p = subprocess.run(["git", "clone", "-q", location, repo], capture_output=True)
+        if p.returncode != 0:
+            raise Cannot(f"can't clone {location}: {p.stderr.decode(errors='replace').strip()}")
+    elif not os.path.isdir(location):
+        raise Cannot(f"can't read upstream {location}: not a directory")
+    if git(repo, "rev-parse", "--git-dir", check=False).returncode != 0:
+        raise Cannot(f"{location} is not a git repository")
+    return repo
+
+
+def check_source(sname, src, location, ref, record, skills_dir, tmp):
+    """(report entries as (sort key, text), drift count, broken patch messages) for one source."""
+    repo = open_upstream(location, tmp, sname)
+    ref = ref or "HEAD"
+    r = git(repo, "rev-parse", "--verify", "--quiet", ref + "^{commit}", check=False)
+    if r.returncode != 0:
+        raise Cannot(f"the ref {ref!r} is not in the upstream")
+    ref = r.stdout.decode().strip()
+    pin = src["sha"]
+    if git(repo, "cat-file", "-e", pin + "^{commit}", check=False).returncode != 0:
+        raise Cannot(f"the pinned commit {pin} is not in the upstream")
+    report, drift, broken = [], 0, []
+    for name in sorted(n for n, e in record["skills"].items() if e["source"] == sname):
+        e = record["skills"][name]
+        path = e["upstream_path"]
+        if not tree_files(repo, ref, path):
+            report.append((name, f"{name}: upstream removed"))
+            drift += 1
+            continue
+        try:
+            expected = expected_copy(repo, src, name, e, skills_dir, tmp)
+        except BrokenPatch as err:
+            report.append((name, f"{name}: patch broken at pin"))
+            broken.append(str(err))
+            drift += 1
+            continue
+        actual = os.path.join(skills_dir, name)
+        drifted = local_drift(expected, actual) if os.path.isdir(actual) else ["  missing: SKILL.md"]
+        if drifted:
+            report.append((name, "\n".join([f"{name}: local drift"] + drifted)))
+            drift += 1
+            continue
+        changes = upstream_changes(repo, pin, ref, path)
+        if changes:
+            conflict = e["status"] == "patched" and patch_conflicts(repo, ref, e, skills_dir, tmp)
+            report.append((name, "\n".join([f"{name}: upstream changed" + (", patch conflict" if conflict else "")] + changes)))
+            drift += 1
+            continue
+        report.append((name, f"{name}: ok"))
+    if git(repo, "cat-file", "-e", f"{ref}:LICENSE", check=False).returncode != 0:
+        report.append(("\uffff" + sname, f"LICENSE {sname}: upstream removed"))
+        drift += 1
+    elif blob(repo, pin, "LICENSE") != blob(repo, ref, "LICENSE"):
+        report.append(("\uffff" + sname, f"LICENSE {sname}: upstream changed"))
+        drift += 1
+    return report, drift, broken
+
+
 def run(args):
     skills_dir = os.path.abspath(args.skills_dir)
     record = load_record(skills_dir)
-    upstream = args.upstream or record["source"]
+    sources = record["sources"]
+    if args.source is not None and args.source not in sources:
+        raise Cannot(f"unknown source {args.source!r}; the record has {', '.join(sorted(sources))}")
+    chosen = [args.source] if args.source else sorted(sources)
+    if (args.upstream or args.ref) and len(chosen) > 1:
+        raise Cannot("--upstream and --ref need --source when the record holds more than one source")
     tmp = tempfile.mkdtemp(prefix="vendor-check-", dir=tempfile.gettempdir())
     try:
-        repo = upstream
-        if re.match(r"^[a-z][a-z0-9+.-]*://|^git@", upstream):
-            repo = os.path.join(tmp, "upstream")
-            p = subprocess.run(["git", "clone", "-q", upstream, repo], capture_output=True)
-            if p.returncode != 0:
-                raise Cannot(f"can't clone {upstream}: {p.stderr.decode(errors='replace').strip()}")
-        elif not os.path.isdir(upstream):
-            raise Cannot(f"can't read upstream {upstream}: not a directory")
-        if git(repo, "rev-parse", "--git-dir", check=False).returncode != 0:
-            raise Cannot(f"{upstream} is not a git repository")
-        ref = args.ref or "HEAD"
-        r = git(repo, "rev-parse", "--verify", "--quiet", ref + "^{commit}", check=False)
-        if r.returncode != 0:
-            raise Cannot(f"the ref {ref!r} is not in the upstream")
-        ref = r.stdout.decode().strip()
-        pin = record["sha"]
-        if git(repo, "cat-file", "-e", pin + "^{commit}", check=False).returncode != 0:
-            raise Cannot(f"the pinned commit {pin} is not in the upstream")
         report, drift, broken = [], 0, []
-        for name in sorted(record["skills"]):
-            e = record["skills"][name]
-            path = e["upstream_path"]
-            if not tree_files(repo, ref, path):
-                report.append(f"{name}: upstream removed")
-                drift += 1
-                continue
-            try:
-                expected = expected_copy(repo, record, name, e, skills_dir, tmp)
-            except BrokenPatch as err:
-                report.append(f"{name}: patch broken at pin")
-                broken.append(str(err))
-                drift += 1
-                continue
-            actual = os.path.join(skills_dir, name)
-            drifted = local_drift(expected, actual) if os.path.isdir(actual) else ["  missing: SKILL.md"]
-            if drifted:
-                report += [f"{name}: local drift"] + drifted
-                drift += 1
-                continue
-            changes = upstream_changes(repo, pin, ref, path)
-            if changes:
-                conflict = e["status"] == "patched" and patch_conflicts(repo, ref, e, skills_dir, tmp)
-                report += [f"{name}: upstream changed" + (", patch conflict" if conflict else "")] + changes
-                drift += 1
-                continue
-            report.append(f"{name}: ok")
-        if git(repo, "cat-file", "-e", f"{ref}:LICENSE", check=False).returncode != 0:
-            report.append("LICENSE: upstream removed")
-            drift += 1
-        elif blob(repo, pin, "LICENSE") != blob(repo, ref, "LICENSE"):
-            report.append("LICENSE: upstream changed")
-            drift += 1
+        for sname in chosen:
+            r, d, b = check_source(sname, sources[sname], args.upstream or sources[sname]["url"], args.ref,
+                                   record, skills_dir, tmp)
+            report += r
+            drift += d
+            broken += b
+        lines = [text for _, text in sorted(report, key=lambda x: x[0])]
         if broken:
-            sys.stdout.write("\n".join(report) + "\n")
+            sys.stdout.write("\n".join(lines) + "\n")
             raise Cannot("; ".join(broken))
-        report.append("no drift" if not drift else f"drift in {drift} skill(s)")
-        sys.stdout.write("\n".join(report) + "\n")
+        lines.append("no drift" if not drift else f"drift in {drift} skill(s)")
+        sys.stdout.write("\n".join(lines) + "\n")
         return 1 if drift else 0
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -252,6 +289,7 @@ def run(args):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--source")
     p.add_argument("--upstream")
     p.add_argument("--ref")
     p.add_argument("--skills-dir", default=os.path.join(os.path.dirname(HERE), "core", "skills"))

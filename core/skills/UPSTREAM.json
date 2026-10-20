@@ -1,27 +1,37 @@
 {
-  "source": "https://github.com/mattpocock/skills",
-  "sha": "d81f3a183412e71a5b1e84ca21bc1a35eea03a60",
-  "date": "2026-09-29",
+  "sources": {
+    "mattpocock": {
+      "url": "https://github.com/mattpocock/skills",
+      "sha": "d81f3a183412e71a5b1e84ca21bc1a35eea03a60",
+      "date": "2026-09-29",
+      "license": "MIT"
+    }
+  },
   "skills": {
     "grilling": {
+      "source": "mattpocock",
       "upstream_path": "skills/productivity/grilling",
       "status": "as-is"
     },
     "writing-for-agents": {
+      "source": "mattpocock",
       "upstream_path": "skills/productivity/writing-for-agents",
       "status": "as-is"
     },
     "handoff": {
+      "source": "mattpocock",
       "upstream_path": "skills/productivity/handoff",
       "status": "patched",
       "patch": "patches/handoff.patch"
     },
     "diagnosing-bugs": {
+      "source": "mattpocock",
       "upstream_path": "skills/engineering/diagnosing-bugs",
       "status": "patched",
       "patch": "patches/diagnosing-bugs.patch"
     },
     "tdd": {
+      "source": "mattpocock",
       "upstream_path": "skills/engineering/tdd",
       "status": "patched",
       "patch": "patches/tdd.patch"

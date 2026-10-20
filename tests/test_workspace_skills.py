@@ -53,7 +53,7 @@ class TestVendoredSet(unittest.TestCase):
                     if f == "SKILL.md":
                         got = strip_note(got.decode("utf-8")).encode("utf-8")
                     self.assertEqual(got, upstream_file(clone, path, f), f)
-        p = subprocess.run([str(ROOT / "scripts" / "vendor-check"), "--upstream", str(clone), "--ref", PIN],
+        p = subprocess.run([str(ROOT / "scripts" / "vendor-check"), "--source", "mattpocock", "--upstream", str(clone), "--ref", PIN],
                            capture_output=True, text=True, timeout=120) if (ROOT / "scripts" / "vendor-check").exists() \
             else None
         self.assertIsNotNone(p, "scripts/vendor-check exists")
@@ -61,7 +61,7 @@ class TestVendoredSet(unittest.TestCase):
             self.assertIn("%s: ok" % d, p.stdout.splitlines(), p.stdout + p.stderr)
 
     def test_every_copy_carries_an_exact_provenance_line(self):
-        sha = json.loads((SK / "UPSTREAM.json").read_text())["sha"]
+        sha = json.loads((SK / "UPSTREAM.json").read_text())["sources"]["mattpocock"]["sha"]
         for d, (_, status) in SKILLS.items():
             with self.subTest(skill=d):
                 fm, rest = split_frontmatter(read(d))
@@ -81,23 +81,26 @@ class TestVendoredSet(unittest.TestCase):
 
     def test_upstream_record_names_the_pin_and_every_patch(self):
         data = json.loads((SK / "UPSTREAM.json").read_text())
-        self.assertEqual(set(data), {"source", "sha", "date", "skills"})
-        self.assertEqual((data["source"], data["sha"], data["date"]), (SOURCE, PIN, "2026-09-29"))
-        self.assertRegex(data["sha"], r"^[0-9a-f]{40}$")
+        self.assertEqual(set(data), {"sources", "skills"})
+        src = data["sources"]["mattpocock"]
+        self.assertEqual(set(src), {"url", "sha", "date", "license"})
+        self.assertEqual((src["url"], src["sha"], src["date"], src["license"]), (SOURCE, PIN, "2026-09-29", "MIT"))
+        self.assertRegex(src["sha"], r"^[0-9a-f]{40}$")
         self.assertEqual(set(data["skills"]), set(SKILLS))
         named = set()
         for d, entry in data["skills"].items():
             with self.subTest(skill=d):
                 path, status = SKILLS[d]
+                self.assertEqual(entry["source"], "mattpocock")
                 self.assertEqual(entry["upstream_path"], path)
                 self.assertEqual(entry["status"], status)
                 if status == "patched":
-                    self.assertEqual(set(entry), {"upstream_path", "status", "patch"})
+                    self.assertEqual(set(entry), {"source", "upstream_path", "status", "patch"})
                     self.assertEqual(entry["patch"], "patches/%s.patch" % d)
                     self.assertTrue((SK / entry["patch"]).is_file())
                     named.add(entry["patch"])
                 else:
-                    self.assertEqual(set(entry), {"upstream_path", "status"})
+                    self.assertEqual(set(entry), {"source", "upstream_path", "status"})
         self.assertEqual({"patches/" + p.name for p in (SK / "patches").iterdir()}, named)
 
     def test_each_patched_copy_is_upstream_plus_its_stored_patch(self):
