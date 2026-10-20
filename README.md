@@ -70,9 +70,11 @@ The copies never auto-update. Each carries its `LICENSE` and a provenance line, 
 | `differential-review` | patched | the security reviewer, to review a diff |
 | `fp-check` | patched | the security reviewer, to try to disprove one finding |
 
-### Third-party licenses
+### Licenses
 
-The Matt Pocock copies are MIT licensed. The two Trail of Bits skills, and our patches to them, are licensed under [CC-BY-SA-4.0](https://creativecommons.org/licenses/by-sa/4.0/): the copies are by Trail of Bits, our changes are marked in each provenance line and kept in `core/skills/patches/`, and each copy carries the upstream `LICENSE`. The Trail of Bits logo in their `assets/` stays only as upstream attribution. This repository has no license of its own yet.
+This repository's own code and docs are MIT licensed, see [LICENSE](./LICENSE), except the vendored skills and our patches to them, which keep their own licenses, below.
+
+The Matt Pocock copies stay MIT licensed under their own `LICENSE` files. The two Trail of Bits skills, and our patches to them, are licensed under [CC-BY-SA-4.0](https://creativecommons.org/licenses/by-sa/4.0/): the copies are by Trail of Bits, our changes are marked in each provenance line and kept in `core/skills/patches/`, and each copy carries the upstream `LICENSE`. The Trail of Bits logo in their `assets/` stays only as upstream attribution.
 
 `scripts/vendor-check` reports drift from upstream and changes nothing.
 
