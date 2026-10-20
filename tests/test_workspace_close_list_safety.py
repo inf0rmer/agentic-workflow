@@ -1,6 +1,7 @@
 """Behaviour of close and list that must stay safe: what counts as unpushed, no network, no leftover processes."""
 
 import errno
+import json
 import os
 import select
 import subprocess
@@ -119,6 +120,79 @@ class TestCloseAndListSafety(LifecycleCase):
         self.sb.git(repos_g["B"], "remote", "set-url", "origin", net.url + "/B.git")
         self.sb.git(repos_g["B"], "fetch", "-q", "origin", check=False, env=net.proxy_env())
         self.assertGreaterEqual(net.connections, 1)
+
+class TestDetachedHeadClose(LifecycleCase):
+    """A detached HEAD on a commit no local branch holds is lost once the worktree goes."""
+
+    def orphan(self, feature, name, push=True):
+        """Detach the worktree on a new commit that no local branch holds.
+
+        With `push`, the commit is also pushed to a remote branch that is then deleted on the
+        remote without a fetch, so only a stale remote-tracking ref still contains it.
+        """
+        ws, repos, wts = self.pushed_ws(feature, name)
+        wt = wts[name]
+        self.sb.git(wt, "checkout", "-q", "--detach")
+        sha = self.sb.commit_file(wt, "pkg/d.go", "package pkg\n", "detached work")
+        if push:
+            self.sb.git(wt, "push", "-q", "origin", "HEAD:refs/heads/tmp")
+            bare = self.sb.git(repos[name], "remote", "get-url", "origin")
+            self.sb.git(bare, "update-ref", "-d", "refs/heads/tmp")
+            # newer git records a push to a matching remote under refs/remotes; make sure the stale ref is there
+            self.sb.git(wt, "update-ref", "refs/remotes/origin/tmp", sha)
+        return repos, wts, sha
+
+    def test_detached_commit_on_no_local_branch_is_refused(self):
+        repos, wts, sha = self.orphan("f", "A")
+        before = self.everything(repos["A"])
+        r = self.close("f")
+        self.code(r, 1)
+        self.has(r.err, str(wts["A"]), r)
+        self.has(r.err, "detached HEAD " + sha[:7], r)
+        self.has(r.err, "branch keep-%s %s" % (sha[:7], sha[:7]), r)
+        self.assertEqual(self.everything(repos["A"]), before)
+        self.assertTrue(os.path.isdir(wts["A"]))
+
+    def test_force_discards_it_and_records_the_full_sha(self):
+        repos, wts, sha = self.orphan("f", "A")
+        r = self.close("f", "--force")
+        self.ok(r)
+        self.has(r.out, "discarded detached HEAD %s on no local branch" % sha[:7], r)
+        meta = json.loads((self.sb.ar_root / "f" / "archive.json").read_text())
+        self.assertTrue(any(sha in d["reason"] for d in meta["discarded"]), meta)
+
+    def test_the_printed_keep_command_clears_the_problem(self):
+        repos, wts, sha = self.orphan("f", "A")
+        r = self.close("f")
+        self.code(r, 1)
+        self.sb.git(wts["A"], "branch", "keep-" + sha[:7], sha)
+        self.ok(self.close("f"))
+
+    def test_detached_commit_on_a_local_branch_is_fine(self):
+        ws, repos, wts = self.pushed_ws("f", "A")
+        self.sb.git(wts["A"], "checkout", "-q", "--detach")
+        self.ok(self.close("f"))
+
+    def test_one_orphaned_repo_blocks_the_whole_close(self):
+        ws, repos, wts = self.pushed_ws("f", "A", "B")
+        self.sb.git(wts["B"], "checkout", "-q", "--detach")
+        self.sb.commit_file(wts["B"], "pkg/d.go", "package pkg\n", "detached work")
+        before = self.everything(repos["A"], repos["B"])
+        r = self.close("f")
+        self.code(r, 1)
+        self.has(r.err, str(wts["B"]), r)
+        self.assertNotIn(str(wts["A"]), r.err)
+        self.assertEqual(self.everything(repos["A"], repos["B"]), before)
+        self.assertTrue(os.path.isdir(wts["A"]) and os.path.isdir(wts["B"]))
+
+    def test_detached_orphaned_and_unpushed_lists_both_problems(self):
+        ws, repos, wts = self.pushed_ws("f", "A")
+        self.sb.git(wts["A"], "checkout", "-q", "--detach")
+        self.sb.commit_file(wts["A"], "pkg/d.go", "package pkg\n", "detached work")
+        r = self.close("f")
+        self.code(r, 1)
+        self.has(r.err, "unpushed commits", r)
+        self.has(r.err, "is on no local branch", r)
 
 
 if __name__ == "__main__":
