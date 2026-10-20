@@ -108,6 +108,11 @@ class TestRoleText(unittest.TestCase):
             with self.subTest(needle=needle):
                 self.assertIn(needle, low)
 
+    def test_it_names_the_git_commands_that_change_the_tree_and_forbids_them(self):
+        self.assertIn("never run `git checkout`, `switch`, `stash`, `reset`, `restore`, `commit`, or any other "
+                      "command that changes the working tree, the index or a branch", self.text.lower())
+        self.assertIn("read history with `git show`, `git diff` and `git log` only", self.text.lower())
+
     def test_gitleaks_shows_rule_file_and_line_with_the_secret_redacted(self):
         self.assertIn('gitleaks git -v --no-banner --log-opts="<base>..HEAD" --redact', self.text)
 

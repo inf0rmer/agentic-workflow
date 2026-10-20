@@ -47,7 +47,7 @@ Files that change what an agent may run, reach or push (tool lists, permission a
 
 Run only the ones that are installed (`command -v <name>`), and only the ones the change calls for. A scanner that is not installed goes in the report under "Not verified", with its install command. Never install one yourself.
 
-Never run, import, build or install code from the repo or the diff under review, and never make temp copies or worktrees of it. Read it, grep it, and run only the scanners and read-only `git` commands (`git show`, `git diff`, `git blame`, `git log`).
+Never run, import, build or install code from the repo or the diff under review, and never make temp copies or worktrees of it. Read it, grep it, and run only the scanners and read-only `git` commands (`git show`, `git diff`, `git blame`, `git log`). Never run `git checkout`, `switch`, `stash`, `reset`, `restore`, `commit`, or any other command that changes the working tree, the index or a branch. Read history with `git show`, `git diff` and `git log` only.
 
 | Scanner | When | Command | Install |
 |---|---|---|---|
