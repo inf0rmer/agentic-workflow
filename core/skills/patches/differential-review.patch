@@ -139,13 +139,13 @@ similarity index 100%
 rename from plugins/differential-review/skills/differential-review/assets/trail-of-bits-mark.svg
 rename to core/skills/differential-review/assets/trail-of-bits-mark.svg
 diff --git a/plugins/differential-review/skills/differential-review/methodology.md b/core/skills/differential-review/methodology.md
-similarity index 82%
+similarity index 80%
 rename from plugins/differential-review/skills/differential-review/methodology.md
 rename to core/skills/differential-review/methodology.md
-index 71d9dc0..31492ab 100644
+index 71d9dc0..195b843 100644
 --- a/plugins/differential-review/skills/differential-review/methodology.md
 +++ b/core/skills/differential-review/methodology.md
-@@ -6,21 +6,9 @@ Detailed phase-by-phase workflow for security-focused code review.
+@@ -6,21 +6,8 @@ Detailed phase-by-phase workflow for security-focused code review.
  
  **FIRST ACTION - Build complete baseline understanding:**
  
@@ -164,13 +164,31 @@ index 71d9dc0..31492ab 100644
 -# For Rust: audit-context-building --scope src
 -# For full repo: audit-context-building --scope .
 -```
-+Check out the baseline commit into a scratch worktree only if you need to read it; never
-+change the working tree you were given. Read the entire relevant project directory with
-+Read, Grep and Glob.
++Read the baseline with `git show <base>:<path>` and `git diff`, plus Read, Grep and Glob on
++the working tree you were given. Never switch branches, copy the tree or make a second working copy.
  
  **Capture from baseline analysis:**
  - System-wide invariants (what must ALWAYS be true across all code)
-@@ -175,14 +163,7 @@ grep -r "functionName(" --include="*.sol" . | wc -l
+@@ -39,8 +26,6 @@ audit-context-building --scope [entire project or main contract directory] --foc
+ 
+ **Store baseline context for reference during differential analysis.**
+ 
+-After baseline analysis, checkout back to head commit to analyze changes.
+-
+ ---
+ 
+ ## Phase 0: Intake & Triage
+@@ -51,9 +36,6 @@ After baseline analysis, checkout back to head commit to analyze changes.
+ git diff <base>..<head> --stat
+ git log <base>..<head> --oneline
+ 
+-# For PR
+-gh pr view <number> --json files,additions,deletions
+-
+ # Get all changed files
+ git diff <base>..<head> --name-only
+ ```
+@@ -175,14 +157,7 @@ grep -r "functionName(" --include="*.sol" . | wc -l
  
  ## Phase 4: Deep Context Analysis
  
@@ -186,7 +204,7 @@ index 71d9dc0..31492ab 100644
  
  1. **Map complete function flow:**
     - Entry conditions (preconditions, requires, modifiers)
-@@ -213,8 +194,6 @@ audit-context-building --scope [file containing changed function] --focus flow-a
+@@ -213,8 +188,6 @@ audit-context-building --scope [file containing changed function] --focus flow-a
     - WHY is this approach chosen?
     - WHY could this fail in production?
  
@@ -196,9 +214,35 @@ index 71d9dc0..31492ab 100644
  ```bash
  # Find repeated validation patterns
 diff --git a/plugins/differential-review/skills/differential-review/patterns.md b/core/skills/differential-review/patterns.md
-similarity index 100%
+similarity index 89%
 rename from plugins/differential-review/skills/differential-review/patterns.md
 rename to core/skills/differential-review/patterns.md
+index 71078a7..a095ec4 100644
+--- a/plugins/differential-review/skills/differential-review/patterns.md
++++ b/core/skills/differential-review/patterns.md
+@@ -2,22 +2,6 @@
+ 
+ Quick reference for detecting common security issues in code changes.
+ 
+-**Specialized Pattern Resources:**
+-For specific contexts, reference these additional pattern databases:
+-
+-**Domain-Specific:**
+-- `domain-specific-audits/defi-bridges/resources/` - 127 bridge-specific findings
+-- `domain-specific-audits/tick-math/resources/` - 81 tick math findings
+-- `domain-specific-audits/merkle-trees/resources/` - 67 merkle tree findings
+-- [Check `domain-specific-audits/skills/` for additional domains]
+-
+-**Solidity-Specific:**
+-- `not-so-smart-contracts` - Automated Solidity vulnerability detectors
+-- `token-integration-analyzer` - Token integration safety patterns
+-- `building-secure-contracts/development-guidelines` - Solidity best practices
+-
+-These complement the generic patterns below.
+-
+ ---
+ 
+ ## Security Regressions
 diff --git a/plugins/differential-review/skills/differential-review/reporting.md b/core/skills/differential-review/reporting.md
 similarity index 80%
 rename from plugins/differential-review/skills/differential-review/reporting.md

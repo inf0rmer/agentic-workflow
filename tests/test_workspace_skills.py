@@ -190,9 +190,12 @@ class TestPatchedContent(unittest.TestCase):
                 text = read(d, f)
                 for word in ("adversarial-modeler", "issue-writer", "audit-context-building", "{baseDir}",
                              "AskUserQuestion", "TaskCreate", "poc-builder", "data-flow-analyzer",
-                             "exploitability-verifier", "DIFFERENTIAL_REVIEW"):
+                             "exploitability-verifier", "DIFFERENTIAL_REVIEW", "domain-specific-audits",
+                             "checkout", "worktree"):
                     with self.subTest(file="%s/%s" % (d, f), word=word):
                         self.assertNotIn(word, text)
+                with self.subTest(file="%s/%s" % (d, f), word="gh"):
+                    self.assertIsNone(re.search(r"\bgh\b", text))
         self.assertIn("final message", read("differential-review", "reporting.md"))
 
     def test_bug_fix_section_gives_the_whole_loop_to_the_engineer(self):

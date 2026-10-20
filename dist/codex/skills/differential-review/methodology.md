@@ -6,9 +6,8 @@ Detailed phase-by-phase workflow for security-focused code review.
 
 **FIRST ACTION - Build complete baseline understanding:**
 
-Check out the baseline commit into a scratch worktree only if you need to read it; never
-change the working tree you were given. Read the entire relevant project directory with
-Read, Grep and Glob.
+Read the baseline with `git show <base>:<path>` and `git diff`, plus Read, Grep and Glob on
+the working tree you were given. Never switch branches, copy the tree or make a second working copy.
 
 **Capture from baseline analysis:**
 - System-wide invariants (what must ALWAYS be true across all code)
@@ -27,8 +26,6 @@ Read, Grep and Glob.
 
 **Store baseline context for reference during differential analysis.**
 
-After baseline analysis, checkout back to head commit to analyze changes.
-
 ---
 
 ## Phase 0: Intake & Triage
@@ -38,9 +35,6 @@ After baseline analysis, checkout back to head commit to analyze changes.
 # For commit range
 git diff <base>..<head> --stat
 git log <base>..<head> --oneline
-
-# For PR
-gh pr view <number> --json files,additions,deletions
 
 # Get all changed files
 git diff <base>..<head> --name-only

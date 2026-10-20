@@ -88,7 +88,7 @@ class TestRoleText(unittest.TestCase):
                                  ("zizmor", "brew install zizmor")):
             with self.subTest(scanner=scanner):
                 self.assertIn(install, self.text)
-        self.assertIn("gitleaks git --log-opts", self.text)
+        self.assertIn("gitleaks git -v --no-banner --log-opts", self.text)
         self.assertIn("--redact", self.text)
         self.assertIn("--baseline-commit", self.text)
         self.assertIn("--metrics off", self.text)
@@ -100,6 +100,29 @@ class TestRoleText(unittest.TestCase):
                        "STOP: the human decides", "Never quote a secret value"):
             with self.subTest(needle=needle):
                 self.assertIn(needle.lower(), self.text.lower())
+
+    def test_it_never_runs_or_copies_code_under_review(self):
+        low = self.text.lower()
+        for needle in ("never run, import, build or install code from the repo or the diff",
+                       "never make temp copies or worktrees"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, low)
+
+    def test_gitleaks_shows_rule_file_and_line_with_the_secret_redacted(self):
+        self.assertIn('gitleaks git -v --no-banner --log-opts="<base>..HEAD" --redact', self.text)
+
+    def test_agent_aimed_text_is_always_reported_even_if_a_gate_would_reject_it(self):
+        low = self.text.lower()
+        self.assertIn("bypasses gate 3", low)
+        self.assertIn("hardening notes", low)
+
+    def test_missing_upstream_clone_is_not_verified_and_never_fetched(self):
+        low = self.text.lower()
+        self.assertIn("no local upstream clone", low)
+        self.assertIn("byte-for-byte", low)
+
+    def test_scanner_output_never_quotes_matched_secrets(self):
+        self.assertIn("never quote a matched value from any scanner", self.text.lower())
 
     def test_it_never_asks_for_a_report_file_in_a_repo_or_temp_dir(self):
         self.assertIsNone(re.search(r"/tmp\b|\$TMPDIR", self.text))
@@ -137,6 +160,14 @@ class TestWorkflowText(unittest.TestCase):
                        "security fix", "vulnerability in existing code", "Security review:"):
             with self.subTest(needle=needle):
                 self.assertIn(needle, text)
+
+    def test_the_leads_trigger_list_matches_the_roles(self):
+        text = self.read("instructions.md")
+        step = text[text.index("5. **Review.**"):text.index("6. **PR description.**")]
+        for needle in ("outbound network", "crypto and randomness", "sessions and tokens", "templates and HTML",
+                       "tool lists or permissions", "security-reviewer` role's list"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, step)
 
     def test_instructions_start_the_role_in_both_variants_and_one_check_per_candidate(self):
         text = self.read("instructions.md")

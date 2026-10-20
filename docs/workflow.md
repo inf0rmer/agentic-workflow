@@ -16,9 +16,9 @@ flowchart TD
     F4 --> R[Fresh reviewer: checks the diff and tests<br/>against the doc, runs the real tools]
     R -->|blockers or majors| X[Engineer fixes] --> R2[New fresh reviewer<br/>checks only the fix]
     R2 --> P
-    R -.->|risky area touched| SR[Security reviewer: scanners and attack paths,<br/>one fresh check per finding]
-    SR -.->|confirmed finding| X
-    SR -.-> P
+    R -.->|risky area touched| SEC[Security reviewer: scanners and attack paths,<br/>one fresh check per finding]
+    SEC -.->|confirmed finding| X
+    SEC -.-> P
     R -->|clean| P[Lead drafts the PR description:<br/>what changed, where to look,<br/>decisions made, not verified, risk line]
     S --> SR[One review] --> SH[You read the findings.<br/>A spike never merges as is]
     P --> H{You review the code}
