@@ -20,6 +20,11 @@
       "description": "Review code and tests against the design doc and run the real tools. Identify correctness bugs, deviations from the design, security issues, weakened tests and test gaps; write the review guide and the merge-risk line. Use when code is ready for review before merging.",
       "tier": "strong"
     },
+    "security-reviewer": {
+      "description": "Review a change that touches a risky area for security problems: run the installed scanners on the diff, trace untrusted input to risky operations, and report only findings with a concrete attack path. A second run tries to disprove each finding. Read-only. Use when the change touches auth, parsing, shell, file paths, secrets, dependencies, CI or similar, or when the reviewer asks for it.",
+      "tier": "strong",
+      "access": "read-only"
+    },
     "software-engineer": {
       "description": "Build production-ready code from an approved design doc, writing tests and code together in small, working increments. Use when there is a design doc or a Quick plan to implement.",
       "tier": "standard"

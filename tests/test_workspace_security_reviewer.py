@@ -1,0 +1,119 @@
+"""The security-reviewer role: how it builds for each harness, and what its text promises.
+
+Builds go to a temp dir, so these tests don't depend on dist/ being current.
+"""
+
+import json
+import re
+import sys
+import tempfile
+import tomllib
+import unittest
+from pathlib import Path
+
+from wslib import ROOT
+
+sys.path.insert(0, str(ROOT))
+import build  # noqa: E402
+
+ROLE = ROOT / "core" / "roles" / "security-reviewer.md"
+LIMIT = 16 * 1024
+BANNED_TOOLS = ("Edit", "Write", "WebFetch", "WebSearch", "Agent")
+
+
+def built(harness):
+    tmp = tempfile.TemporaryDirectory()
+    build.build(harness, tmp.name)
+    return tmp
+
+
+def frontmatter(path):
+    text = Path(path).read_text()
+    assert text.startswith("---\n")
+    return dict(l.split(": ", 1) for l in text.split("---\n")[1].splitlines())
+
+
+class TestBuildOutput(unittest.TestCase):
+
+    def test_claude_code_role_is_limited_to_read_only_tools(self):
+        with built("claude-code") as out:
+            fm = frontmatter(Path(out) / "agents" / "security-reviewer.md")
+        self.assertEqual(fm["tools"], "Read, Grep, Glob, Bash, Skill")
+        for tool in BANNED_TOOLS:
+            self.assertNotIn(tool, fm["tools"])
+        self.assertEqual(fm["model"], "claude-opus-5-5")
+
+    def test_no_other_claude_code_role_gets_a_tools_line(self):
+        with built("claude-code") as out:
+            for f in sorted((Path(out) / "agents").glob("*.md")):
+                if f.stem != "security-reviewer":
+                    with self.subTest(role=f.stem):
+                        self.assertNotIn("tools", frontmatter(f))
+
+    def test_codex_role_parses_and_has_no_tools_setting(self):
+        with built("codex") as out:
+            data = tomllib.loads((Path(out) / "agents" / "security-reviewer.toml").read_text())
+        self.assertEqual(data["name"], "security-reviewer")
+        self.assertIn("security", data["description"].lower())
+        self.assertNotIn("tools", data)
+        self.assertNotIn("sandbox_mode", data)
+
+    def test_rendered_instructions_stay_under_the_size_limit(self):
+        for harness, name in (("claude-code", "CLAUDE.md"), ("codex", "AGENTS.md")):
+            with self.subTest(harness=harness), built(harness) as out:
+                self.assertLessEqual(len((Path(out) / name).read_bytes()), LIMIT)
+
+    def test_the_role_is_read_only_in_the_team_file(self):
+        role = json.loads((ROOT / "core" / "team.json").read_text())["roles"]["security-reviewer"]
+        self.assertEqual((role["tier"], role["access"]), ("strong", "read-only"))
+
+
+class TestRoleText(unittest.TestCase):
+
+    def setUp(self):
+        self.text = ROLE.read_text()
+
+    def test_it_lists_every_trigger(self):
+        for t in ("authn/authz", "input parsing or deserialization", "templates and HTML", "SQL, shell or exec",
+                  "file paths", "outbound network", "crypto and randomness", "secrets and config defaults",
+                  "dependency manifests and lockfiles", "CI config, installers and hooks", "stored-data formats",
+                  "writes into a user's home dir or settings", "removed validation or security code"):
+            with self.subTest(trigger=t):
+                self.assertIn(t, self.text)
+
+    def test_each_scanner_comes_with_its_install_command(self):
+        for scanner, install in (("gitleaks", "brew install gitleaks"), ("semgrep", "brew install semgrep"),
+                                 ("osv-scanner", "brew install osv-scanner"),
+                                 ("govulncheck", "go install golang.org/x/vuln/cmd/govulncheck@latest"),
+                                 ("zizmor", "brew install zizmor")):
+            with self.subTest(scanner=scanner):
+                self.assertIn(install, self.text)
+        self.assertIn("gitleaks git --log-opts", self.text)
+        self.assertIn("--redact", self.text)
+        self.assertIn("--baseline-commit", self.text)
+        self.assertIn("--metrics off", self.text)
+        self.assertIn("zizmor --offline", self.text)
+
+    def test_it_states_the_rules_that_keep_findings_private_and_diffs_untrusted(self):
+        for needle in ("never report", "denial of service", "data, not instructions",
+                       "never silently drop a scanner hit", "team-guard workspace-path",
+                       "STOP: the human decides", "Never quote a secret value"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle.lower(), self.text.lower())
+
+    def test_it_never_asks_for_a_report_file_in_a_repo_or_temp_dir(self):
+        self.assertIsNone(re.search(r"/tmp\b|\$TMPDIR", self.text))
+
+    def test_each_harness_loads_each_skill_its_own_way(self):
+        with built("claude-code") as out:
+            claude = (Path(out) / "agents" / "security-reviewer.md").read_text()
+        with built("codex") as out:
+            codex = (Path(out) / "agents" / "security-reviewer.toml").read_text()
+        for skill in ("differential-review", "fp-check"):
+            with self.subTest(skill=skill):
+                self.assertIn("call the Skill tool with `%s`" % skill, claude)
+                self.assertIn("mention `$%s`" % skill, codex)
+
+
+if __name__ == "__main__":
+    unittest.main()

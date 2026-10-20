@@ -6,7 +6,8 @@
 
 core/instructions.md and core/roles/*.md use {{placeholders}} for anything that
 differs between harnesses; core/team.json gives each role a description and a
-model tier. adapters/<harness>/adapter.json maps tiers to models and fills the
+model tier, and marks a read-only role, which Claude Code limits to the adapter's
+read_only_tools (Codex has no tool list, so the role's own text is its only guard). adapters/<harness>/adapter.json maps tiers to models and fills the
 placeholders. Output formats are chosen by the adapter's "harness" field.
 """
 import argparse
@@ -57,7 +58,9 @@ def build_claude_code(adapter, team, out):
     vars_ = adapter["vars"]
     write(os.path.join(out, "CLAUDE.md"), instructions(adapter))
     for name, role in team["roles"].items():
-        frontmatter = f"---\nname: {name}\nmodel: {adapter['models'][role['tier']]}\ndescription: {role['description']}\n---\n"
+        tools = f"tools: {adapter['read_only_tools']}\n" if role.get("access") == "read-only" else ""
+        frontmatter = (f"---\nname: {name}\nmodel: {adapter['models'][role['tier']]}\n{tools}"
+                       f"description: {role['description']}\n---\n")
         write(os.path.join(out, "agents", f"{name}.md"), frontmatter + render(load(f"core/roles/{name}.md"), vars_, name))
 
 
