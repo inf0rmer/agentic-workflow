@@ -16,7 +16,7 @@ flowchart LR
 | Part | Supplies |
 |---|---|
 | `core/instructions.md`, `core/roles/*.md` | The workflow and role prose, with `{{placeholders}}` wherever the harnesses differ. |
-| `core/team.json` | Each role's description and model tier: `strong`, `standard`, or `fast`. |
+| `core/team.json` | Each role's description and model tier: `strong`, `standard`, or `fast`, and `"access": "read-only"` for a role that must not edit. |
 | `core/bin/`, `core/skills/` | `team-guard` and the skills, shared by every harness. |
 | `adapters/<harness>/adapter.json` | The `harness` type, the model for each tier, and a value for every placeholder. |
 
@@ -87,6 +87,8 @@ The byte-for-byte checks need a local clone of each upstream at its pin. Run the
 
 On Codex, the engineer loads `$tdd` by mentioning it in its developer instructions. The Codex docs say an explicit `$skill` mention still works when implicit invocation is off, but that loading from developer instructions rather than a user turn is unverified.
 If it doesn't load, the lead can put `$tdd` in the engineer's spawn prompt, which is a user turn.
+
+The security reviewer is read-only by its tool list on Claude Code and by its own text on Codex. Because it needs Bash for the scanners, the Claude Code list is a guard, not a wall. No live Codex team has run this role, so how it behaves there is unverified.
 
 ## Install
 
@@ -164,6 +166,7 @@ It also writes `~/.codex/rules/agentic-workflow.rules`, which lets `team-guard` 
 | Instructions | `~/.claude/CLAUDE.md` | `~/.codex/AGENTS.md`, with no `@imports` and a 32 KiB cap together with project `AGENTS.md` files |
 | Step ordering | The lead starts one subagent per step and waits for its report | The lead spawns each step with `spawn_agent` and waits with `wait_agent` |
 | Tool permissions | One allow rule in `settings.json` | `prefix_rule`s in `~/.codex/rules/` |
+| Read-only role | The build gives the security reviewer a `tools:` line (`read_only_tools` in the adapter) with no Edit, Write, web or Agent tool | Prose only: no tool list exists, and a read-only sandbox would also block the scanners |
 | Skills | `~/.claude/skills/` | `~/.agents/skills/` (`$tdd`) |
 
 Both harnesses share the workspace and archive directories under `~/.agentic-workflow/`, so one team can mix them.
