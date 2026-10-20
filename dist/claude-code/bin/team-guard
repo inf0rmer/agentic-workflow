@@ -19,6 +19,7 @@ import calendar
 import json
 import os
 import re
+import shlex
 import shutil
 import stat
 import subprocess
@@ -594,10 +595,11 @@ def detached_orphan(wt):
     Remote-tracking refs don't count: they can be stale, and the commit is gone once the
     worktree is. A git error counts as an orphan, since a wrong guess here loses work.
     """
-    if git("symbolic-ref", "-q", "HEAD", cwd=wt, check=False).returncode != 1:
+    code = git("symbolic-ref", "-q", "HEAD", cwd=wt, check=False).returncode
+    if code == 0:
         return None
     r = git("rev-list", "-1", "HEAD", "--not", "--branches", cwd=wt, check=False)
-    if r.returncode == 0 and not r.stdout.strip():
+    if code == 1 and r.returncode == 0 and not r.stdout.strip():
         return None
     head = git("rev-parse", "HEAD", cwd=wt, check=False)
     return head.stdout.strip() if head.returncode == 0 and head.stdout.strip() else "(unknown commit)"
@@ -610,7 +612,7 @@ def refusal_line(wt, reason):
         return f"  {wt}: {reason}" if wt else f"  {reason}"
     sha, short = m.group(1), m.group(1)[:7]
     return (f"  {wt}: detached HEAD {short} is on no local branch; keep it with: "
-            f"git -C {wt} branch keep-{short} {sha}")
+            f"git -C {shlex.quote(wt)} branch keep-{short} {sha}")
 
 
 def short_reason(reason):
@@ -770,8 +772,9 @@ def cmd_ws_close(a):
             die(e.header)
         lines = [f"team-guard: {e.header}"] + [refusal_line(p, why) for p, why in e.problems]
         if e.force_hint:
-            lines.append("use --force to remove them anyway (branches are kept; "
-                         "a detached commit on no branch is not)")
+            detached = any("detached HEAD" in why for _, why in e.problems)
+            lines.append("use --force to remove them anyway (branches are kept"
+                         + ("; a detached commit on no branch is not)" if detached else ")"))
         print("\n".join(lines), file=sys.stderr)
         sys.exit(1)
 
