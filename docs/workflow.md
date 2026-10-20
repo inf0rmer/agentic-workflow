@@ -16,6 +16,9 @@ flowchart TD
     F4 --> R[Fresh reviewer: checks the diff and tests<br/>against the doc, runs the real tools]
     R -->|blockers or majors| X[Engineer fixes] --> R2[New fresh reviewer<br/>checks only the fix]
     R2 --> P
+    R -.->|risky area touched| SEC[Security reviewer: scanners and attack paths,<br/>one fresh check per finding]
+    SEC -.->|confirmed finding| X
+    SEC -.-> P
     R -->|clean| P[Lead drafts the PR description:<br/>what changed, where to look,<br/>decisions made, not verified, risk line]
     S --> SR[One review] --> SH[You read the findings.<br/>A spike never merges as is]
     P --> H{You review the code}
@@ -75,8 +78,11 @@ Every Feature gets one `design.md` in its workspace, never in the project repo. 
 | Architect | Asks a few questions, writes and revises the design doc | `design.md` |
 | Engineer | Writes tests and code together (red, then green), keeps `tests.md`, notes decisions made during the build | Code, tests |
 | Reviewer (fresh each time) | Checks code and tests against the doc, confirms the tests cover its test section, runs the real-tool scenarios, writes "Where to look" and the risk line | Findings, `review-guide.md` |
+| Security reviewer | Starts only when the design's risks or the diff touch a risky area, or the reviewer asks. Runs the installed scanners on the diff and traces untrusted input to risky operations. A second fresh run per finding tries to disprove it | `security-review.md` |
 | Doc-writer | Updates user-facing docs, only when they change | Docs |
 | Researcher, product-owner | On request, outside the flow | Notes, issues |
+
+A confirmed security finding is a blocker (a low one a major), and the engineer fixes it before the PR. The PR description gets one neutral line, and the report stays in the workspace. A security fix, or a vulnerability the review finds in existing code, stops the work before any push so you decide what happens with the details; security findings never become public issues or PRs without your say-so.
 
 The agents keep a few files for themselves, in the workspace: `tests.md` (one line per behavior in the doc's test section, with the test that covers it), `followups.md` (side findings that become issues after the merge), `questions.md`, the review reports and `review-guide.md`.
 

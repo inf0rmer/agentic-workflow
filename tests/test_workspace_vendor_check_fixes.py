@@ -36,7 +36,7 @@ class TestVendorCheckEdges(VendorCase):
         self.branch("license", lambda: (self.U / "LICENSE").write_text(LICENSE + "Extra terms.\n"))
         self.sb.git(self.U, "checkout", "-q", "main")
         r = self.code(self.check(ref="license"), 1)
-        self.assertEqual(r.out, "alpha: ok\nbeta-x: ok\nLICENSE: upstream changed\ndrift in 1 skill(s)\n", self.show(r))
+        self.assertEqual(r.out, "alpha: ok\nbeta-x: ok\nLICENSE main: upstream changed\ndrift in 1 skill(s)\n", self.show(r))
 
 
 if __name__ == "__main__":

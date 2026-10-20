@@ -1,0 +1,332 @@
+diff --git a/plugins/differential-review/skills/differential-review/SKILL.md b/core/skills/differential-review/SKILL.md
+similarity index 72%
+rename from plugins/differential-review/skills/differential-review/SKILL.md
+rename to core/skills/differential-review/SKILL.md
+index 536e925..27437e8 100644
+--- a/plugins/differential-review/skills/differential-review/SKILL.md
++++ b/core/skills/differential-review/SKILL.md
+@@ -1,7 +1,7 @@
+ ---
+ name: differential-review
+-description: "Performs security-focused differential review of code changes. Adapts analysis depth to codebase size, uses git blame for context, calculates blast radius by counting callers, checks test coverage of modified code, and generates a markdown report. Use when reviewing a PR, commit, or diff for security vulnerabilities, checking whether a change re-introduces a previously fixed bug, asking what else a change could break, or finding which modified code has no test covering it."
+-allowed-tools: Read Write Grep Glob Bash
++description: "A security-focused review of the code changes in a diff: depth scaled to what the change touches, git blame on removed security code, blast radius, test coverage and attacker modeling. Loaded by name from the security-reviewer role only."
++allowed-tools: Read Grep Glob Bash
+ ---
+ 
+ # Differential Security Review
+@@ -14,7 +14,7 @@ Security-focused code review for PRs, commits, and diffs.
+ 2. **Evidence-Based**: Every finding backed by git history, line numbers, attack scenarios
+ 3. **Adaptive**: Scale to codebase size (SMALL/MEDIUM/LARGE)
+ 4. **Honest**: Explicitly state coverage limits and confidence level
+-5. **Output-Driven**: Always generate comprehensive markdown report file
++5. **Output-Driven**: Always return the complete report as your final message; never write it to a file
+ 
+ ---
+ 
+@@ -28,7 +28,7 @@ Security-focused code review for PRs, commits, and diffs.
+ | "Blast radius is obvious" | You'll miss transitive callers | Calculate quantitatively |
+ | "No tests = not my problem" | Missing tests = elevated risk rating | Flag in report, elevate severity |
+ | "Just a refactor, no security impact" | Refactors break invariants | Analyze as HIGH until proven LOW |
+-| "I'll explain verbally" | No artifact = findings lost | Always write report |
++| "I'll explain verbally" | A partial answer loses findings | Always return the complete report |
+ 
+ ---
+ 
+@@ -72,10 +72,8 @@ Phase 3: Blast Radius → Phase 4: Deep Context → Phase 5: Adversarial → Pha
+ │     (Pre-Analysis + Phases 0-4: triage, code analysis, test coverage, blast radius)
+ │
+ ├─ Analyzing HIGH RISK change?
+-│  ├─ Read: adversarial.md
+-│  │  (Phase 5: Attacker modeling, exploit scenarios, exploitability rating)
+-│  └─ Or delegate to: differential-review:adversarial-modeler agent
+-│     (Autonomous attacker modeling with concrete exploit scenarios)
++│  └─ Read: adversarial.md, and do Phase 5 yourself
++│     (Attacker modeling, exploit scenarios, exploitability rating)
+ │
+ ├─ Writing the final report?
+ │  └─ Read: reporting.md
+@@ -91,15 +89,11 @@ Phase 3: Blast Radius → Phase 4: Deep Context → Phase 5: Adversarial → Pha
+ 
+ ---
+ 
+-## Agents
++## Phase 5 without a helper
+ 
+-**`differential-review:adversarial-modeler`** — Models attacker perspectives and
+-builds exploit scenarios for HIGH RISK code changes. Follows the 5-step
+-adversarial methodology (attacker model, attack vectors, exploitability rating,
+-exploit scenario, baseline cross-reference) and produces structured vulnerability
+-reports. Delegate to this agent when Phase 5 analysis is needed on high-risk
+-changes, passing that full namespaced name as `subagent_type` — a bare
+-`adversarial-modeler` is unregistered and the dispatch fails at runtime.
++Do the adversarial analysis yourself, following the 5-step method in adversarial.md
++(attacker model, attack vectors, exploitability rating, exploit scenario, baseline
++cross-reference). There is no separate agent to delegate to.
+ 
+ ---
+ 
+@@ -112,20 +106,7 @@ Before delivering:
+ - [ ] Blast radius calculated for HIGH risk
+ - [ ] Attack scenarios are concrete (not generic)
+ - [ ] Findings reference specific line numbers + commits
+-- [ ] Report file generated
+-- [ ] User notified with summary
+-
+----
+-
+-## Integration
+-
+-**audit-context-building skill:**
+-- Pre-Analysis: Build baseline context
+-- Phase 4: Deep context on HIGH RISK changes
+-
+-**issue-writer skill:**
+-- Transform findings into formal audit reports
+-- Command: `issue-writer --input DIFFERENTIAL_REVIEW_REPORT.md --format audit-report`
++- [ ] Complete report returned as the final message
+ 
+ ---
+ 
+@@ -156,8 +137,8 @@ Time: ~3-4 hours
+ ### Deep Audit (Large, Critical Change)
+ ```
+ Input: 450 files, auth system rewrite
+-Strategy: SURGICAL + audit-context-building
+-1. Baseline context with audit-context-building
++Strategy: SURGICAL
++1. Baseline context by reading the callers and validation patterns
+ 2. Deep analysis on auth changes only
+ 3. Blast radius analysis
+ 4. Adversarial modeling
+@@ -199,7 +180,7 @@ These patterns require adversarial analysis even in quick triage.
+ - Generate concrete attack scenarios
+ - Reference specific line numbers and commits
+ - Be honest about coverage limitations
+-- Always generate the output file
++- Return the complete report as your final message
+ 
+ **Don't:**
+ - Skip git history analysis
+@@ -207,7 +188,7 @@ These patterns require adversarial analysis even in quick triage.
+ - Claim full analysis when time-limited
+ - Forget to check test coverage
+ - Miss high blast radius changes
+-- Output report only to chat (file required)
++- Write the report to a file, the repository or a temp directory
+ 
+ ---
+ 
+diff --git a/plugins/differential-review/skills/differential-review/adversarial.md b/core/skills/differential-review/adversarial.md
+similarity index 100%
+rename from plugins/differential-review/skills/differential-review/adversarial.md
+rename to core/skills/differential-review/adversarial.md
+diff --git a/plugins/differential-review/skills/differential-review/agents/openai.yaml b/core/skills/differential-review/agents/openai.yaml
+similarity index 85%
+rename from plugins/differential-review/skills/differential-review/agents/openai.yaml
+rename to core/skills/differential-review/agents/openai.yaml
+index ba28707..859a3f6 100644
+--- a/plugins/differential-review/skills/differential-review/agents/openai.yaml
++++ b/core/skills/differential-review/agents/openai.yaml
+@@ -4,3 +4,5 @@ interface:
+   icon_small: "assets/trail-of-bits-mark.svg"
+   icon_large: "assets/trail-of-bits-mark.svg"
+   brand_color: "#D83A34"
++policy:
++  allow_implicit_invocation: false
+diff --git a/plugins/differential-review/skills/differential-review/assets/trail-of-bits-mark.svg b/core/skills/differential-review/assets/trail-of-bits-mark.svg
+similarity index 100%
+rename from plugins/differential-review/skills/differential-review/assets/trail-of-bits-mark.svg
+rename to core/skills/differential-review/assets/trail-of-bits-mark.svg
+diff --git a/plugins/differential-review/skills/differential-review/methodology.md b/core/skills/differential-review/methodology.md
+similarity index 80%
+rename from plugins/differential-review/skills/differential-review/methodology.md
+rename to core/skills/differential-review/methodology.md
+index 71d9dc0..195b843 100644
+--- a/plugins/differential-review/skills/differential-review/methodology.md
++++ b/core/skills/differential-review/methodology.md
+@@ -6,21 +6,8 @@ Detailed phase-by-phase workflow for security-focused code review.
+ 
+ **FIRST ACTION - Build complete baseline understanding:**
+ 
+-If `audit-context-building` skill is available:
+-
+-```bash
+-# Checkout baseline commit
+-git checkout <baseline_commit>
+-
+-# Invoke audit-context-building skill on baseline codebase
+-# Scope = entire relevant project (e.g., packages/contracts/contracts/ for Solidity, src/ for Rust, etc.)
+-audit-context-building --scope [entire project or main contract directory] --focus invariants,trust-boundaries,validation-patterns,call-graphs,state-flows
+-
+-# Examples:
+-# For Solidity: audit-context-building --scope packages/contracts/contracts
+-# For Rust: audit-context-building --scope src
+-# For full repo: audit-context-building --scope .
+-```
++Read the baseline with `git show <base>:<path>` and `git diff`, plus Read, Grep and Glob on
++the working tree you were given. Never switch branches, copy the tree or make a second working copy.
+ 
+ **Capture from baseline analysis:**
+ - System-wide invariants (what must ALWAYS be true across all code)
+@@ -39,8 +26,6 @@ audit-context-building --scope [entire project or main contract directory] --foc
+ 
+ **Store baseline context for reference during differential analysis.**
+ 
+-After baseline analysis, checkout back to head commit to analyze changes.
+-
+ ---
+ 
+ ## Phase 0: Intake & Triage
+@@ -51,9 +36,6 @@ After baseline analysis, checkout back to head commit to analyze changes.
+ git diff <base>..<head> --stat
+ git log <base>..<head> --oneline
+ 
+-# For PR
+-gh pr view <number> --json files,additions,deletions
+-
+ # Get all changed files
+ git diff <base>..<head> --name-only
+ ```
+@@ -175,14 +157,7 @@ grep -r "functionName(" --include="*.sol" . | wc -l
+ 
+ ## Phase 4: Deep Context Analysis
+ 
+-**If `audit-context-building` skill is available**, invoke it to help answer all the questions below for each HIGH RISK changed function:
+-
+-```bash
+-# Run audit-context-building on the changed function and its dependencies
+-audit-context-building --scope [file containing changed function] --focus flow-analysis,call-graphs,invariants,root-cause
+-```
+-
+-**The audit-context-building skill will help you answer:**
++Answer all the questions below for each HIGH RISK changed function, using Read, Grep and code tracing:
+ 
+ 1. **Map complete function flow:**
+    - Entry conditions (preconditions, requires, modifiers)
+@@ -213,8 +188,6 @@ audit-context-building --scope [file containing changed function] --focus flow-a
+    - WHY is this approach chosen?
+    - WHY could this fail in production?
+ 
+-**If `audit-context-building` skill is NOT available**, manually perform the line-by-line analysis above using Read, Grep, and code tracing.
+-
+ **Cross-cutting pattern detection:**
+ ```bash
+ # Find repeated validation patterns
+diff --git a/plugins/differential-review/skills/differential-review/patterns.md b/core/skills/differential-review/patterns.md
+similarity index 89%
+rename from plugins/differential-review/skills/differential-review/patterns.md
+rename to core/skills/differential-review/patterns.md
+index 71078a7..a095ec4 100644
+--- a/plugins/differential-review/skills/differential-review/patterns.md
++++ b/core/skills/differential-review/patterns.md
+@@ -2,22 +2,6 @@
+ 
+ Quick reference for detecting common security issues in code changes.
+ 
+-**Specialized Pattern Resources:**
+-For specific contexts, reference these additional pattern databases:
+-
+-**Domain-Specific:**
+-- `domain-specific-audits/defi-bridges/resources/` - 127 bridge-specific findings
+-- `domain-specific-audits/tick-math/resources/` - 81 tick math findings
+-- `domain-specific-audits/merkle-trees/resources/` - 67 merkle tree findings
+-- [Check `domain-specific-audits/skills/` for additional domains]
+-
+-**Solidity-Specific:**
+-- `not-so-smart-contracts` - Automated Solidity vulnerability detectors
+-- `token-integration-analyzer` - Token integration safety patterns
+-- `building-secure-contracts/development-guidelines` - Solidity best practices
+-
+-These complement the generic patterns below.
+-
+ ---
+ 
+ ## Security Regressions
+diff --git a/plugins/differential-review/skills/differential-review/reporting.md b/core/skills/differential-review/reporting.md
+similarity index 80%
+rename from plugins/differential-review/skills/differential-review/reporting.md
+rename to core/skills/differential-review/reporting.md
+index cb5e37b..bd82e08 100644
+--- a/plugins/differential-review/skills/differential-review/reporting.md
++++ b/core/skills/differential-review/reporting.md
+@@ -6,7 +6,7 @@ Comprehensive markdown report structure and formatting guidelines.
+ 
+ ## Report Structure
+ 
+-Generate markdown report with these mandatory sections:
++Write the report in markdown with these mandatory sections:
+ 
+ ### 1. Executive Summary
+ 
+@@ -305,65 +305,10 @@ new code
+ 
+ ---
+ 
+-## File Naming and Location
++## Delivery
+ 
+-**Priority order for output:**
+-1. Current working directory (if project repo)
+-2. User's Desktop
+-3. `~/.claude/skills/differential-review/output/`
++Return the full report as your final message. Never write it to a file, a temp directory,
++the Desktop or the repository: the caller saves it where it belongs.
+ 
+-**Filename format:**
+-```
+-<PROJECT>_DIFFERENTIAL_REVIEW_<DATE>.md
+-
+-Example: VeChain_Stargate_DIFFERENTIAL_REVIEW_2025-12-26.md
+-```
+-
+----
+-
+-## User Notification Template
+-
+-After generating report:
+-
+-```markdown
+-Report generated successfully!
+-
+-📄 File: [filename]
+-📁 Location: [path]
+-📏 Size: XX KB
+-⏱️ Review Time: ~X hours
+-
+-Summary:
+-- X findings (Y critical, Z high)
+-- Final recommendation: APPROVE/REJECT/CONDITIONAL
+-- Confidence: HIGH/MEDIUM/LOW
+-
+-Next steps:
+-- Review findings in detail
+-- Address CRITICAL/HIGH issues before merge
+-- Consider chaining with issue-writer for stakeholder report
+-```
+-
+----
+-
+-## Integration with issue-writer
+-
+-After generating differential review, transform into audit report:
+-
+-```bash
+-issue-writer --input DIFFERENTIAL_REVIEW_REPORT.md --format audit-report
+-```
+-
+-This creates polished documentation for non-technical stakeholders.
+-
+----
+-
+-## Error Handling
+-
+-If file write fails:
+-1. Try Desktop location
+-2. Try temp directory
+-3. As last resort, output full report to chat
+-4. Notify user to save manually
+-
+-**Always prioritize persistent artifact generation over ephemeral chat output.**
++If the report is cut short or a part could not be done, say which part and why at the end
++of the report, as "Not verified".

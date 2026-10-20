@@ -16,7 +16,7 @@ flowchart LR
 | Part | Supplies |
 |---|---|
 | `core/instructions.md`, `core/roles/*.md` | The workflow and role prose, with `{{placeholders}}` wherever the harnesses differ. |
-| `core/team.json` | Each role's description and model tier: `strong`, `standard`, or `fast`. |
+| `core/team.json` | Each role's description and model tier: `strong`, `standard`, or `fast`, and `"access": "read-only"` for a role that must not edit. |
 | `core/bin/`, `core/skills/` | `team-guard` and the skills, shared by every harness. |
 | `adapters/<harness>/adapter.json` | The `harness` type, the model for each tier, and a value for every placeholder. |
 
@@ -60,7 +60,8 @@ Don't edit it: change `core/` or an adapter, then rebuild.
 
 ## Ship the vendored skills
 
-These are [Matt Pocock's skills](https://github.com/mattpocock/skills), MIT licensed, copied into `core/skills/` and pinned at one commit recorded in `core/skills/UPSTREAM.json`.
+These are [Matt Pocock's skills](https://github.com/mattpocock/skills), MIT licensed, and two skills from [Trail of Bits](https://github.com/trailofbits/skills), CC-BY-SA-4.0 licensed. They are copied into `core/skills/` and pinned at one commit per source, recorded in `core/skills/UPSTREAM.json`.
+The Trail of Bits copies and our patches to them stay CC-BY-SA-4.0: the credit is here and in the README, the provenance line names the source, the commit, the license and the patch, and each copy carries the upstream `LICENSE`. The logo in their `assets/` is kept as upstream attribution only; the license grants no trademark rights.
 The plugin is not installed, and the copies never auto-update, so prompts that run commands can't change under you.
 Every copy carries its `LICENSE` and a provenance line naming the source, the commit and whether it was modified.
 A patched skill is upstream plus a stored patch in `core/skills/patches/`, which keeps workflow files in the workspace dir and never in a project repo.
@@ -72,18 +73,22 @@ A patched skill is upstream plus a stored patch in `core/skills/patches/`, which
 | `handoff` | patched | the human, as a slash command; writes `handoff-<slug>.md` in the workspace dir |
 | `diagnosing-bugs` | patched | the engineer, on a Quick bug fix |
 | `tdd` | patched | software-engineer only |
+| `differential-review` | patched | security-reviewer only, to review a diff |
+| `fp-check` | patched | security-reviewer only, to try to disprove one finding |
 
 `build.py` ships only the directories of `core/skills/` that hold a `SKILL.md`, so `UPSTREAM.json` and `patches/` stay behind. It renders each `SKILL.md` with the adapter's vars: `skill_call` and `skill_sigil` say how a skill names another one (Claude Code calls the Skill tool; Codex mentions `$name`).
 
-Run `scripts/vendor-check` to see drift: it compares each copy with upstream at the pin plus its patch (`local drift`) and with a newer ref (`upstream changed`, `upstream removed`, or a `patch conflict`), reports a LICENSE the upstream deleted as `LICENSE: upstream removed`, exits 1 on drift and 2 when it can't run, and never changes anything.
+Run `scripts/vendor-check` to see drift: it compares each copy with upstream at the pin plus its patch (`local drift`) and with a newer ref (`upstream changed`, `upstream removed`, or a `patch conflict`), reports a LICENSE the upstream deleted or changed as `LICENSE <source>: upstream removed` or `upstream changed`, checks every source (`--source <name>` limits it to one, and `--upstream` and `--ref` need it when there are two), exits 1 on drift and 2 when it can't run, and never changes anything.
 Moving the pin is a person's decision: update the copies and patches, then the pin.
 
-The byte-for-byte checks need a local clone of upstream at the pin. Run the suite with `VENDOR_UPSTREAM_CLONE=<path to a clone of mattpocock/skills at the pin> tests/run.sh`; without it those tests skip with that reason, and nothing touches the network.
+The byte-for-byte checks need a local clone of each upstream at its pin. Run the suite with `VENDOR_UPSTREAM_CLONE=<clone of mattpocock/skills at the pin>` and `VENDOR_UPSTREAM_CLONE_TRAILOFBITS=<clone of trailofbits/skills at the pin>` set; without them those tests skip with that reason, and nothing touches the network.
 
 ## Know what is unverified
 
 On Codex, the engineer loads `$tdd` by mentioning it in its developer instructions. The Codex docs say an explicit `$skill` mention still works when implicit invocation is off, but that loading from developer instructions rather than a user turn is unverified.
 If it doesn't load, the lead can put `$tdd` in the engineer's spawn prompt, which is a user turn.
+
+The security reviewer is read-only by its tool list on Claude Code and by its own text on Codex. Because it needs Bash for the scanners, the Claude Code list is a guard, not a wall. No live Codex team has run this role, so how it behaves there is unverified.
 
 ## Install
 
@@ -161,6 +166,7 @@ It also writes `~/.codex/rules/agentic-workflow.rules`, which lets `team-guard` 
 | Instructions | `~/.claude/CLAUDE.md` | `~/.codex/AGENTS.md`, with no `@imports` and a 32 KiB cap together with project `AGENTS.md` files |
 | Step ordering | The lead starts one subagent per step and waits for its report | The lead spawns each step with `spawn_agent` and waits with `wait_agent` |
 | Tool permissions | One allow rule in `settings.json` | `prefix_rule`s in `~/.codex/rules/` |
+| Read-only role | The build gives the security reviewer a `tools:` line (`read_only_tools` in the adapter) with no Edit, Write, web or Agent tool | Prose only: no tool list exists, and a read-only sandbox would also block the scanners |
 | Skills | `~/.claude/skills/` | `~/.agents/skills/` (`$tdd`) |
 
 Both harnesses share the workspace and archive directories under `~/.agentic-workflow/`, so one team can mix them.

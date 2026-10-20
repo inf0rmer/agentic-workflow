@@ -5,6 +5,7 @@
     "standard": "claude-sonnet-5-5",
     "fast": "claude-haiku-4-5-20251001"
   },
+  "read_only_tools": "Read, Grep, Glob, Bash, Skill",
   "vars": {
     "team_intro": "For significant features or changes that are more than a few lines of code, run a structured multi-agent workflow. You are the lead: start each role as a subagent using its agent type, and wait for its report before moving to the next step. Claude Code [agent teams](https://code.claude.com/docs/en/agent-teams) are an option only for parallel work within one step.",
     "docs": "~/.claude/team/docs",

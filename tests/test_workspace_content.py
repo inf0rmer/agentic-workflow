@@ -172,7 +172,7 @@ class TestBuild(ContentCase):
     def test_codex_agent_files_parse(self):
         import tomllib
         files = sorted((ROOT / "dist" / "codex" / "agents").glob("*.toml"))
-        self.assertEqual(len(files), 6)
+        self.assertEqual(len(files), 7)
         for f in files:
             with self.subTest(file=f.name):
                 data = tomllib.loads(text(f))

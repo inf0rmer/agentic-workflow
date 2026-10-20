@@ -25,12 +25,13 @@ BETA = "skills/engineering/beta"
 DATE = "2026-09-29T12:00:00+00:00"
 
 
-def note(path, sha, patched, d):
+def note(path, sha, patched, d, url=SOURCE, lic="MIT"):
     tail = "modified by agentic-workflow (core/skills/patches/%s.patch)" % d if patched else "copied as-is"
-    return "<!-- vendored from %s %s at %s; license: MIT (see LICENSE); %s -->" % (SOURCE, path, sha, tail)
+    return "<!-- vendored from %s %s at %s; license: %s (see LICENSE); %s -->" % (url, path, sha, lic, tail)
 
 
 class VendorCase(WSTestCase):
+    main_url = SOURCE
 
     def setUp(self):
         super().setUp()
@@ -78,7 +79,7 @@ class VendorCase(WSTestCase):
             dst = alpha / f
             dst.parent.mkdir(parents=True, exist_ok=True)
             dst.write_bytes((self.U / ALPHA / f).read_bytes())
-        (alpha / "SKILL.md").write_text(insert_note((alpha / "SKILL.md").read_text(), note(ALPHA, self.pin, False, "alpha")))
+        (alpha / "SKILL.md").write_text(insert_note((alpha / "SKILL.md").read_text(), note(ALPHA, self.pin, False, "alpha", self.main_url)))
         (alpha / "LICENSE").write_text(LICENSE)
 
         W = Path(tempfile.mkdtemp(prefix="patchwork-", dir=str(self.sb.tmp)))
@@ -96,11 +97,12 @@ class VendorCase(WSTestCase):
         (F / "patches" / "beta-x.patch").write_text(patch)
         shutil.copytree(W / "core" / "skills" / "beta-x", F / "beta-x")
         (F / "beta-x" / "SKILL.md").write_text(
-            insert_note((F / "beta-x" / "SKILL.md").read_text(), note(BETA, self.pin, True, "beta-x")))
+            insert_note((F / "beta-x" / "SKILL.md").read_text(), note(BETA, self.pin, True, "beta-x", self.main_url)))
         (F / "beta-x" / "LICENSE").write_text(LICENSE)
-        self.upstream_json({"source": SOURCE, "sha": self.pin, "date": "2026-09-29",
-                            "skills": {"alpha": {"upstream_path": ALPHA, "status": "as-is"},
-                                       "beta-x": {"upstream_path": BETA, "status": "patched",
+        self.upstream_json({"sources": {"main": {"url": self.main_url, "sha": self.pin, "date": "2026-09-29",
+                                                 "license": "MIT"}},
+                            "skills": {"alpha": {"source": "main", "upstream_path": ALPHA, "status": "as-is"},
+                                       "beta-x": {"source": "main", "upstream_path": BETA, "status": "patched",
                                                   "patch": "patches/beta-x.patch"}}})
 
     def upstream_json(self, data):
@@ -164,10 +166,13 @@ class TestReport(VendorCase):
                 r = self.code(self.check(**kw), 2)
                 self.assertEqual(r.out, "")
                 self.assertTrue(r.err.startswith("vendor-check: "), r.err)
-        bad_json = {"missing pin": dict(good, sha="0" * 40), "invalid JSON": "{not json",
+        bad_json = {"missing pin": dict(good, sources={"main": dict(good["sources"]["main"], sha="0" * 40)}),
+                    "invalid JSON": "{not json",
                     "extra key": dict(good, extra=1), "no skills": {k: v for k, v in good.items() if k != "skills"},
-                    "bad status": dict(good, skills=dict(good["skills"], alpha={"upstream_path": ALPHA,
-                                                                                "status": "vendored"}))}
+                    "bad status": dict(good, skills=dict(good["skills"], alpha={"source": "main", "upstream_path": ALPHA,
+                                                                                "status": "vendored"})),
+                    "unknown source": dict(good, skills=dict(good["skills"], alpha={"source": "nope", "upstream_path": ALPHA,
+                                                                                    "status": "as-is"}))}
         for name, data in bad_json.items():
             with self.subTest(case=name):
                 self.upstream_json(data)

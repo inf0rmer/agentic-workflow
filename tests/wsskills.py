@@ -16,8 +16,18 @@ from wslib import ROOT
 SK = ROOT / "core" / "skills"
 PIN = "d81f3a183412e71a5b1e84ca21bc1a35eea03a60"
 SOURCE = "https://github.com/mattpocock/skills"
+TOB_PIN = "5c99c03fb8a9ea568432ecbcba5d86e9f4ac2bf0"
+TOB_SOURCE = "https://github.com/trailofbits/skills"
 VENDOR_CHECK = ROOT / "scripts" / "vendor-check"
 CLONE_REASON = "set VENDOR_UPSTREAM_CLONE to a local clone of mattpocock/skills at the pin"
+TOB_CLONE_REASON = "set VENDOR_UPSTREAM_CLONE_TRAILOFBITS to a local clone of trailofbits/skills at the pin"
+
+# name -> url, pin, license, and the environment variable naming a local clone at the pin
+SOURCES = {
+    "mattpocock": {"url": SOURCE, "sha": PIN, "date": "2026-09-29", "license": "MIT", "env": "VENDOR_UPSTREAM_CLONE"},
+    "trailofbits": {"url": TOB_SOURCE, "sha": TOB_PIN, "date": "2026-10-15", "license": "CC-BY-SA-4.0",
+                    "env": "VENDOR_UPSTREAM_CLONE_TRAILOFBITS"},
+}
 
 SKILLS = {
     "grilling": ("skills/productivity/grilling", "as-is"),
@@ -25,7 +35,10 @@ SKILLS = {
     "handoff": ("skills/productivity/handoff", "patched"),
     "diagnosing-bugs": ("skills/engineering/diagnosing-bugs", "patched"),
     "tdd": ("skills/engineering/tdd", "patched"),
+    "differential-review": ("plugins/differential-review/skills/differential-review", "patched"),
+    "fp-check": ("plugins/fp-check/skills/fp-check", "patched"),
 }
+SOURCE_OF = {d: "trailofbits" if d in ("differential-review", "fp-check") else "mattpocock" for d in SKILLS}
 ALL_DIRS = sorted(SKILLS)
 FILES = {
     "grilling": {"SKILL.md", "LICENSE", "agents/openai.yaml"},
@@ -33,14 +46,22 @@ FILES = {
     "handoff": {"SKILL.md", "LICENSE", "agents/openai.yaml"},
     "diagnosing-bugs": {"SKILL.md", "LICENSE", "agents/openai.yaml", "scripts/hitl-loop.template.sh"},
     "tdd": {"SKILL.md", "LICENSE", "agents/openai.yaml", "tests.md", "mocking.md"},
+    "differential-review": {"SKILL.md", "LICENSE", "agents/openai.yaml", "assets/trail-of-bits-mark.svg",
+                            "adversarial.md", "methodology.md", "patterns.md", "reporting.md"},
+    "fp-check": {"SKILL.md", "LICENSE", "agents/openai.yaml", "assets/trail-of-bits-mark.svg",
+                 "references/bug-class-verification.md", "references/deep-verification.md",
+                 "references/evidence-templates.md", "references/false-positive-patterns.md",
+                 "references/gate-reviews.md", "references/standard-verification.md"},
 }
 
 
-def note_for(d, sha=PIN):
+def note_for(d, sha=None):
     path, status = SKILLS[d]
+    src = SOURCES[SOURCE_OF[d]]
     tail = "copied as-is" if status == "as-is" else \
         "modified by agentic-workflow (core/skills/patches/%s.patch)" % d
-    return "<!-- vendored from %s %s at %s; license: MIT (see LICENSE); %s -->" % (SOURCE, path, sha, tail)
+    return "<!-- vendored from %s %s at %s; license: %s (see LICENSE); %s -->" % (
+        src["url"], path, sha or src["sha"], src["license"], tail)
 
 
 def split_frontmatter(text):
@@ -81,10 +102,10 @@ def files_under(d):
             if p.is_file() and "__pycache__" not in p.parts and p.suffix != ".pyc"}
 
 
-def clone_or_skip(case):
-    c = os.environ.get("VENDOR_UPSTREAM_CLONE")
+def clone_or_skip(case, source="mattpocock"):
+    c = os.environ.get(SOURCES[source]["env"])
     if not c:
-        case.skipTest(CLONE_REASON)
+        case.skipTest(CLONE_REASON if source == "mattpocock" else TOB_CLONE_REASON)
     return Path(c)
 
 
