@@ -25,7 +25,7 @@ Plain language, at least one Mermaid diagram, aiming for under five pages. Every
 | **3. What changes** *(only when it helps)* | The files, commands or data that are added, changed or removed. |
 | **4. Decisions and alternatives** | For each real choice: what we chose, what we didn't, and why. One short paragraph each. |
 | **5. How we'll know it works** | The behaviors the automated tests will cover, as a plain bullet list. The end-to-end scenarios the reviewer will run against the real tool or service. What can't be verified, and why. |
-| **6. Risks** | Data, security, compatibility and how hard it is to undo, each with how we handle it. |
+| **6. Risks** | Data, security, compatibility and how hard it is to undo, each with how we handle it. A change that touches a risky area (auth, parsing, shell, file paths, secrets, dependencies, CI, installers, stored-data formats) also gets a "What can go wrong" list: each item with its mitigation and the test in section 5 that covers it. |
 | **7. Rollout and PR plan** | The PRs in order, what each holds and roughly how big it is (aim for about 400 changed lines, tests not counted; say so plainly if one must be bigger and why), how each is reverted, and which repo ships first when there are several. |
 | **8. Open questions** | Anything still undecided, each with a recommendation. Empty at approval, or the human approves the recommendations. |
 

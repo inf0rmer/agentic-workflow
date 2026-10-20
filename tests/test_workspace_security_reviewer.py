@@ -115,5 +115,42 @@ class TestRoleText(unittest.TestCase):
                 self.assertIn("mention `$%s`" % skill, codex)
 
 
+class TestWorkflowText(unittest.TestCase):
+
+    def read(self, *parts):
+        return ROOT.joinpath("core", *parts).read_text()
+
+    def test_reviewer_keeps_exploit_details_out_of_the_guide_and_flags_a_missing_security_review(self):
+        text = self.read("roles", "reviewer.md")
+        self.assertIn("exploit details", text)
+        self.assertIn("review-guide.md", text[text.index("exploit details") - 300:text.index("exploit details") + 300])
+        self.assertIn("no security review is running", text)
+
+    def test_architect_asks_for_what_can_go_wrong_on_triggered_changes(self):
+        text = self.read("roles", "architect.md")
+        self.assertIn("What can go wrong", text)
+        self.assertIn("mitigation", text[text.index("What can go wrong"):])
+
+    def test_instructions_add_the_role_the_stop_point_and_the_followups_rule(self):
+        text = self.read("instructions.md")
+        for needle in ("**security-reviewer**", "`security-review.md`", "Never turn a security finding into a public issue or PR",
+                       "security fix", "vulnerability in existing code", "Security review:"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, text)
+
+    def test_instructions_start_the_role_in_both_variants_and_one_check_per_candidate(self):
+        text = self.read("instructions.md")
+        step = text[text.index("5. **Review.**"):text.index("6. **PR description.**")]
+        for needle in ("Quick", "Feature", "find mode", "check mode", "one fresh", "blocker"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, step)
+
+    def test_the_pr_risk_line_takes_the_higher_of_the_two_reviews(self):
+        text = self.read("instructions.md")
+        step = text[text.index("6. **PR description.**"):text.index("7. **Human gate.**")]
+        self.assertIn("higher", step)
+        self.assertIn("Security review:", step)
+
+
 if __name__ == "__main__":
     unittest.main()
