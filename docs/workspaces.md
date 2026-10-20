@@ -117,7 +117,7 @@ flowchart TD
     A -->|"yes"| R1["Refuse, even with --force<br/>nothing changed"]
     A -->|"no"| B{"An unrecorded entry in repos/,<br/>or a worktree outside the workspace?"}
     B -->|"yes"| R1
-    B -->|"no"| C{"Uncommitted changes, unpushed commits,<br/>or a missing source repo?"}
+    B -->|"no"| C{"Uncommitted changes, unpushed commits,<br/>a detached commit on no local branch,<br/>or a missing source repo?"}
     C -->|"yes, without force"| R2["Refuse and list each problem<br/>nothing changed"]
     C -->|"no, or with force"| D["Archive, remove worktrees,<br/>move working files"]
 ```
@@ -168,6 +168,7 @@ A command-line option beats its variable.
 | `the workspace pointer here is dangling` | The worktree points at a workspace dir that's gone. Check `team-guard workspace list`. |
 | `can't read .../workspace.json (missing or not valid JSON)` | Restore or fix `workspace.json`. `list` reports it as `invalid` and leaves it alone. |
 | `branch feat/payments is already checked out in ...` | Free the branch in that checkout, or create the workspace with another `--branch`. |
+| `detached HEAD f5661a6 is on no local branch` | Run the `git branch keep-f5661a6 ...` command it prints, then rerun `close`. `--force` discards the commit; its sha is in `archive.json`. |
 | `can't close payments from inside it` | `cd` somewhere outside the workspace and rerun. |
 
 ## Next steps

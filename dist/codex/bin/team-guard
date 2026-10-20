@@ -19,6 +19,7 @@ import calendar
 import json
 import os
 import re
+import shlex
 import shutil
 import stat
 import subprocess
@@ -588,6 +589,36 @@ def owns_checkout(wt, entry):
         and realpath(line[len("gitdir:"):].strip()) == realpath(entry["git_dir"])
 
 
+def detached_orphan(wt):
+    """The full sha of a detached HEAD that no local branch holds, else None.
+
+    Remote-tracking refs don't count: they can be stale, and the commit is gone once the
+    worktree is. A git error counts as an orphan, since a wrong guess here loses work.
+    """
+    code = git("symbolic-ref", "-q", "HEAD", cwd=wt, check=False).returncode
+    if code == 0:
+        return None
+    r = git("rev-list", "-1", "HEAD", "--not", "--branches", cwd=wt, check=False)
+    if code == 1 and r.returncode == 0 and not r.stdout.strip():
+        return None
+    head = git("rev-parse", "HEAD", cwd=wt, check=False)
+    return head.stdout.strip() if head.returncode == 0 and head.stdout.strip() else "(unknown commit)"
+
+
+def refusal_line(wt, reason):
+    """How a refusal names a problem; a detached commit gets the command that keeps it."""
+    m = re.fullmatch(r"detached HEAD ([0-9a-f]{40,64}) on no local branch", reason)
+    if not (wt and m):
+        return f"  {wt}: {reason}" if wt else f"  {reason}"
+    sha, short = m.group(1), m.group(1)[:7]
+    return (f"  {wt}: detached HEAD {short} is on no local branch; keep it with: "
+            f"git -C {shlex.quote(wt)} branch keep-{short} {sha}")
+
+
+def short_reason(reason):
+    return re.sub(r"(detached HEAD [0-9a-f]{7})[0-9a-f]+", r"\1", reason)
+
+
 class CloseRefused(Exception):
     def __init__(self, header, problems, force_hint):
         super().__init__(header)
@@ -641,6 +672,9 @@ def close_workspace(feature, force=False, cwd=None):
         r = git("rev-list", "-1", *refs, "--not", "--remotes", cwd=wt, check=False)
         if r.returncode == 0 and r.stdout.strip():
             problems.append((wt, "unpushed commits"))
+        orphan = detached_orphan(wt)
+        if orphan:
+            problems.append((wt, f"detached HEAD {orphan} on no local branch"))
     if blocking or (problems and not force):
         shown = blocking + ([] if force else problems)
         raise CloseRefused(f"can't close {feature}:", shown, bool(problems) and not force)
@@ -671,7 +705,7 @@ def close_workspace(feature, force=False, cwd=None):
             shutil.rmtree(wt)  # forced: nothing but the checkout is left to remove
             print(f"team-guard: removed worktree {wt}")
             for reason in reasons.get(wt, []):
-                print(f"team-guard: discarded {reason} in {wt}")
+                print(f"team-guard: discarded {short_reason(reason)} in {wt}")
         elif os.path.isdir(wt):
             for line in git("status", "--porcelain", "--ignored", cwd=wt, check=False).stdout.splitlines():
                 if line.startswith("!! "):
@@ -685,7 +719,7 @@ def close_workspace(feature, force=False, cwd=None):
             print(f"team-guard: removed worktree {wt}")
             for reason in reasons.get(wt, []):
                 extra = f" (branch {e['branch']} kept)" if reason == "unpushed commits" else ""
-                print(f"team-guard: discarded {reason} in {wt}{extra}")
+                print(f"team-guard: discarded {short_reason(reason)} in {wt}{extra}")
         elif repo_ok(src):
             git("worktree", "prune", cwd=src, check=False)
             print(f"team-guard: pruned missing worktree {wt}")
@@ -736,9 +770,11 @@ def cmd_ws_close(a):
     except CloseRefused as e:
         if e.problems is None:
             die(e.header)
-        lines = [f"team-guard: {e.header}"] + [f"  {p}: {why}" if p else f"  {why}" for p, why in e.problems]
+        lines = [f"team-guard: {e.header}"] + [refusal_line(p, why) for p, why in e.problems]
         if e.force_hint:
-            lines.append("use --force to remove them anyway (branches are kept)")
+            detached = any("detached HEAD" in why for _, why in e.problems)
+            lines.append("use --force to remove them anyway (branches are kept"
+                         + ("; a detached commit on no branch is not)" if detached else ")"))
         print("\n".join(lines), file=sys.stderr)
         sys.exit(1)
 
