@@ -23,6 +23,9 @@ import tomllib
 ROOT = os.path.dirname(os.path.abspath(__file__))
 # The rendered instructions stay under half of Codex's 32 KiB limit.
 INSTRUCTIONS_LIMIT = 16 * 1024
+# Coder ignores a SKILL.md or an AGENTS.md larger than 64 KiB.
+SKILL_LIMIT = 64 * 1024
+AGENTS_LIMIT = 64 * 1024
 
 
 def load(path):
@@ -85,7 +88,117 @@ def build_codex(adapter, team, out):
         write(os.path.join(out, "agents", f"{name}.toml"), text)
 
 
-BUILDERS = {"claude-code": build_claude_code, "codex": build_codex}
+def build_coder_agents(adapter, team, out):
+    """Coder Agents has no agent-type files: each role becomes a skill that a spawned child reads first,
+    and the lead learns each role's spawn type and model from a roster appended to AGENTS.md."""
+    vars_ = adapter["vars"]
+    rows = []
+    for name, role in team["roles"].items():
+        spawn_type = adapter["read_only_spawn_type"] if role.get("access") == "read-only" else adapter["spawn_type"]
+        tier = role["tier"]
+        rows.append(f"| {name} | `role-{name}` | `{spawn_type}` | `{adapter['models'][tier]}` | `{adapter['efforts'][tier]}` |")
+        text = (f"---\nname: role-{name}\ndescription: Role instructions for a spawned sub-agent, not for the lead. {role['description']}\n---\n"
+                "You were spawned as the role below; you are not the lead.\n\n" + render(load(f"core/roles/{name}.md"), vars_, name))
+        check_size(f"skills/role-{name}/SKILL.md", text, SKILL_LIMIT)
+        write(os.path.join(out, "skills", f"role-{name}", "SKILL.md"), text)
+    roster = ("\n### Role roster\n\n"
+              "Spawn a role with `spawn_agent` using the row's type, `model_config_id` and `reasoning_effort`. "
+              "The `explore` type is the read-only type: it has no file-editing tools.\n\n"
+              "| Role | Skill the child reads first | `type` | `model_config_id` | `reasoning_effort` |\n|---|---|---|---|---|\n"
+              + "\n".join(rows) + "\n\n"
+              "Model tiers, for a role that isn't listed above:\n\n"
+              "| Tier | `model_config_id` | `reasoning_effort` |\n|---|---|---|\n"
+              + "\n".join(f"| {t} | `{adapter['models'][t]}` | `{adapter['efforts'][t]}` |" for t in ("strong", "standard", "fast")) + "\n")
+    text = instructions(adapter) + roster
+    check_size("AGENTS.md", text, AGENTS_LIMIT)
+    write(os.path.join(out, "AGENTS.md"), text)
+
+
+def check_size(name, text, limit):
+    size = len(text.encode())
+    if size > limit:
+        sys.exit(f"build: {name} is {size} bytes; Coder ignores a file over {limit} (a {name.rsplit('/', 1)[-1]} limit)")
+
+
+FRONTMATTER_LINE = re.compile(r"([A-Za-z][\w-]*): (.*)")
+# A plain YAML scalar can't start with these indicators, and a strict parser rejects ': ' or a trailing ':' inside one.
+PLAIN_BAD_START = ("`", "@", "%", "*", "&", "!", "- ", "? ", ",", "#")
+
+
+def split_frontmatter(text):
+    head, sep, rest = text.partition("\n---\n")
+    if not text.startswith("---\n") or not sep:
+        return None
+    return head.split("\n")[1:], rest
+
+
+def value_problem(value):
+    """Why a strict YAML parser would reject this single-line value, or None."""
+    if value.startswith('"'):
+        try:
+            json.loads(value)
+        except ValueError:
+            return "a double-quoted value that doesn't parse"
+        return None
+    if value.startswith("'"):
+        if not re.fullmatch(r"'(?:[^']|'')*'", value):
+            return "a single-quoted value that doesn't parse"
+        return None
+    if value[:1] in "|>[{":
+        return "a block or flow value, which this build can't check"
+    if value.startswith(PLAIN_BAD_START) or ": " in value or value.endswith(":"):
+        return "a plain value a strict parser rejects; quote it"
+    return None
+
+
+def frontmatter_problems(text):
+    """Strict-YAML problems in a SKILL.md's frontmatter, as a list of messages. Coder parses
+    frontmatter strictly and silently drops a skill it can't parse."""
+    parts = split_frontmatter(text)
+    if parts is None:
+        return ["no frontmatter"]
+    problems = []
+    for line in parts[0]:
+        m = FRONTMATTER_LINE.fullmatch(line)
+        if not m:
+            problems.append(f"line {line!r} is not a single-line 'key: value'")
+            continue
+        why = value_problem(m.group(2)) if m.group(2) else "an empty value"
+        if why:
+            problems.append(f"{m.group(1)}: {why}")
+    return problems
+
+
+def quote_frontmatter(text):
+    """Write every plain single-line frontmatter value as a double-quoted string, so strict YAML reads it
+    the way the lenient parsers of other harnesses do. Already-quoted values are kept."""
+    parts = split_frontmatter(text)
+    if parts is None:
+        return text
+    lines = []
+    for line in parts[0]:
+        m = FRONTMATTER_LINE.fullmatch(line)
+        if m and m.group(2) and m.group(2)[0] not in "\"'|>[{":
+            line = f"{m.group(1)}: {json.dumps(m.group(2), ensure_ascii=False)}"
+        lines.append(line)
+    return "\n".join(["---"] + lines) + "\n---\n" + parts[1]
+
+
+def finish_coder_agents(out):
+    for dirpath, _, files in os.walk(os.path.join(out, "skills")):
+        if "SKILL.md" not in files:
+            continue
+        path = os.path.join(dirpath, "SKILL.md")
+        with open(path) as f:
+            text = quote_frontmatter(f.read())
+        check_size(os.path.relpath(path, out), text, SKILL_LIMIT)
+        problems = frontmatter_problems(text)
+        if problems:
+            sys.exit(f"build: {os.path.relpath(path, out)} frontmatter: " + "; ".join(problems))
+        write(path, text)
+
+
+BUILDERS = {"claude-code": build_claude_code, "codex": build_codex, "coder-agents": build_coder_agents}
 
 
 def copy_skills(vars_, out):
@@ -114,6 +227,8 @@ def build(harness, out):
         shutil.rmtree(out)
     BUILDERS[adapter["harness"]](adapter, team, out)
     copy_skills(adapter["vars"], out)
+    if adapter["harness"] == "coder-agents":
+        finish_coder_agents(out)
     for name in sorted(os.listdir(os.path.join(ROOT, "core", "bin"))):
         src = os.path.join(ROOT, "core", "bin", name)
         if not os.path.isfile(src) or name == "__pycache__":

@@ -1,0 +1,25 @@
+{
+  "harness": "coder-agents",
+  "models": {
+    "strong": "REPLACE-WITH-MODEL-CONFIG-ID-STRONG",
+    "standard": "REPLACE-WITH-MODEL-CONFIG-ID-STANDARD",
+    "fast": "REPLACE-WITH-MODEL-CONFIG-ID-FAST"
+  },
+  "efforts": {
+    "strong": "medium",
+    "standard": "medium",
+    "fast": "low"
+  },
+  "spawn_type": "general",
+  "read_only_spawn_type": "explore",
+  "vars": {
+    "team_intro": "For significant features or changes that are more than a few lines of code, run a structured multi-agent workflow. You are the lead: start each role with `spawn_agent`, using the type, `model_config_id` and `reasoning_effort` from the role roster below. In its prompt, tell the child it is not the lead and to call `read_skill` with its role skill first, then give it the task as a complete prompt, because a child starts with no history of this chat. Use `wait_agent` to finish a step before starting the next. Only you can spawn roles: a child cannot spawn another and cannot ask the human, so relay its questions in this chat.",
+    "docs": "~/.coder/team/docs",
+    "instructions_file": "AGENTS.md",
+    "worktree_section": "**All agents share one workspace dir.** Before starting any agent, run `team-guard workspace new <feature>`, then `team-guard workspace attach <repo-path>` from the workspace dir for each repo the feature touches. Each attached worktree is on the same branch name in its repo. Every spawned agent shares this chat's workspace machine, so give each one the absolute workspace path in its prompt; each agent edits code inside `repos/<repo>/`, and the workflow artifacts stay in the workspace dir.",
+    "skill_call": "call `read_skill` with",
+    "skill_sigil": "",
+    "role_files": "Role definitions are the skills `role-<role>` in `~/.coder/skills/`, which a spawned child reads with `read_skill`. Coder keeps the first skill of each name it finds and scans `~/.coder` before the project, so a project cannot override a role, and a project skill with the same name as one of ours (such as `tdd` or `grilling`) is silently dropped. Give project skills other names.",
+    "child_guard": "**If you were told to read a `role-*` skill, you are that role and not the lead.** Follow that skill and the task you were given. Do not start agents, run `team-guard workspace new`, propose a variant or ask the human anything; the sections below are for the lead. Return your report as your final message.\n\n"
+  }
+}
