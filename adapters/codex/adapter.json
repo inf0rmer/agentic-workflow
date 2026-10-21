@@ -13,13 +13,12 @@
   "vars": {
     "team_intro": "For significant features or changes that are more than a few lines of code, run a team of Codex subagents with a structured multi-agent approach. You are the lead: spawn each role with `spawn_agent` using its agent type, leave `fork_context` off so every role starts with only the prompt you give it, and use `wait_agent` to finish a step before starting the next.",
     "docs": "~/.codex/team/docs",
-    "agents_dir": "~/.codex/agents",
-    "project_agents_dir": ".codex/agents",
     "instructions_file": "AGENTS.md",
     "worktree_section": "**All agents share one workspace dir.** Before spawning any agent, run `team-guard workspace new <feature>`, then `team-guard workspace attach <repo-path>` from the workspace dir for each repo the feature touches. Each attached worktree is on the same branch name in its repo. Start Codex from the workspace dir so every subagent inherits it as its working directory; each agent edits code inside `repos/<repo>/`, and the workflow artifacts stay in the workspace dir.",
-    "agent_ext": ".toml",
     "skill_call": "mention",
-    "skill_sigil": "$"
+    "skill_sigil": "$",
+    "role_files": "Role definitions are in `~/.codex/agents/` (`<role>.toml`). A project can override one with its own in `.codex/agents/`.",
+    "child_guard": ""
   },
   "instructions_footer": ""
 }

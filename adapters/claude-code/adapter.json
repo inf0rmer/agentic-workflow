@@ -9,13 +9,12 @@
   "vars": {
     "team_intro": "For significant features or changes that are more than a few lines of code, run a structured multi-agent workflow. You are the lead: start each role as a subagent using its agent type, and wait for its report before moving to the next step. Claude Code [agent teams](https://code.claude.com/docs/en/agent-teams) are an option only for parallel work within one step.",
     "docs": "~/.claude/team/docs",
-    "agents_dir": "~/.claude/agents",
-    "project_agents_dir": ".claude/agents",
     "instructions_file": "CLAUDE.md",
     "worktree_section": "**All agents share one workspace dir.** Before starting any agent, run `team-guard workspace new <feature>`, then `team-guard workspace attach <repo-path>` from the workspace dir for each repo the feature touches. Each attached worktree is on the same branch name in its repo. Start the session from the workspace dir so every subagent inherits it as its working directory; each agent edits code inside `repos/<repo>/`, and the workflow artifacts stay in the workspace dir.",
-    "agent_ext": ".md",
     "skill_call": "call the Skill tool with",
-    "skill_sigil": ""
+    "skill_sigil": "",
+    "role_files": "Role definitions are in `~/.claude/agents/` (`<role>.md`). A project can override one with its own in `.claude/agents/`.",
+    "child_guard": ""
   },
   "instructions_footer": "@RTK.md\n"
 }
