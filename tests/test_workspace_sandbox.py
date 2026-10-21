@@ -4,6 +4,7 @@ Inside a sandboxed workspace no human signing key exists, so commits stay unsign
 value (unset, 0, empty) must leave signing exactly as it was.
 """
 
+import hashlib
 import json
 import re
 import sys
@@ -58,14 +59,17 @@ class TestSharedInstructions(unittest.TestCase):
             name = {"claude-code": "CLAUDE.md", "codex": "AGENTS.md"}[harness]
             return (Path(out) / name).read_text()
 
-    def test_ship_and_pr_watch_say_when_sign_is_skipped(self):
+    def test_ship_and_pr_watch_say_sign_skips_in_a_sandbox_and_the_commits_are_unsigned(self):
         for harness in ("claude-code", "codex"):
             with self.subTest(harness=harness):
                 text = self.render(harness)
                 ship = next(l for l in text.splitlines() if l.startswith("8. **Ship.**"))
-                self.assertIn("skip `sign` when `TEAM_SANDBOX=1`", ship)
                 watch = next(l for l in text.splitlines() if l.startswith("The first push needs"))
-                self.assertIn("skip `sign` when `TEAM_SANDBOX=1`", watch)
+                for line in (ship, watch):
+                    self.assertIn("`team-guard sign", line)
+                    self.assertIn("`TEAM_SANDBOX=1`", line)
+                    self.assertIn("unsigned", line)
+                self.assertIn("in the PR draft", ship)
 
     def test_existing_harnesses_keep_their_role_files_sentence_and_have_no_child_guard(self):
         expected = {
@@ -85,6 +89,47 @@ class TestSharedInstructions(unittest.TestCase):
                 vars_ = json.loads(adapter.read_text())["vars"]
                 self.assertIn("role_files", vars_)
                 self.assertIn("child_guard", vars_)
+
+
+
+# What claude-code and codex rendered before TEAM_SANDBOX existed, as sha256 of the files in
+# dist/ at that time. The test below rebuilds that text from today's output by undoing the
+# sandbox wording, so any other drift in these shipped files fails. If a later change to the
+# shared instructions or team-guard is intended, refresh these hashes in that change.
+BASELINE = {
+    "claude-code": {"CLAUDE.md": "9898077e993521d2efaa2e181200faec302c48e3c1396cc4e59a25ca5e78e900",
+                    "bin/team-guard": "da3e2a68829d8d488e791f87eba7fd4032645b2f6e4e9c395990c468faeb7991"},
+    "codex": {"AGENTS.md": "d7855dfc17d4c87477198a27cf2c1b5f2529f5ebfd44fbe160226fa0176dcf03",
+              "bin/team-guard": "da3e2a68829d8d488e791f87eba7fd4032645b2f6e4e9c395990c468faeb7991"},
+}
+SANDBOX_EDITS = [  # (new text, text it replaced)
+    (" (with `TEAM_SANDBOX=1` it skips signing and the commits stay unsigned: say so in the PR draft; only the workspace image sets it, never set it yourself)", ""),
+    (" (with `TEAM_SANDBOX=1` it skips and the commits stay unsigned)", ""),
+    ("                                   (does nothing when TEAM_SANDBOX=1, which a sandboxed workspace image sets)\n", ""),
+    (", TEAM_SANDBOX.\n", ".\n"),
+    ('    if os.environ.get("TEAM_SANDBOX") == "1":\n'
+     '        # A sandboxed workspace has no human signing key; its commits stay unsigned by design.\n'
+     '        print("team-guard: sign: skipped (TEAM_SANDBOX=1, commits stay unsigned)")\n'
+     '        return\n', ""),
+]
+
+
+class TestExistingHarnessesDrift(unittest.TestCase):
+
+    def test_shipped_claude_code_and_codex_files_differ_from_the_pre_sandbox_output_only_by_the_sandbox_wording(self):
+        for harness, files in BASELINE.items():
+            for rel, digest in files.items():
+                with self.subTest(harness=harness, file=rel):
+                    text = (ROOT / "dist" / harness / rel).read_text()
+                    for new, old in SANDBOX_EDITS:
+                        text = text.replace(new, old)
+                    self.assertEqual(hashlib.sha256(text.encode()).hexdigest(), digest)
+
+    def test_every_sandbox_edit_is_present_in_the_shipped_files(self):
+        shipped = {h: {rel: (ROOT / "dist" / h / rel).read_text() for rel in files} for h, files in BASELINE.items()}
+        for new, _ in SANDBOX_EDITS:
+            with self.subTest(edit=new[:40]):
+                self.assertTrue(any(new in t for files in shipped.values() for t in files.values()))
 
 
 if __name__ == "__main__":
