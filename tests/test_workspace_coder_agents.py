@@ -72,8 +72,8 @@ class TestRoleSkills(BuildCase):
         self.assertIn("silently dropped", self.agents_md)
         self.assertNotIn("A project can override one", self.agents_md)
 
-    def test_the_ship_step_skips_sign_in_a_sandbox(self):
-        self.assertIn("skip `sign` when `TEAM_SANDBOX=1`", self.agents_md)
+    def test_the_ship_step_says_sign_skips_in_a_sandbox(self):
+        self.assertIn("with `TEAM_SANDBOX=1` it skips", self.agents_md)
 
 
 class TestRoster(BuildCase):
@@ -155,6 +155,16 @@ class TestSizeGuard(unittest.TestCase):
             self.build_with(SKILL_LIMIT=200)
         self.assertIn("SKILL.md", str(cm.exception))
 
+    def test_the_build_fails_on_an_oversized_vendored_skill_and_names_it(self):
+        # Above every role skill, below the largest vendored one.
+        sizes = {p.parent.name: p.stat().st_size for p in (ROOT / "core" / "skills").glob("*/SKILL.md")}
+        limit = max(sizes.values()) - 1
+        roles = [len(build.render(build.load(f"core/roles/{r}.md"), ADAPTER["vars"], r).encode()) + 400 for r in TEAM]
+        self.assertLess(max(roles), limit, "harness: the limit must sit between role and vendored skill sizes")
+        with self.assertRaises(SystemExit) as cm:
+            self.build_with(SKILL_LIMIT=limit)
+        self.assertIn(max(sizes, key=sizes.get), str(cm.exception))
+
     def test_the_build_fails_on_oversized_instructions(self):
         with self.assertRaises(SystemExit) as cm:
             self.build_with(AGENTS_LIMIT=200)
@@ -166,6 +176,9 @@ class TestInstall(InstallCase):
     def setUp(self):
         super().setUp()
         shutil.copytree(ROOT / "docs", self.repo / "docs", symlinks=True)
+        # An image build or workspace may export these; each test sets exactly the ones it means to.
+        for var in self.IDS:
+            self.sb.env.pop(var, None)
 
     IDS = {"CODER_MODEL_STRONG": "11111111-aaaa", "CODER_MODEL_STANDARD": "22222222-bbbb",
            "CODER_MODEL_FAST": "33333333-cccc"}
@@ -202,6 +215,19 @@ class TestInstall(InstallCase):
         self.assertEqual((backups[0] / "AGENTS.md").read_text(), "my instructions\n")
         self.assertEqual((backups[0] / "skills" / "tdd" / "mine.md").read_text(), "my notes\n")
         self.assertFalse((coder / "skills" / "tdd" / "mine.md").exists())
+
+    def test_install_does_not_write_through_a_symlinked_agents_md(self):
+        coder = self.home / ".coder"
+        coder.mkdir()
+        store = self.sb.tmp / "dotfiles-AGENTS.md"
+        store.write_text("managed elsewhere\n")
+        (coder / "AGENTS.md").symlink_to(store)
+        self.ok(self.run_install(**self.IDS), "install coder-agents")
+        self.assertEqual(store.read_text(), "managed elsewhere\n")
+        self.assertFalse((coder / "AGENTS.md").is_symlink())
+        self.assertIn(self.IDS["CODER_MODEL_FAST"], (coder / "AGENTS.md").read_text())
+        backups = list((coder / "backups").glob("agentic-workflow-*"))
+        self.assertEqual((backups[0] / "AGENTS.md").read_text(), "managed elsewhere\n")
 
     def test_install_refuses_when_a_model_id_is_unset_and_writes_nothing(self):
         for missing in self.IDS:

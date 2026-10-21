@@ -29,7 +29,11 @@ mkdir -p "$BACKUPS"
 BACKUP=$(mktemp -d "$BACKUPS/agentic-workflow-$(date +%Y%m%d-%H%M%S)-XXXXXX")
 mkdir -p "$BACKUP/skills" "$DEST/skills" "$DEST/team/bin" "$DEST/team/docs"
 
-cp "$DEST/AGENTS.md" "$BACKUP/AGENTS.md" 2>/dev/null || true
+# Back it up and remove it first, so a symlinked AGENTS.md is replaced and never written through.
+if [[ -e "$DEST/AGENTS.md" || -L "$DEST/AGENTS.md" ]]; then
+  cp -L "$DEST/AGENTS.md" "$BACKUP/AGENTS.md" 2>/dev/null || cp -P "$DEST/AGENTS.md" "$BACKUP/AGENTS.md"
+  rm "$DEST/AGENTS.md"
+fi
 sed -e "s|REPLACE-WITH-MODEL-CONFIG-ID-STRONG|$CODER_MODEL_STRONG|g" \
     -e "s|REPLACE-WITH-MODEL-CONFIG-ID-STANDARD|$CODER_MODEL_STANDARD|g" \
     -e "s|REPLACE-WITH-MODEL-CONFIG-ID-FAST|$CODER_MODEL_FAST|g" \

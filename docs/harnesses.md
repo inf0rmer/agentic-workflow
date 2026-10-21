@@ -195,6 +195,7 @@ It exits with `agentic-workflow install: <VAR> is not set ...` and writes nothin
 
 - **Skill names.** Coder scans `~/.coder` before the project and keeps the first skill of each name, so a project skill named `tdd`, `grilling` or `role-reviewer` is silently dropped, and a project can't override a role.
 - **Strict frontmatter.** Coder parses skill frontmatter as strict YAML and silently drops a skill it can't parse. The build quotes every frontmatter value and fails on any it can't check.
+- **Ignored keys.** Coder ignores `disable-model-invocation` and `allowed-tools` in vendored skills; they stay in the files, quoted, and do no harm.
 - **Size.** The build fails on a `SKILL.md` or `AGENTS.md` over 64 KiB.
 - **Version.** These chat APIs are experimental. The adapter was checked against Coder v2.38.1; use that version's behavior as the baseline when upgrading.
 
