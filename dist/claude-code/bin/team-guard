@@ -11,8 +11,9 @@ Workspaces (one per feature, under ~/.agentic-workflow/work/<feature>/):
 
 Signing:
   team-guard sign [--base <ref>]   re-sign the branch's commits with your own key before a push
+                                   (does nothing when TEAM_SANDBOX=1, which a sandboxed workspace image sets)
 
-Environment: TEAM_WORKSPACE_ROOT, TEAM_ARCHIVE_ROOT, TEAM_STALE_DAYS.
+Environment: TEAM_WORKSPACE_ROOT, TEAM_ARCHIVE_ROOT, TEAM_STALE_DAYS, TEAM_SANDBOX.
 """
 import argparse
 import calendar
@@ -931,6 +932,10 @@ def cmd_sign(args):
     p = _Parser(prog="team-guard sign", add_help=False)
     p.add_argument("--base")
     a = _parse_or_die(p, args, "sign")
+    if os.environ.get("TEAM_SANDBOX") == "1":
+        # A sandboxed workspace has no human signing key; its commits stay unsigned by design.
+        print("team-guard: sign: skipped (TEAM_SANDBOX=1, commits stay unsigned)")
+        return
     targets, _, _ = tool_targets(a.base, "sign")
     bad = []
     for name, top, base in targets:

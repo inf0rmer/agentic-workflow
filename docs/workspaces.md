@@ -144,6 +144,8 @@ team-guard sign --base origin/main
 It refuses a dirty or mid-rebase checkout, restores the branch if anything fails, and warns when another pre-commit hook runs on every amend.
 Outside a workspace, run it from the repo and pass `--base`.
 
+With `TEAM_SANDBOX=1`, `sign` prints `team-guard: sign: skipped (TEAM_SANDBOX=1, commits stay unsigned)`, exits 0 and changes nothing. Set it only in a sandboxed workspace image (such as a Coder workspace) that has no personal signing key; commits made there stay unsigned, so the human gate before the first push still matters.
+
 ## Set the environment
 
 | Variable | Default | Controls |
@@ -151,6 +153,7 @@ Outside a workspace, run it from the repo and pass `--base`.
 | `TEAM_WORKSPACE_ROOT` | `~/.agentic-workflow/work` | Where workspaces are created |
 | `TEAM_ARCHIVE_ROOT` | `~/.agentic-workflow/archive` | Where `close` archives |
 | `TEAM_STALE_DAYS` | `30` | Idle days before a workspace is stale |
+| `TEAM_SANDBOX` | unset | `1` makes `team-guard sign` skip signing (sandboxed workspace images only) |
 
 A command-line option beats its variable.
 
