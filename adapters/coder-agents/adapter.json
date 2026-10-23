@@ -20,6 +20,7 @@
     "skill_call": "call `read_skill` with",
     "skill_sigil": "",
     "role_files": "Role definitions are the skills `role-<role>` in `~/.coder/skills/`, which a spawned child reads with `read_skill`. Coder keeps the first skill of each name it finds and scans `~/.coder` before the project, so a project cannot override a role, and a project skill with the same name as one of ours (such as `tdd` or `grilling`) is silently dropped. Give project skills other names.",
-    "child_guard": "**If you were told to read a `role-*` skill, you are that role and not the lead.** Follow that skill and the task you were given. Do not start agents, run `team-guard workspace new`, propose a variant or ask the human anything; the sections below are for the lead. Return your report as your final message.\n\n"
+    "child_guard": "**If you were told to read a `role-*` skill, you are that role and not the lead.** Follow that skill and the task you were given. Do not start agents, run `team-guard workspace new`, propose a variant or ask the human anything; the sections below are for the lead. Return your report as your final message.\n\n",
+    "design_review": "Post the doc in the chat so the human can read it there, and wait. The architect revises from the human's comments in the chat. The human approves by replying `approve design` in the chat."
   }
 }

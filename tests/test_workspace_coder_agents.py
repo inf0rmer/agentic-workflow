@@ -72,6 +72,16 @@ class TestRoleSkills(BuildCase):
         self.assertIn("silently dropped", self.agents_md)
         self.assertNotIn("A project can override one", self.agents_md)
 
+    def test_the_design_step_posts_the_doc_in_chat_and_never_mentions_crit(self):
+        step = next(l for l in self.agents_md.splitlines() if l.startswith("3. **Approval.**"))
+        self.assertIn("Post the doc in the chat", step)
+        self.assertIn("`approve design`", step)
+        texts = {"AGENTS.md": self.agents_md}
+        texts.update({str(p.relative_to(self.out)): p.read_text() for p in self.out.glob("skills/role-*/SKILL.md")})
+        for name, text in texts.items():
+            with self.subTest(file=name):
+                self.assertIsNone(re.search(r"\bcrit\b", text, re.IGNORECASE))
+
     def test_the_ship_step_says_sign_skips_in_a_sandbox(self):
         self.assertIn("with `TEAM_SANDBOX=1` it skips", self.agents_md)
 
