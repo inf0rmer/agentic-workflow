@@ -54,6 +54,8 @@ The lead picks by judgment and says why in one line. Security, stored data, a pu
 
 When you approve the doc, the lead adds "Approved on <date>" at its top and saves a copy as `design-approved.md`. If the design must change during the build, the lead adds a "Changes after approval" note at the end of the doc and asks you in one line.
 
+In a sandboxed workspace, such as a Coder workspace, the image sets `TEAM_SANDBOX=1`: `team-guard sign` then skips signing and commits stay unsigned. The human gate before the first push applies as before. In Coder Agents the gates happen in the chat, not in Crit.
+
 ## Read a design doc
 
 Every Feature gets one `design.md` in its workspace, never in the project repo. It is plain language, has at least one Mermaid diagram, and aims for under five pages.

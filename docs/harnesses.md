@@ -1,6 +1,6 @@
 # Harnesses
 
-The workflow is written once in `core/` and rendered for each agent harness, Claude Code and Codex CLI, by `build.py` through an adapter.
+The workflow is written once in `core/` and rendered for each agent harness (Claude Code, Codex CLI and Coder Agents) by `build.py` through an adapter.
 
 ```mermaid
 flowchart LR
@@ -169,7 +169,35 @@ It also writes `~/.codex/rules/agentic-workflow.rules`, which lets `team-guard` 
 | Read-only role | The build gives the security reviewer a `tools:` line (`read_only_tools` in the adapter) with no Edit, Write, web or Agent tool | Prose only: no tool list exists, and a read-only sandbox would also block the scanners |
 | Skills | `~/.claude/skills/` | `~/.agents/skills/` (`$tdd`) |
 
-Both harnesses share the workspace and archive directories under `~/.agentic-workflow/`, so one team can mix them.
+Coder Agents differs from both:
+
+| | Coder Agents |
+|---|---|
+| Instructions | `~/.coder/AGENTS.md` in the workspace image, 64 KiB cap, loaded as context rather than as the system prompt |
+| Roles | No agent-type files. Each role is a skill, `role-<name>`, that a spawned child reads first with `read_skill`; the roster in `AGENTS.md` gives each role's `type`, `model_config_id` and `reasoning_effort` |
+| Step ordering | The lead starts each role with `spawn_agent` and waits with `wait_agent`. A child can't spawn or ask the human |
+| Read-only role | The `explore` child type has no `write_file` or `edit_files` but keeps the shell (`execute`): the same tool list as Claude Code's read-only role, with no permission prompt on the shell. A guard, not a wall |
+| Skills | `~/.coder/skills/`, installed when the image is built |
+| Signing | The image sets `TEAM_SANDBOX=1`, so `team-guard sign` skips signing |
+| Human gates | In the chat: the human replies `approve design` or approves the code there. Crit isn't used |
+
+Claude Code and Codex share the workspace and archive directories under `~/.agentic-workflow/`, so one team can mix them.
+
+## Install for Coder Agents
+
+Run the installer when the workspace image is built. A chat pins a snapshot of its skills when it starts, so they must already be on disk. Give it the deployment's `model_config_id` values (`list_subagent_models` shows them):
+
+```bash
+CODER_MODEL_STRONG=<id> CODER_MODEL_STANDARD=<id> CODER_MODEL_FAST=<id> adapters/coder-agents/install.sh
+```
+
+It exits with `agentic-workflow install: <VAR> is not set ...` and writes nothing if one is missing. It copies `AGENTS.md`, `skills/` and `team/bin/` into `~/.coder`, writes the IDs into the roster, and backs up what it replaces to `~/.coder/backups/agentic-workflow-<timestamp>-<suffix>/`. It never touches `~/.claude` or `~/.codex`. Set `TEAM_SANDBOX=1` in the image.
+
+- **Skill names.** Coder scans `~/.coder` before the project and keeps the first skill of each name, so a project skill named `tdd`, `grilling` or `role-reviewer` is silently dropped, and a project can't override a role.
+- **Strict frontmatter.** Coder parses skill frontmatter as strict YAML and silently drops a skill it can't parse. The build quotes every frontmatter value and fails on any it can't check.
+- **Ignored keys.** Coder ignores `disable-model-invocation` and `allowed-tools` in vendored skills; they stay in the files, quoted, and do no harm.
+- **Size.** The build fails on a `SKILL.md` or `AGENTS.md` over 64 KiB.
+- **Version.** These chat APIs are experimental. The adapter was checked against Coder v2.38.1; use that version's behavior as the baseline when upgrading.
 
 ## Add a harness
 

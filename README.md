@@ -1,6 +1,6 @@
 # agentic-workflow
 
-An agent-team workflow for Claude Code and Codex CLI. A lead session proposes a variant, an architect writes one design doc you approve, an engineer builds it with tests and code together, a fresh reviewer checks it and runs the real tools, and you review every PR before anything is pushed.
+An agent-team workflow for Claude Code, Codex CLI and Coder Agents. A lead session proposes a variant, an architect writes one design doc you approve, an engineer builds it with tests and code together, a fresh reviewer checks it and runs the real tools, and you review every PR before anything is pushed.
 
 The workflow is written once in a harness-neutral `core/` and rendered per harness into `dist/`. The aim is less paperwork and more checking against the real tools: reviews and real runs catch bugs, numbered requirements and locks did not.
 
