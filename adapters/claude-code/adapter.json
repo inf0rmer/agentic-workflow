@@ -14,7 +14,8 @@
     "skill_call": "call the Skill tool with",
     "skill_sigil": "",
     "role_files": "Role definitions are in `~/.claude/agents/` (`<role>.md`). A project can override one with its own in `.claude/agents/`.",
-    "child_guard": ""
+    "child_guard": "",
+    "design_review": "Run `crit design.md` from the workspace so the human can comment (Crit renders the diagrams), or post the doc in chat. The architect revises from comments. The human approves in Crit, or replies `approve design` in chat."
   },
   "instructions_footer": "@RTK.md\n"
 }

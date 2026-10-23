@@ -89,6 +89,15 @@ class TestSharedInstructions(unittest.TestCase):
                 vars_ = json.loads(adapter.read_text())["vars"]
                 self.assertIn("role_files", vars_)
                 self.assertIn("child_guard", vars_)
+                self.assertIn("design_review", vars_)
+
+    def test_existing_harnesses_keep_their_crit_design_review_step(self):
+        step = ("3. **Approval.** Run `crit design.md` from the workspace so the human can comment (Crit renders the diagrams), "
+                "or post the doc in chat. The architect revises from comments. The human approves in Crit, or replies "
+                "`approve design` in chat. Then add")
+        for harness in ("claude-code", "codex"):
+            with self.subTest(harness=harness):
+                self.assertIn(step, self.render(harness))
 
 
 
