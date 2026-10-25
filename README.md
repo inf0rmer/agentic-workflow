@@ -111,12 +111,14 @@ tests/                    run.sh runs everything
 ## Install
 
 ```bash
-./build.py claude-code && ./build.py codex     # after editing core/ or an adapter
-adapters/claude-code/install.sh                # ~/.claude
-adapters/codex/install.sh                      # ~/.codex and ~/.agents
+./build.py claude-code && ./build.py codex && ./build.py coder-agents   # after editing core/ or an adapter
+adapters/claude-code/install.sh                                        # ~/.claude
+adapters/codex/install.sh                                              # ~/.codex and ~/.agents
+CODER_MODEL_STRONG=<id> CODER_MODEL_STANDARD=<id> CODER_MODEL_FAST=<id> \
+  adapters/coder-agents/install.sh                                     # ~/.coder, when the image is built
 ```
 
-Each installer runs the tests first, backs up what it replaces, retires files this build no longer ships (moved to the backup, never deleted), and removes the old `team-guard hook-…` entries from your settings. It leaves a file in place, with a warning, if your settings or hooks still use it. If you used an earlier version, run `scripts/remove-old-git-hooks --scan ~/Code --dry-run` first, then again without `--dry-run`. Details are in [Harnesses](./docs/harnesses.md).
+Each installer backs up what it replaces. The Claude Code and Codex ones also run the tests first, retire files this build no longer ships (moved to the backup, never deleted), and remove the old `team-guard hook-…` entries from your settings. They leave a file in place, with a warning, if your settings or hooks still use it. The Coder Agents installer backs up and copies only, and touches no settings. If you used an earlier version, run `scripts/remove-old-git-hooks --scan ~/Code --dry-run` first, then again without `--dry-run`. Details are in [Harnesses](./docs/harnesses.md).
 
 ## Known limits
 
