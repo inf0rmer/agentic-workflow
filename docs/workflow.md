@@ -1,6 +1,6 @@
 # Workflow
 
-You ask for something. The lead picks a variant, the team builds it, a fresh reviewer checks it, and you review every PR before it merges (in Coder Agents, before it is marked ready; see below).
+You ask for something. The lead picks a variant, the team builds it, a fresh reviewer checks it, and you review every PR before anything is pushed (in Coder Agents, a draft PR is pushed early and you review it before it is marked ready; see below).
 
 ```mermaid
 flowchart TD
@@ -84,7 +84,7 @@ Every Feature gets one `design.md` in its workspace, never in the project repo. 
 | Doc-writer | Updates user-facing docs, only when they change | Docs |
 | Researcher, product-owner | On request, outside the flow | Notes, issues |
 
-A confirmed security finding is a blocker (a low one a major), and the engineer fixes it before the PR. The PR description gets one neutral line, and the report stays in the workspace. A security fix, or a vulnerability the review finds in existing code, stops the work before any push so you decide what happens with the details; security findings never become public issues or PRs without your say-so.
+A confirmed security finding is a blocker (a low one a major), and the engineer fixes it before the PR. The PR description gets one neutral line, and the report stays in the workspace. A security fix, or a vulnerability the review finds in existing code, stops the work before any push so you decide what happens with the details (in Coder Agents, only on a public repo or one not confirmed private; a private repo follows the draft-PR flow without describing the vulnerability); security findings never become public issues or PRs without your say-so.
 
 The agents keep a few files for themselves, in the workspace: `tests.md` (one line per behavior in the doc's test section, with the test that covers it), `followups.md` (side findings that become issues after the merge), `questions.md`, the review reports and `review-guide.md`.
 

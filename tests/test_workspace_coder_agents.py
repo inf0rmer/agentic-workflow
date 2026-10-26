@@ -115,6 +115,11 @@ class TestPersistence(BuildCase):
         self.assertIn("Private: the normal draft-PR flow applies", para)
         self.assertIn("stop pushing, keep the details only in the workspace", para)
 
+    def test_no_leftover_security_stop_contradicts_the_public_only_rule(self):
+        self.assertNotIn("stops the work before any push", self.lead_text())
+        self.assertIn("on a public repo it is never pushed", self.lead_text())
+        self.assertIn("commit messages or chat-visible links", self.lead_text())
+
     def test_the_human_gate_is_marking_the_draft_ready(self):
         gate = next(l for l in self.agents_md.splitlines() if l.startswith("7. **Human gate.**"))
         self.assertIn("review the draft PR", gate)
