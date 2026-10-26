@@ -54,7 +54,7 @@ The lead picks by judgment and says why in one line. Security, stored data, a pu
 
 When you approve the doc, the lead adds "Approved on <date>" at its top and saves a copy as `design-approved.md`. If the design must change during the build, the lead adds a "Changes after approval" note at the end of the doc and asks you in one line.
 
-In a sandboxed workspace, such as a Coder workspace, the image sets `TEAM_SANDBOX=1`: `team-guard sign` then skips signing and commits stay unsigned. The human gate before the first push applies as before. In Coder Agents the gates happen in the chat, not in Crit.
+In a sandboxed workspace, such as a Coder workspace, the image sets `TEAM_SANDBOX=1`: `team-guard sign` then skips signing and commits stay unsigned. In Coder Agents the gates happen in the chat, not in Crit, and the push gate is different, because a workspace is erased when it stops: the lead pushes the branch and opens a draft PR (`gh pr create --draft`) after the first commit, pushes after every commit, and asks you to review the draft PR. It runs `gh pr ready` only after you approve; the bot cannot merge. All work, including cloned repos and workflow workspaces, lives under `~/work`, the only directory that survives a stop.
 
 ## Read a design doc
 

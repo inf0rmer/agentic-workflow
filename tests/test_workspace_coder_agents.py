@@ -5,9 +5,11 @@ Builds go to a temp dir, so the build tests don't depend on dist/ being current.
 """
 
 import json
+import os
 import re
 import shutil
 import stat
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -84,6 +86,56 @@ class TestRoleSkills(BuildCase):
 
     def test_the_ship_step_says_sign_skips_in_a_sandbox(self):
         self.assertIn("with `TEAM_SANDBOX=1` it skips", self.agents_md)
+
+
+class TestPersistence(BuildCase):
+    """A Coder workspace is erased on stop, so the Coder build keeps work under ~/work and pushes early."""
+
+    def lead_text(self):
+        return " ".join(self.agents_md.split())
+
+    def test_work_lives_under_the_persistent_directory(self):
+        text = self.lead_text()
+        self.assertIn("Only `~/work` (`/home/coder/work`) survives a workspace stop", text)
+        self.assertIn("Clone every repo into `~/work`", text)
+        self.assertIn("`~/work/.agentic-workflow`", text)
+
+    def test_a_draft_pr_opens_after_the_first_commit_and_every_commit_is_pushed(self):
+        text = self.lead_text()
+        self.assertIn("`gh pr create --draft`", text)
+        self.assertIn("Push after every commit (a security fix stays unpushed", text)
+
+    def test_the_human_gate_is_marking_the_draft_ready(self):
+        gate = next(l for l in self.agents_md.splitlines() if l.startswith("7. **Human gate.**"))
+        self.assertIn("review the draft PR", gate)
+        self.assertIn("Mark it ready only after they approve", gate)
+        ship = next(l for l in self.agents_md.splitlines() if l.startswith("8. **Ship.**"))
+        self.assertIn("`gh pr ready`", ship)
+        self.assertNotIn("Nothing is pushed without approval", self.agents_md)
+        self.assertNotIn("the code review before any push", self.agents_md)
+        self.assertNotIn("The first push needs the human's approval", self.agents_md)
+
+    def test_the_other_gates_remain(self):
+        text = self.lead_text()
+        for gate in ("the variant, the design doc", "any problem you cannot settle alone"):
+            self.assertIn(gate, text)
+
+    def test_the_other_harnesses_keep_the_push_gate(self):
+        for harness in ("claude-code", "codex"):
+            with self.subTest(harness=harness), tempfile.TemporaryDirectory() as tmp:
+                build.build(harness, tmp)
+                text = next(p for p in (Path(tmp) / "CLAUDE.md", Path(tmp) / "AGENTS.md") if p.exists()).read_text()
+                self.assertIn("Nothing is pushed without approval", text)
+                self.assertNotIn("draft PR", text)
+                self.assertNotIn("~/work", text)
+
+    def test_team_guard_creates_workspaces_under_the_configured_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = {**os.environ, "TEAM_WORKSPACE_ROOT": tmp, "HOME": tmp}
+            out = subprocess.run([str(ROOT / "core" / "bin" / "team-guard"), "workspace", "new", "persist-check"],
+                                 env=env, capture_output=True, text=True, cwd=tmp)
+            self.assertEqual(out.returncode, 0, out.stderr)
+            self.assertTrue((Path(tmp) / "persist-check" / "workspace.json").exists())
 
 
 class TestRoster(BuildCase):
