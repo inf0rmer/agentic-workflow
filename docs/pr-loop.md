@@ -38,6 +38,7 @@ Done means done for now: the lead keeps polling until the PR is merged or closed
 
 The first push of a PR needs the human's approval and is signed with `team-guard sign --base origin/<base branch>`.
 After that, a fix for a review comment or a failing check is committed, signed with `team-guard sign --base origin/<PR branch>`, which signs only the commits not yet on the PR branch, and pushed with a plain `git push`, without asking again.
+In Coder Agents the draft PR is opened after the first commit and every commit is pushed, so the first push needs no approval; the human's approval gates marking the PR ready (`gh pr ready`). A security fix on a public repo (or any repo not confirmed PRIVATE with `gh repo view`) is the exception: it is never pushed, and if one is found after a push the lead stops pushing and tells the human in the chat. On a private repo the draft-PR flow applies without describing the vulnerability.
 The lead never force-pushes without asking the human, because a force-push rewrites what reviewers already saw.
 
 If a fix changes scope (new behavior or a changed interface), the lead stops and asks the human before pushing.

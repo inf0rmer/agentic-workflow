@@ -1,6 +1,6 @@
 # Workflow
 
-You ask for something. The lead picks a variant, the team builds it, a fresh reviewer checks it, and you review every PR before anything is pushed.
+You ask for something. The lead picks a variant, the team builds it, a fresh reviewer checks it, and you review every PR before anything is pushed (in Coder Agents, a draft PR is pushed early and you review it before it is marked ready; see below).
 
 ```mermaid
 flowchart TD
@@ -29,7 +29,7 @@ flowchart TD
     M --> C[Follow-ups become issues,<br/>workspace close]
 ```
 
-The lead stops and asks you at four points: the variant, the design doc (Feature only), the code review before anything is pushed, and any problem it cannot settle alone (a blocker left after the re-check, a security question, or a design change during the build).
+The lead stops and asks you at four points: the variant, the design doc (Feature only), the code review before anything is pushed (in Coder Agents, the review of the draft PR before it is marked ready), and any problem it cannot settle alone (a blocker left after the re-check, a security question, or a design change during the build).
 
 ## Pick a variant
 
@@ -54,7 +54,7 @@ The lead picks by judgment and says why in one line. Security, stored data, a pu
 
 When you approve the doc, the lead adds "Approved on <date>" at its top and saves a copy as `design-approved.md`. If the design must change during the build, the lead adds a "Changes after approval" note at the end of the doc and asks you in one line.
 
-In a sandboxed workspace, such as a Coder workspace, the image sets `TEAM_SANDBOX=1`: `team-guard sign` then skips signing and commits stay unsigned. The human gate before the first push applies as before. In Coder Agents the gates happen in the chat, not in Crit.
+In a sandboxed workspace, such as a Coder workspace, the image sets `TEAM_SANDBOX=1`: `team-guard sign` then skips signing and commits stay unsigned. In Coder Agents the gates happen in the chat, not in Crit, and the push gate is different, because a workspace is erased when it stops: the lead pushes the branch and opens a draft PR (`gh pr create --draft`) after the first commit, pushes after every commit (a security fix on a public repo is never pushed; on a private repo it goes to the draft PR without describing the vulnerability), and asks you to review the draft PR. It runs `gh pr ready` only after you approve; the bot cannot merge. All work, including cloned repos and workflow workspaces, lives under `~/work`, the only directory that survives a stop.
 
 ## Read a design doc
 
@@ -84,13 +84,13 @@ Every Feature gets one `design.md` in its workspace, never in the project repo. 
 | Doc-writer | Updates user-facing docs, only when they change | Docs |
 | Researcher, product-owner | On request, outside the flow | Notes, issues |
 
-A confirmed security finding is a blocker (a low one a major), and the engineer fixes it before the PR. The PR description gets one neutral line, and the report stays in the workspace. A security fix, or a vulnerability the review finds in existing code, stops the work before any push so you decide what happens with the details; security findings never become public issues or PRs without your say-so.
+A confirmed security finding is a blocker (a low one a major), and the engineer fixes it before the PR. The PR description gets one neutral line, and the report stays in the workspace. A security fix, or a vulnerability the review finds in existing code, stops the work before any push so you decide what happens with the details (in Coder Agents, only on a public repo or one not confirmed private; a private repo follows the draft-PR flow without describing the vulnerability); security findings never become public issues or PRs without your say-so.
 
 The agents keep a few files for themselves, in the workspace: `tests.md` (one line per behavior in the doc's test section, with the test that covers it), `followups.md` (side findings that become issues after the merge), `questions.md`, the review reports and `review-guide.md`.
 
 ## Commit and sign
 
-Agents commit unsigned with `git -c commit.gpgsign=false commit`. After you approve the code, the lead runs `team-guard sign --base origin/<base branch>`, which re-signs the branch's commits with your own key, then pushes and opens the PR. See [Watch an open PR](./pr-loop.md) for what happens next.
+Agents commit unsigned with `git -c commit.gpgsign=false commit`. After you approve the code, the lead runs `team-guard sign --base origin/<base branch>`, which re-signs the branch's commits with your own key, then pushes and opens the PR (Coder Agents skips signing and has already pushed a draft PR; it runs `gh pr ready` instead). See [Watch an open PR](./pr-loop.md) for what happens next.
 
 ## Next steps
 

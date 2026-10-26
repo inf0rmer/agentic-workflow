@@ -19,7 +19,12 @@
     "skill_sigil": "$",
     "role_files": "Role definitions are in `~/.codex/agents/` (`<role>.toml`). A project can override one with its own in `.codex/agents/`.",
     "child_guard": "",
-    "design_review": "Run `crit design.md` from the workspace so the human can comment (Crit renders the diagrams), or post the doc in chat. The architect revises from comments. The human approves in Crit, or replies `approve design` in chat."
+    "design_review": "Run `crit design.md` from the workspace so the human can comment (Crit renders the diagrams), or post the doc in chat. The architect revises from comments. The human approves in Crit, or replies `approve design` in chat.",
+    "human_gate": "Show the human the draft and the full diff, test changes included. Nothing is pushed without approval.",
+    "ship": "After approval run `team-guard sign --base origin/<base branch>` in the workspace (with `TEAM_SANDBOX=1` it skips signing and the commits stay unsigned: say so in the PR draft; only the workspace image sets it, never set it yourself), push, and open the PR.",
+    "review_stop": "the code review before any push",
+    "first_push": "The first push needs the human's approval. After that, sign a fix",
+    "security_stop": "stops the work before any push: the details stay in the workspace and the human decides."
   },
   "instructions_footer": ""
 }
