@@ -26,6 +26,6 @@
     "ship": "The draft PR already exists and every commit is pushed (see Where work lives). After the human approves, run `gh pr ready`. You cannot merge: branch rulesets leave that to the human. `team-guard sign` skips signing here (`TEAM_SANDBOX=1`) and the commits stay unsigned: say so in the PR description.",
     "review_stop": "the review of the draft PR before you mark it ready",
     "first_push": "The first push opens the draft PR and needs no approval; marking it ready does. Push after every commit (a security fix on a public repo is never pushed; see Where work lives), and sign a fix",
-    "security_stop": "A security fix, or a vulnerability in existing code that the security review finds, follows the rule in Where work lives: on a public repo it is never pushed and the details stay in the workspace; on a private repo the draft-PR flow applies without describing the vulnerability. Either way, tell the human in the chat."
+    "security_stop": "follows the rule in Where work lives: on a public repo it is never pushed and the details stay in the workspace; on a private repo the draft-PR flow applies without describing the vulnerability. Either way, tell the human in the chat."
   }
 }

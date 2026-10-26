@@ -71,7 +71,7 @@ Four things always mean Feature, and the design doc's Risks section must then ad
 7. **Human gate.** {{human_gate}}
 8. **Ship.** {{ship}} Watch it (below) until it is merged. Then turn `followups.md` into issues and close the workspace.
 
-Stop and ask the human at four points: the variant, the design doc, {{review_stop}}, and any problem you cannot settle alone (a blocker left after the re-check, a security question, or a design change during the build). {{security_stop}} Check in after about 40 turns without one of these.
+Stop and ask the human at four points: the variant, the design doc, {{review_stop}}, and any problem you cannot settle alone (a blocker left after the re-check, a security question, or a design change during the build). A security fix, or a vulnerability in existing code that the security review finds, {{security_stop}} Check in after about 40 turns without one of these.
 
 ### How agents work
 
