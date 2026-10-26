@@ -104,12 +104,15 @@ class TestPersistence(BuildCase):
     def test_a_draft_pr_opens_after_the_first_commit_and_every_commit_is_pushed(self):
         text = self.lead_text()
         self.assertIn("`gh pr create --draft`", text)
-        self.assertIn("Push after every commit (never a security fix", text)
+        self.assertIn("Push after every commit (a security fix on a public repo is never pushed", text)
 
     def test_the_security_exception_is_in_the_where_work_lives_paragraph(self):
         para = next(p for p in self.agents_md.split("\n\n") if p.startswith("**Where work lives.**"))
         para = " ".join(para.split())
-        self.assertIn("Exception: a security fix, or work on a vulnerability the security review finds, is never pushed", para)
+        self.assertIn("`gh repo view <owner/name> --json visibility`", para)
+        self.assertIn("If it isn't PRIVATE (public, internal, or the check fails), treat it as public", para)
+        self.assertIn("Public: never push it", para)
+        self.assertIn("Private: the normal draft-PR flow applies", para)
         self.assertIn("stop pushing, keep the details only in the workspace", para)
 
     def test_the_human_gate_is_marking_the_draft_ready(self):
