@@ -183,7 +183,7 @@ class TestWorkflowText(unittest.TestCase):
 
     def test_the_pr_risk_line_takes_the_higher_of_the_two_reviews(self):
         text = self.read("instructions.md")
-        step = text[text.index("6. **PR description.**"):text.index("7. **Human gate.**")]
+        step = text[text.index("6. **PR description.**"):text.index("7. {{human_gate}}")]
         self.assertIn("higher", step)
         self.assertIn("Security review:", step)
 

@@ -68,10 +68,10 @@ Four things always mean Feature, and the design doc's Risks section must then ad
 4. **Build.** The engineer builds each PR in the plan, tests and code together, in the attached worktrees.
 5. **Review.** A fresh reviewer checks the diff and tests against the design doc and runs the real-tool scenarios. If the design's Risks or the diff touch a risky area (sessions and tokens, auth, parsing, templates and HTML, shell or exec, file paths, outbound network, crypto and randomness, secrets, dependencies, CI, installers or hooks, stored-data formats, writes to a home dir or settings, changes to agent tool lists or permissions, removed validation; the full list is in the `security-reviewer` role's list), or the reviewer asks, also start the `security-reviewer` in find mode, in both Feature and Quick. Then start one fresh `security-reviewer` in check mode per candidate, in parallel (grouped by file above 5), giving it the claim, the diff and the design doc, never the finder's reasoning. Save its report as `security-review.md` in the workspace. A confirmed high or medium finding is a blocker, a low one a major. The engineer fixes blockers and majors. A new fresh reviewer then checks only the fix, and a fresh `security-reviewer` checks the fix diff for security findings. Blockers still left after that go to the human.
 6. **PR description.** Draft it: what changed, where to look (from `review-guide.md`), decisions made (including any change to an existing test), what was not verified, and a risk line. For a security review, add only a neutral line such as `Security review: shell and file-path triggers; gitleaks, semgrep ran; 1 issue found and fixed before push.` The risk line is the higher of the reviewer's and the security reviewer's, naming both reasons.
-7. **Human gate.** {{human_gate}}
+7. {{human_gate}}
 8. **Ship.** {{ship}} Watch it (below) until it is merged. Then turn `followups.md` into issues and close the workspace.
 
-Stop and ask the human at four points: the variant, the design doc, {{review_stop}}, and any problem you cannot settle alone (a blocker left after the re-check, a security question, or a design change during the build). A security fix, or a vulnerability in existing code that the security review finds, {{security_stop}} Check in after about 40 turns without one of these.
+Stop and ask the human at {{stop_count}} points: the variant, the design doc{{review_stop}}, and any problem you cannot settle alone (a blocker left after the re-check, a security question, or a design change during the build). A security fix, or a vulnerability in existing code that the security review finds, {{security_stop}} Check in after about 40 turns without one of these.
 
 ### How agents work
 
@@ -82,7 +82,7 @@ Stop and ask the human at four points: the variant, the design doc, {{review_sto
 - **Side findings go to `followups.md`**, not into the current change, unless they block it or touch security. Never turn a security finding into a public issue or PR without the human's say-so.
 - **Non-blocking questions** go to `questions.md` while work continues on a choice marked `PROVISIONAL`. The reviewer confirms or rejects each one. Only blocking or security questions interrupt.
 - **Size.** Each PR aims for about 400 changed lines, tests not counted. If one must be bigger, the design doc says why.
-- **Commit unsigned** during the work with `git -c commit.gpgsign=false commit …`, a setting for that one command. Never change git config. If a commit still asks to sign, stop and report it. The lead re-signs once, after the human approves.
+- **Commit unsigned** during the work with `git -c commit.gpgsign=false commit …`, a setting for that one command. Never change git config. If a commit still asks to sign, stop and report it. The lead re-signs once, {{re_sign_when}}.
 - **Keep the dev environment running** between rounds.
 
 ### Commit messages and PRs
