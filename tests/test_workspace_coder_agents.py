@@ -101,9 +101,12 @@ class TestPersistence(BuildCase):
         self.assertIn("`TEAM_WORKSPACE_ROOT` to `~/work/.agentic-workflow/work`", text)
         self.assertIn("`TEAM_ARCHIVE_ROOT` to `~/work/.agentic-workflow/archive`", text)
 
-    def test_a_draft_pr_opens_after_the_first_commit_and_every_commit_is_pushed(self):
+    def test_a_ready_pr_opens_when_the_work_is_done_and_every_commit_is_pushed(self):
         text = self.lead_text()
-        self.assertIn("`gh pr create --draft`", text)
+        self.assertIn("When the work is done and reviewed, open a PR with `gh pr create`", text)
+        self.assertIn("a normal PR, ready for review", text)
+        self.assertNotIn("--draft", text)
+        self.assertNotIn("gh pr ready", text)
         self.assertIn("Push after every commit (a security fix on a public repo is never pushed", text)
 
     def test_the_security_exception_is_in_the_where_work_lives_paragraph(self):
@@ -112,7 +115,7 @@ class TestPersistence(BuildCase):
         self.assertIn("`gh repo view <owner/name> --json visibility`", para)
         self.assertIn("If it isn't PRIVATE (public, internal, or the check fails), treat it as public", para)
         self.assertIn("Public: never push it", para)
-        self.assertIn("Private: the normal draft-PR flow applies", para)
+        self.assertIn("Private: the normal PR flow applies", para)
         self.assertIn("stop pushing, keep the details only in the workspace", para)
 
     def test_no_leftover_security_stop_contradicts_the_public_only_rule(self):
@@ -120,13 +123,15 @@ class TestPersistence(BuildCase):
         self.assertIn("on a public repo it is never pushed", self.lead_text())
         self.assertIn("commit messages or chat-visible links", self.lead_text())
 
-    def test_the_human_gate_is_marking_the_draft_ready(self):
-        gate = next(l for l in self.agents_md.splitlines() if l.startswith("7. **Human gate.**"))
-        self.assertIn("review the draft PR", gate)
+    def test_the_seventh_step_opens_the_pr_ready_for_review(self):
+        gate = next(l for l in self.agents_md.splitlines() if l.startswith("7. **Open the PR.**"))
         self.assertIn("gh pr edit --body-file", gate)
-        self.assertIn("Mark it ready only after they approve", gate)
+        self.assertIn("ready for review", gate)
+        self.assertIn("say in one line in the chat that it is ready for review", gate)
+        self.assertNotIn("Mark it ready", gate)
         ship = next(l for l in self.agents_md.splitlines() if l.startswith("8. **Ship.**"))
-        self.assertIn("`gh pr ready`", ship)
+        self.assertNotIn("gh pr ready", ship)
+        self.assertIn("Stop and ask the human at three points", self.agents_md)
         self.assertNotIn("Nothing is pushed without approval", self.agents_md)
         self.assertNotIn("the code review before any push", self.agents_md)
         self.assertNotIn("The first push needs the human's approval", self.agents_md)

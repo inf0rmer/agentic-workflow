@@ -179,7 +179,7 @@ Coder Agents differs from both:
 | Read-only role | The `explore` child type has no `write_file` or `edit_files` but keeps the shell (`execute`): the same tool list as Claude Code's read-only role, with no permission prompt on the shell. A guard, not a wall |
 | Skills | `~/.coder/skills/`, installed when the image is built |
 | Signing | The image sets `TEAM_SANDBOX=1`, so `team-guard sign` skips signing |
-| Human gates | In the chat: the human replies `approve design` or approves the code there. Crit isn't used |
+| Human gates | In the chat: the human replies `approve design`. The code is reviewed and merged on the PR, which the lead opens ready for review. Crit isn't used |
 
 Claude Code and Codex share the workspace and archive directories under `~/.agentic-workflow/`, so one team can mix them.
 
