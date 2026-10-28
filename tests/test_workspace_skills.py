@@ -15,8 +15,9 @@ import unittest
 from pathlib import Path
 
 from wslib import ROOT
-from wsskills import (ALL_DIRS, FILES, PIN, SK, SKILLS, SOURCE, SOURCE_OF, SOURCES, TOB_PIN, clone_or_skip, files_under, frontmatter_value,
-                      git_bytes, insert_note, note_for, split_frontmatter, strip_note, upstream_file, upstream_files)
+from wsskills import (ALL_DIRS, ALL_SHIPPED, FILES, LOCAL, PIN, SK, SKILLS, SOURCE, SOURCE_OF, SOURCES, TOB_PIN, clone_or_skip,
+                      files_under, frontmatter_value, git_bytes, insert_note, note_for, split_frontmatter, strip_note,
+                      upstream_file, upstream_files)
 
 FORBIDDEN = [r"docs/adr", r"\$TMPDIR", r"\.scratch", r"temporary directory", r"/tmp\b", r"repo(sitory)? root",
              r"root of the repo"]
@@ -30,12 +31,18 @@ class TestVendoredSet(unittest.TestCase):
 
     def test_exactly_the_pinned_skills_are_vendored_with_their_files(self):
         dirs = sorted(p.name for p in SK.iterdir() if p.is_dir() and p.name != "patches")
-        self.assertEqual(dirs, ALL_DIRS)
+        self.assertEqual(dirs, ALL_SHIPPED)
         self.assertTrue((SK / "UPSTREAM.json").is_file())
         self.assertTrue((SK / "patches").is_dir())
         for d in ALL_DIRS:
             with self.subTest(skill=d):
                 self.assertEqual(frontmatter_value(read(d), "name"), d)
+        # Our own skill sits beside the vendored ones, and carries no upstream files.
+        for d in LOCAL:
+            with self.subTest(skill=d):
+                self.assertEqual(frontmatter_value(read(d), "name"), d)
+                self.assertNotIn("vendored from", read(d))
+                self.assertNotIn(d, json.loads((SK / "UPSTREAM.json").read_text())["skills"])
         for d, want in FILES.items():
             with self.subTest(files=d):
                 self.assertEqual(files_under(SK / d), want)
@@ -271,8 +278,8 @@ class TestBuiltSkills(unittest.TestCase):
         for harness in ("claude-code", "codex"):
             out = ROOT / "dist" / harness / "skills"
             with self.subTest(harness=harness):
-                self.assertEqual(sorted(p.name for p in out.iterdir()), ALL_DIRS)
-                for d in ALL_DIRS:
+                self.assertEqual(sorted(p.name for p in out.iterdir()), ALL_SHIPPED)
+                for d in ALL_SHIPPED:
                     self.assertEqual(files_under(out / d), files_under(SK / d), d)
                     for f in files_under(SK / d):
                         if f.endswith("SKILL.md"):
@@ -297,7 +304,7 @@ class TestBuiltSkills(unittest.TestCase):
             for k, v in vars_.items():
                 with self.subTest(harness=harness, var=k):
                     self.assertEqual(adapter["vars"].get(k), v)
-        callers = [d for d in SKILLS if "{{skill_call}}" in read(d)]
+        callers = [d for d in ALL_SHIPPED if "{{skill_call}}" in read(d)]
         self.assertIn("handoff", callers)
         for d in callers:
             cc = (ROOT / "dist" / "claude-code" / "skills" / d / "SKILL.md").read_text(encoding="utf-8")

@@ -70,6 +70,8 @@ The copies never auto-update. Each carries its `LICENSE` and a provenance line, 
 | `differential-review` | patched | the security reviewer, to review a diff |
 | `fp-check` | patched | the security reviewer, to try to disprove one finding |
 
+One skill is ours rather than vendored: `research-hub-context`, which tells a chat to read the homelab's shared context from the Research Hub before starting work and to write durable facts back after it. It has no upstream, so it carries no provenance line or upstream `LICENSE`; its content lives in the hub, at `research.at.home` under the topic `agent-context`.
+
 ### Licenses
 
 This repository's own code and docs are MIT licensed, see [LICENSE](./LICENSE), except the vendored skills and our patches to them, which keep their own licenses, below.
