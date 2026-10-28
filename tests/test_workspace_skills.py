@@ -157,7 +157,7 @@ class TestVendoredSet(unittest.TestCase):
 class TestPatchedContent(unittest.TestCase):
 
     def test_skills_write_only_under_the_workspace(self):
-        for d in SKILLS:
+        for d in ALL_SHIPPED:
             for f in sorted(files_under(SK / d)):
                 text = (SK / d / f).read_text(encoding="utf-8", errors="replace")
                 for pat in FORBIDDEN:
@@ -173,7 +173,7 @@ class TestPatchedContent(unittest.TestCase):
                     self.assertIn(p, text)
 
     def test_no_skill_mentions_the_removed_roles_or_locks(self):
-        for d in SKILLS:
+        for d in ALL_SHIPPED:
             for f in sorted(files_under(SK / d)):
                 text = (SK / d / f).read_text(encoding="utf-8", errors="replace")
                 for word in ("sealed", "tester", "holdout", "codebase-design", "domain-modeling"):
