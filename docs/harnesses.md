@@ -77,6 +77,8 @@ A patched skill is upstream plus a stored patch in `core/skills/patches/`, which
 | `differential-review` | patched | security-reviewer only, to review a diff |
 | `fp-check` | patched | security-reviewer only, to try to disprove one finding |
 
+`research-hub-context` is ours, not vendored: it has no upstream and no provenance line, and it tells a chat to read the homelab's shared context from the Research Hub before work and write durable facts back after it. The context itself is not in this repo; it lives at `research.at.home` in the topic `agent-context`, so it changes without a rebuild.
+
 `build.py` ships only the directories of `core/skills/` that hold a `SKILL.md`, so `UPSTREAM.json` and `patches/` stay behind. It renders each `SKILL.md` with the adapter's vars: `skill_call` and `skill_sigil` say how a skill names another one (Claude Code calls the Skill tool; Codex mentions `$name`).
 
 Run `scripts/vendor-check` to see drift: it compares each copy with upstream at the pin plus its patch (`local drift`) and with a newer ref (`upstream changed`, `upstream removed`, or a `patch conflict`), reports a LICENSE the upstream deleted or changed as `LICENSE <source>: upstream removed` or `upstream changed`, checks every source (`--source <name>` limits it to one, and `--upstream` and `--ref` need it when there are two), exits 1 on drift and 2 when it can't run, and never changes anything.

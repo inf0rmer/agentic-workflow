@@ -39,8 +39,12 @@ SKILLS = {
     "fp-check": ("plugins/fp-check/skills/fp-check", "patched"),
 }
 SOURCE_OF = {d: "trailofbits" if d in ("differential-review", "fp-check") else "mattpocock" for d in SKILLS}
+# Skills this repository writes itself: no upstream, no provenance line, no upstream LICENSE.
+LOCAL = {"research-hub-context"}
 ALL_DIRS = sorted(SKILLS)
+ALL_SHIPPED = sorted(set(ALL_DIRS) | LOCAL)
 FILES = {
+    "research-hub-context": {"SKILL.md"},
     "grilling": {"SKILL.md", "LICENSE", "agents/openai.yaml"},
     "writing-for-agents": {"SKILL.md", "LICENSE", "agents/openai.yaml", "SKILL-MECHANICS.md"},
     "handoff": {"SKILL.md", "LICENSE", "agents/openai.yaml"},
