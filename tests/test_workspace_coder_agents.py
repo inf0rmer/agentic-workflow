@@ -29,6 +29,8 @@ PLACEHOLDER = {"strong": "REPLACE-WITH-MODEL-CONFIG-ID-STRONG",
                "standard": "REPLACE-WITH-MODEL-CONFIG-ID-STANDARD",
                "fast": "REPLACE-WITH-MODEL-CONFIG-ID-FAST"}
 NOT_LEAD = "You were spawned as the role below; you are not the lead."
+# GitHub closes an issue on any of these, so a partial PR must carry none of them.
+CLOSING_KEYWORD_BAN = "never a closing keyword (`Closes`, `Fixes`, `Resolves`) on a partial one"
 
 
 def frontmatter_of(text):
@@ -135,6 +137,7 @@ class TestPersistence(BuildCase):
         para = " ".join(para.split())
         self.assertIn("`Closes #<number>`", para)
         self.assertIn("`Part of #<number>`", para)
+        self.assertIn(CLOSING_KEYWORD_BAN, para)
 
     def test_the_security_exception_is_in_the_where_work_lives_paragraph(self):
         para = next(p for p in self.agents_md.split("\n\n") if p.startswith("**Where work lives.**"))

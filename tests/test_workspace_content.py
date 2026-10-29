@@ -12,6 +12,8 @@ CORE = ROOT / "core"
 DIST_DOCS = {"claude-code": ROOT / "dist" / "claude-code" / "CLAUDE.md",
              "codex": ROOT / "dist" / "codex" / "AGENTS.md"}
 LIMIT = 16 * 1024
+# GitHub closes an issue on any of these, so a partial PR must carry none of them.
+CLOSING_KEYWORD_BAN = "never a closing keyword (`Closes`, `Fixes`, `Resolves`) on a partial one"
 # Words from the removed machinery. None may appear in what agents read.
 REMOVED = ["sealed", "holdout", "contract.md", "mutation-check", "hook-pretool", "jev", "Jev",
            "team-guard verify", "team-guard gate", "team-guard routing", "team-guard risk", "team-guard refs",
@@ -69,6 +71,7 @@ class TestInstructions(ContentCase):
                 step = next(l for l in text(path).splitlines() if l.startswith("6. **PR description.**"))
                 self.assertIn("`Closes #<number>`", step)
                 self.assertIn("`Part of #<number>`", step)
+                self.assertIn(CLOSING_KEYWORD_BAN, step)
 
     def test_close_out_step_closes_the_workspace(self):
         for path in (ROOT / "dist" / "claude-code" / "CLAUDE.md",
