@@ -106,9 +106,9 @@ class TestSharedInstructions(unittest.TestCase):
 # sandbox wording, so any other drift in these shipped files fails. If a later change to the
 # shared instructions or team-guard is intended, refresh these hashes in that change.
 BASELINE = {
-    "claude-code": {"CLAUDE.md": "9898077e993521d2efaa2e181200faec302c48e3c1396cc4e59a25ca5e78e900",
+    "claude-code": {"CLAUDE.md": "a20b2d4683a209727595e6bdaf5ea95e69825ce66030a603e18468423ceab0b2",
                     "bin/team-guard": "da3e2a68829d8d488e791f87eba7fd4032645b2f6e4e9c395990c468faeb7991"},
-    "codex": {"AGENTS.md": "d7855dfc17d4c87477198a27cf2c1b5f2529f5ebfd44fbe160226fa0176dcf03",
+    "codex": {"AGENTS.md": "91b65a158df4d5996001cbcf65afa06982b68c6a32b84c832e0037067df2be54",
               "bin/team-guard": "da3e2a68829d8d488e791f87eba7fd4032645b2f6e4e9c395990c468faeb7991"},
 }
 SANDBOX_EDITS = [  # (new text, text it replaced)
