@@ -20,7 +20,6 @@
     "ship": "After approval run `team-guard sign --base origin/<base branch>` in the workspace (with `TEAM_SANDBOX=1` it skips signing and the commits stay unsigned: say so in the PR draft; only the workspace image sets it, never set it yourself), push, and open the PR.",
     "review_stop": ", the code review before any push",
     "stop_count": "four",
-    "re_sign_when": "after the human approves",
     "first_push": "The first push needs the human's approval. After that, sign a fix",
     "security_stop": "stops the work before any push: the details stay in the workspace and the human decides."
   },

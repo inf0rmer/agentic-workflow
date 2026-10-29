@@ -27,7 +27,7 @@ done
 
 mkdir -p "$BACKUPS"
 BACKUP=$(mktemp -d "$BACKUPS/agentic-workflow-$(date +%Y%m%d-%H%M%S)-XXXXXX")
-mkdir -p "$BACKUP/skills" "$DEST/skills" "$DEST/team/bin" "$DEST/team/docs"
+mkdir -p "$BACKUP/skills" "$DEST/skills" "$DEST/team/docs"
 
 # Back it up and remove it first, so a symlinked AGENTS.md is replaced and never written through.
 if [[ -e "$DEST/AGENTS.md" || -L "$DEST/AGENTS.md" ]]; then
@@ -43,7 +43,6 @@ if grep -q 'REPLACE-WITH' "$DEST/AGENTS.md"; then
   exit 1
 fi
 
-install -m 0755 "$DIST"/bin/* "$DEST/team/bin/"
 if [[ -d "$ROOT/docs" ]]; then cp "$ROOT"/docs/*.md "$DEST/team/docs/"; fi
 
 # Back up what is there, remove it, and copy fresh: nothing is written through a symlink, and files
@@ -62,5 +61,4 @@ for skill in "$DIST"/skills/*/; do
   cp -R "$skill". "$target/"
 done
 
-echo "Installed AGENTS.md, skills and $DEST/team/bin. Backup: $BACKUP"
-echo "Set TEAM_SANDBOX=1 in the workspace image so 'team-guard sign' skips signing there."
+echo "Installed AGENTS.md and skills under $DEST. Backup: $BACKUP"

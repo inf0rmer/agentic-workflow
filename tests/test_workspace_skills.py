@@ -161,7 +161,7 @@ class TestPatchedContent(unittest.TestCase):
             text = "\n".join((SK / d / f).read_text(encoding="utf-8") for f in sorted(files_under(SK / d))
                              if f != "LICENSE")
             with self.subTest(skill=d):
-                self.assertIn("team-guard workspace-path", text)
+                self.assertIn("{{workspace_where}}", text)
                 for p in paths:
                     self.assertIn(p, text)
 

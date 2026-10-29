@@ -144,7 +144,7 @@ team-guard sign --base origin/main
 It refuses a dirty or mid-rebase checkout, restores the branch if anything fails, and warns when another pre-commit hook runs on every amend.
 Outside a workspace, run it from the repo and pass `--base`.
 
-With `TEAM_SANDBOX=1`, `sign` prints `team-guard: sign: skipped (TEAM_SANDBOX=1, commits stay unsigned)`, exits 0 and changes nothing. Set it only in a sandboxed workspace image (such as a Coder workspace) that has no personal signing key; commits made there stay unsigned, so the human gate still matters (in Coder Agents it is your review of the PR, which the lead opens ready for review, see [Workflow](./workflow.md)).
+With `TEAM_SANDBOX=1`, `sign` prints `team-guard: sign: skipped (TEAM_SANDBOX=1, commits stay unsigned)`, exits 0 and changes nothing. Set it only in a sandboxed workspace image that has no personal signing key; commits made there stay unsigned, so the human gate still matters. Coder Agents doesn't install `team-guard` at all (see [Workflow](./workflow.md)).
 
 ## Set the environment
 

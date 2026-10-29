@@ -99,7 +99,7 @@ You are outside the feature flow. The lead calls you on request for roadmap and 
 2. Close fully resolved issues. Reference the relevant PRs.
 3. File follow-up issues for newly discovered bugs, edge cases or deferred scope, starting from the workspace's `followups.md`.
 4. Update the roadmap to reflect reality.
-5. Close the workspace: after the human merges, run `team-guard workspace close <feature>` from outside the workspace (not from its workspace dir or an attached worktree). It archives the files, removes the attached worktrees and keeps every branch. If it refuses because of uncommitted or unpushed work, resolve that first; use `--force` only when the work is safe to discard.
+5. {{close_workspace}}
 
 ## Rules
 

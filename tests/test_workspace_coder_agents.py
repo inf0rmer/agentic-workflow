@@ -84,8 +84,30 @@ class TestRoleSkills(BuildCase):
             with self.subTest(file=name):
                 self.assertIsNone(re.search(r"\bcrit\b", text, re.IGNORECASE))
 
-    def test_the_ship_step_says_sign_skips_in_a_sandbox(self):
-        self.assertIn("with `TEAM_SANDBOX=1` it skips", self.agents_md)
+    def test_nothing_in_the_coder_build_uses_team_guard(self):
+        texts = {"AGENTS.md": self.agents_md}
+        texts.update({str(p.relative_to(self.out)): p.read_text() for p in self.out.glob("skills/*/SKILL.md")})
+        for name, text in texts.items():
+            with self.subTest(file=name):
+                self.assertNotIn("team-guard", text)
+                self.assertNotIn("TEAM_SANDBOX", text)
+                self.assertNotIn("TEAM_WORKSPACE_ROOT", text)
+        self.assertFalse((self.out / "bin").exists())
+
+    def test_the_ship_step_says_commits_are_unsigned(self):
+        ship = next(l for l in self.agents_md.splitlines() if l.startswith("8. **Ship.**"))
+        self.assertIn("Commits here are unsigned: say so in the PR description", ship)
+        self.assertNotIn("re-signs", self.agents_md)
+
+    def test_the_workspace_is_a_plain_dir_under_work(self):
+        text = self.lead_text()
+        self.assertIn("a plain directory at `~/work/.workflow/<feature>/`", text)
+        self.assertIn("`mkdir -p ~/work/.workflow/<feature>`", text)
+        self.assertIn("`git switch -c feat/<feature>`", text)
+        self.assertNotIn("worktree", text)
+
+    def lead_text(self):
+        return " ".join(self.agents_md.split())
 
 
 class TestPersistence(BuildCase):
@@ -98,8 +120,7 @@ class TestPersistence(BuildCase):
         text = self.lead_text()
         self.assertIn("Only `~/work` (`/home/coder/work`) survives a workspace stop", text)
         self.assertIn("Clone every repo into `~/work`", text)
-        self.assertIn("`TEAM_WORKSPACE_ROOT` to `~/work/.agentic-workflow/work`", text)
-        self.assertIn("`TEAM_ARCHIVE_ROOT` to `~/work/.agentic-workflow/archive`", text)
+        self.assertIn("keep the workspace dir there too", text)
 
     def test_a_ready_pr_opens_when_the_work_is_done_and_every_commit_is_pushed(self):
         text = self.lead_text()
@@ -151,14 +172,6 @@ class TestPersistence(BuildCase):
                 self.assertIn("Nothing is pushed without approval", text)
                 self.assertNotIn("draft PR", text)
                 self.assertNotIn("~/work", text)
-
-    def test_team_guard_creates_workspaces_under_the_configured_root(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            env = {**os.environ, "TEAM_WORKSPACE_ROOT": tmp, "HOME": tmp}
-            out = subprocess.run([str(ROOT / "core" / "bin" / "team-guard"), "workspace", "new", "persist-check"],
-                                 env=env, capture_output=True, text=True, cwd=tmp)
-            self.assertEqual(out.returncode, 0, out.stderr)
-            self.assertTrue((Path(tmp) / "persist-check" / "workspace.json").exists())
 
 
 class TestRoster(BuildCase):
@@ -283,8 +296,7 @@ class TestInstall(InstallCase):
             self.assertIn(self.IDS[var], agents)
         for skill in ("role-architect", "role-security-reviewer", "tdd", "grilling"):
             self.assertTrue((coder / "skills" / skill / "SKILL.md").is_file(), skill)
-        guard = coder / "team" / "bin" / "team-guard"
-        self.assertTrue(guard.stat().st_mode & stat.S_IXUSR)
+        self.assertFalse((coder / "team" / "bin").exists())
         self.assertTrue((coder / "team" / "docs" / "pr-loop.md").is_file())
         self.assertFalse((self.home / ".claude").exists())
         self.assertFalse((self.home / ".codex").exists())

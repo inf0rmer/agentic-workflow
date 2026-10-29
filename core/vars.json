@@ -1,0 +1,14 @@
+{
+  "workspaces_intro": "Every task that needs a branch gets a **workspace** at `~/.agentic-workflow/work/<feature>/` (change the root with `TEAM_WORKSPACE_ROOT`). It holds `workspace.json`, the agents' working files (`design.md`, `tests.md`, `followups.md`, review reports, `review-guide.md`), and `repos/<repo>/`, one attached worktree per repo, all on the same branch name. Working files stay in the workspace and **never go in a project repo**. Only the project's own code, tests and user-facing docs do.",
+  "workspace_commands": "- `team-guard workspace new <feature>` creates the workspace. `team-guard workspace attach <repo-path>` adds a worktree on branch `feat/<feature>` (`--branch` on `new` and `--base` on `attach` change that).\n- `team-guard workspace-path` prints the workspace dir from inside it or any attached worktree. `workspace show` lists the repos and `workspace list` lists all workspaces.\n- After the merge, `team-guard workspace close <feature>` (from outside the workspace) archives the files and removes the worktrees. Branches are kept.",
+  "workspace_locate": "`team-guard workspace-path` prints it",
+  "repos_locate": "`team-guard workspace show` lists them",
+  "engineer_checkout": "You work in the attached worktree of the repo you're changing, `repos/<repo>/` under the workspace dir (`team-guard workspace show` lists them). Working files stay in the workspace dir and never go in the project repo. Commit in each attached worktree separately.",
+  "doc_checkout": "the attached worktree you're assigned",
+  "close_workspace": "Close the workspace: after the human merges, run `team-guard workspace close <feature>` from outside the workspace (not from its workspace dir or an attached worktree). It archives the files, removes the attached worktrees and keeps every branch. If it refuses because of uncommitted or unpushed work, resolve that first; use `--force` only when the work is safe to discard.",
+  "workspace_where": "`$(team-guard workspace-path)`",
+  "workspace_fallback": "If `team-guard workspace-path` fails because there is no workspace, use `git rev-parse --absolute-git-dir` instead, never the working tree.",
+  "re_sign": " The lead re-signs once, after the human approves.",
+  "fix_push": " with `team-guard sign --base origin/<PR branch>` (with `TEAM_SANDBOX=1` it skips and the commits stay unsigned) and push it with a plain `git push`.",
+  "build_where": "the attached worktrees"
+}

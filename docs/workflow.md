@@ -54,7 +54,7 @@ The lead picks by judgment and says why in one line. Security, stored data, a pu
 
 When you approve the doc, the lead adds "Approved on <date>" at its top and saves a copy as `design-approved.md`. If the design must change during the build, the lead adds a "Changes after approval" note at the end of the doc and asks you in one line.
 
-In a sandboxed workspace, such as a Coder workspace, the image sets `TEAM_SANDBOX=1`: `team-guard sign` then skips signing and commits stay unsigned. In Coder Agents the gates happen in the chat, not in Crit, and the push gate is gone, because a workspace is erased when it stops: the lead pushes the branch after the first commit and after every commit (a security fix on a public repo is never pushed; on a private repo it goes to the PR without describing the vulnerability), and opens a PR ready for review (`gh pr create`, a normal PR) when the work is done. It says in one line that the PR is ready for review and then watches it: CI status and comments, until you merge it; the bot cannot merge. All work, including cloned repos and workflow workspaces, lives under `~/work`, the only directory that survives a stop.
+Coder Agents does not use `team-guard`: a Coder workspace is already self-contained, so the workflow workspace is a plain directory under `~/work/.workflow/<feature>/`, the repos are ordinary clones, and commits stay unsigned. The gates happen in the chat, not in Crit, and the push gate is gone, because a workspace is erased when it stops: the lead pushes the branch after the first commit and after every commit (a security fix on a public repo is never pushed; on a private repo it goes to the PR without describing the vulnerability), and opens a PR ready for review (`gh pr create`, a normal PR) when the work is done. It says in one line that the PR is ready for review and then watches it: CI status and comments, until you merge it; the bot cannot merge. All work, including cloned repos and workflow workspaces, lives under `~/work`, the only directory that survives a stop. It requests your review on the PR with `gh pr edit --add-reviewer "$TEAM_REVIEWER"`, so the image sets `TEAM_REVIEWER` to your GitHub login.
 
 ## Read a design doc
 
@@ -90,7 +90,7 @@ The agents keep a few files for themselves, in the workspace: `tests.md` (one li
 
 ## Commit and sign
 
-Agents commit unsigned with `git -c commit.gpgsign=false commit`. After you approve the code, the lead runs `team-guard sign --base origin/<base branch>`, which re-signs the branch's commits with your own key, then pushes and opens the PR (Coder Agents skips signing and has pushed the branch already; it opens the PR ready for review instead). See [Watch an open PR](./pr-loop.md) for what happens next.
+Agents commit unsigned with `git -c commit.gpgsign=false commit`. After you approve the code, the lead runs `team-guard sign --base origin/<base branch>`, which re-signs the branch's commits with your own key, then pushes and opens the PR (Coder Agents has no signing step and has pushed the branch already; it opens the PR ready for review instead). See [Watch an open PR](./pr-loop.md) for what happens next.
 
 ## Next steps
 

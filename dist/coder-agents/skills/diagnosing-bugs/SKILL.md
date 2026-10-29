@@ -8,13 +8,13 @@ description: "Diagnosis loop for hard bugs and performance regressions. Use when
 
 The engineer does all the phases: build the feedback loop (Phase 1), reproduce and minimise (Phase 2), hypothesise, instrument and fix (Phases 3 to 5), then clean up (Phase 6). The regression test is written before the fix and fails on the defect. If an existing test looks wrong, say so rather than changing it quietly.
 
-Throwaway loop scripts, prototypes and captured artifacts go under `$(team-guard workspace-path)`, never in a project repo. If `team-guard workspace-path` fails because there is no workspace, use `git rev-parse --absolute-git-dir` instead, never the working tree.
+Throwaway loop scripts, prototypes and captured artifacts go under the workspace dir (your prompt gives its absolute path), never in a project repo. If your prompt gave no workspace dir, use `git rev-parse --absolute-git-dir` instead, never the working tree.
 
 # Diagnosing Bugs
 
 A discipline for hard bugs. Skip phases only when explicitly justified.
 
-When exploring the codebase, read the optional `GLOSSARY.md` and the ADRs in `$(team-guard workspace-path)`, and the project's own glossary and ADRs if it keeps them, to get a clear mental model of the relevant modules. Only read the project's; write in the workspace.
+When exploring the codebase, read the optional `GLOSSARY.md` and the ADRs in the workspace dir (your prompt gives its absolute path), and the project's own glossary and ADRs if it keeps them, to get a clear mental model of the relevant modules. Only read the project's; write in the workspace.
 
 ## Redact
 
@@ -141,5 +141,5 @@ Required before declaring done:
 - [ ] Original repro no longer reproduces (re-run the Phase 1 loop)
 - [ ] Regression test passes (or absence of seam is documented)
 - [ ] All `[DEBUG-...]` instrumentation removed (`grep` the prefix)
-- [ ] Throwaway prototypes deleted (or moved under `$(team-guard workspace-path)`)
+- [ ] Throwaway prototypes deleted (or moved under the workspace dir (your prompt gives its absolute path))
 - [ ] The hypothesis that turned out correct is stated in the commit / PR message, so the next debugger learns

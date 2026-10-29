@@ -1,8 +1,8 @@
 diff --git a/skills/engineering/diagnosing-bugs/SKILL.md b/core/skills/diagnosing-bugs/SKILL.md
-similarity index 89%
+similarity index 91%
 rename from skills/engineering/diagnosing-bugs/SKILL.md
 rename to core/skills/diagnosing-bugs/SKILL.md
-index 1b929e2..a564f0f 100644
+index 1b929e2..fcaa7cd 100644
 --- a/skills/engineering/diagnosing-bugs/SKILL.md
 +++ b/core/skills/diagnosing-bugs/SKILL.md
 @@ -3,11 +3,17 @@ name: diagnosing-bugs
@@ -13,14 +13,14 @@ index 1b929e2..a564f0f 100644
 +
 +The engineer does all the phases: build the feedback loop (Phase 1), reproduce and minimise (Phase 2), hypothesise, instrument and fix (Phases 3 to 5), then clean up (Phase 6). The regression test is written before the fix and fails on the defect. If an existing test looks wrong, say so rather than changing it quietly.
 +
-+Throwaway loop scripts, prototypes and captured artifacts go under `$(team-guard workspace-path)`, never in a project repo. If `team-guard workspace-path` fails because there is no workspace, use `git rev-parse --absolute-git-dir` instead, never the working tree.
++Throwaway loop scripts, prototypes and captured artifacts go under {{workspace_where}}, never in a project repo. {{workspace_fallback}}
 +
  # Diagnosing Bugs
  
  A discipline for hard bugs. Skip phases only when explicitly justified.
  
 -When exploring the codebase, read `GLOSSARY.md` (if it exists) to get a clear mental model of the relevant modules, and check ADRs in the area you're touching.
-+When exploring the codebase, read the optional `GLOSSARY.md` and the ADRs in `$(team-guard workspace-path)`, and the project's own glossary and ADRs if it keeps them, to get a clear mental model of the relevant modules. Only read the project's; write in the workspace.
++When exploring the codebase, read the optional `GLOSSARY.md` and the ADRs in {{workspace_where}}, and the project's own glossary and ADRs if it keeps them, to get a clear mental model of the relevant modules. Only read the project's; write in the workspace.
  
  ## Redact
  
@@ -29,7 +29,7 @@ index 1b929e2..a564f0f 100644
  - [ ] Regression test passes (or absence of seam is documented)
  - [ ] All `[DEBUG-...]` instrumentation removed (`grep` the prefix)
 -- [ ] Throwaway prototypes deleted (or moved to a clearly-marked debug location)
-+- [ ] Throwaway prototypes deleted (or moved under `$(team-guard workspace-path)`)
++- [ ] Throwaway prototypes deleted (or moved under {{workspace_where}})
  - [ ] The hypothesis that turned out correct is stated in the commit / PR message, so the next debugger learns
 diff --git a/skills/engineering/diagnosing-bugs/agents/openai.yaml b/core/skills/diagnosing-bugs/agents/openai.yaml
 similarity index 100%

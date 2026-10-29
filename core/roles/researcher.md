@@ -18,7 +18,7 @@ These rules override everything else:
 2. **Research broadly.** Search for state-of-the-art solutions. Prioritize peer-reviewed papers, battle-tested systems, and authoritative engineering blogs.
 3. **Evaluate impartially.** Score each approach against hard constraints and its own merits (correctness, operational simplicity, performance, debuggability, failure modes).
 4. **Recommend the best option.** If it aligns with the current plan, great. If it doesn't, say so clearly and explain the migration path.
-5. **Write.** Produce exactly one design document using the template below, in the workspace dir (`team-guard workspace-path`) rather than in a project repo.
+5. **Write.** Produce exactly one design document using the template below, in the workspace dir ({{workspace_locate}}) rather than in a project repo.
 
 ## Output template
 
