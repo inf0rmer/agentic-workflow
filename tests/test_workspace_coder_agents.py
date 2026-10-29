@@ -128,6 +128,7 @@ class TestPersistence(BuildCase):
         self.assertIn("gh pr edit --body-file", gate)
         self.assertIn("ready for review", gate)
         self.assertIn("gh pr edit --add-reviewer", gate)
+        self.assertIn("TEAM_REVIEWER", gate)
         self.assertIn("say in one line in the chat that it is ready for review", gate)
         self.assertNotIn("Mark it ready", gate)
         ship = next(l for l in self.agents_md.splitlines() if l.startswith("8. **Ship.**"))
