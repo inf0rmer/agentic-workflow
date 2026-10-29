@@ -130,6 +130,12 @@ class TestPersistence(BuildCase):
         self.assertNotIn("gh pr ready", text)
         self.assertIn("Push after every commit (a security fix on a public repo is never pushed", text)
 
+    def test_the_pr_links_the_issue_so_merging_closes_it(self):
+        para = next(p for p in self.agents_md.split("\n\n") if p.startswith("**Where work lives.**"))
+        para = " ".join(para.split())
+        self.assertIn("`Closes #<number>`", para)
+        self.assertIn("`Part of #<number>`", para)
+
     def test_the_security_exception_is_in_the_where_work_lives_paragraph(self):
         para = next(p for p in self.agents_md.split("\n\n") if p.startswith("**Where work lives.**"))
         para = " ".join(para.split())
