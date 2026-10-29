@@ -7,8 +7,9 @@
 core/instructions.md and core/roles/*.md use {{placeholders}} for anything that
 differs between harnesses; core/team.json gives each role a description and a
 model tier, and marks a read-only role, which Claude Code limits to the adapter's
-read_only_tools (Codex has no tool list, so the role's own text is its only guard). adapters/<harness>/adapter.json maps tiers to models and fills the
-placeholders. Output formats are chosen by the adapter's "harness" field.
+read_only_tools (Codex has no tool list, so the role's own text is its only guard). core/vars.json holds the default text for the placeholders about workspaces and signing
+(the team-guard flow); adapters/<harness>/adapter.json maps tiers to models, fills the
+other placeholders and overrides any default. Output formats are chosen by the adapter's "harness" field.
 """
 import argparse
 import filecmp
@@ -222,6 +223,7 @@ def copy_skills(vars_, out):
 
 def build(harness, out):
     adapter = load(f"adapters/{harness}/adapter.json")
+    adapter["vars"] = {**load("core/vars.json"), **adapter["vars"]}
     team = load("core/team.json")
     if os.path.exists(out):
         shutil.rmtree(out)
@@ -229,7 +231,8 @@ def build(harness, out):
     copy_skills(adapter["vars"], out)
     if adapter["harness"] == "coder-agents":
         finish_coder_agents(out)
-    for name in sorted(os.listdir(os.path.join(ROOT, "core", "bin"))):
+    # The Coder build keeps no workspaces or signing keys, so it ships no team-guard.
+    for name in [] if adapter["harness"] == "coder-agents" else sorted(os.listdir(os.path.join(ROOT, "core", "bin"))):
         src = os.path.join(ROOT, "core", "bin", name)
         if not os.path.isfile(src) or name == "__pycache__":
             continue

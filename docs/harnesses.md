@@ -18,7 +18,8 @@ flowchart LR
 | `core/instructions.md`, `core/roles/*.md` | The workflow and role prose, with `{{placeholders}}` wherever the harnesses differ. |
 | `core/team.json` | Each role's description and model tier: `strong`, `standard`, or `fast`, and `"access": "read-only"` for a role that must not edit. |
 | `core/bin/`, `core/skills/` | `team-guard` and the skills, shared by every harness. |
-| `adapters/<harness>/adapter.json` | The `harness` type, the model for each tier, and a value for every placeholder. |
+| `core/vars.json` | Default text for the workspace and signing placeholders (the `team-guard` flow). An adapter overrides any of them. |
+| `adapters/<harness>/adapter.json` | The `harness` type, the model for each tier, and a value for every placeholder `core/vars.json` doesn't default. |
 
 | Tier | Claude Code | Codex CLI |
 |---|---|---|
@@ -178,7 +179,7 @@ Coder Agents differs from both:
 | Step ordering | The lead starts each role with `spawn_agent` and waits with `wait_agent`. A child can't spawn or ask the human |
 | Read-only role | The `explore` child type has no `write_file` or `edit_files` but keeps the shell (`execute`): the same tool list as Claude Code's read-only role, with no permission prompt on the shell. A guard, not a wall |
 | Skills | `~/.coder/skills/`, installed when the image is built |
-| Signing | The image sets `TEAM_SANDBOX=1`, so `team-guard sign` skips signing |
+| Signing | None: commits stay unsigned and the lead says so in the PR description |
 | Human gates | In the chat: the human replies `approve design`. The code is reviewed and merged on the PR, which the lead opens ready for review. Crit isn't used |
 
 Claude Code and Codex share the workspace and archive directories under `~/.agentic-workflow/`, so one team can mix them.
@@ -191,7 +192,7 @@ Run the installer when the workspace image is built. A chat pins a snapshot of i
 CODER_MODEL_STRONG=<id> CODER_MODEL_STANDARD=<id> CODER_MODEL_FAST=<id> adapters/coder-agents/install.sh
 ```
 
-It exits with `agentic-workflow install: <VAR> is not set ...` and writes nothing if one is missing. It copies `AGENTS.md`, `skills/` and `team/bin/` into `~/.coder`, writes the IDs into the roster, and backs up what it replaces to `~/.coder/backups/agentic-workflow-<timestamp>-<suffix>/`. It never touches `~/.claude` or `~/.codex`. Set `TEAM_SANDBOX=1` in the image.
+It exits with `agentic-workflow install: <VAR> is not set ...` and writes nothing if one is missing. It copies `AGENTS.md`, `skills/` and the docs into `~/.coder` (no `team-guard`: the Coder build keeps its workspace as a plain directory), writes the IDs into the roster, and backs up what it replaces to `~/.coder/backups/agentic-workflow-<timestamp>-<suffix>/`. It never touches `~/.claude` or `~/.codex`. Set `TEAM_REVIEWER` to your GitHub login in the image, so the lead can request your review.
 
 - **Skill names.** Coder scans `~/.coder` before the project and keeps the first skill of each name, so a project skill named `tdd`, `grilling` or `role-reviewer` is silently dropped, and a project can't override a role.
 - **Strict frontmatter.** Coder parses skill frontmatter as strict YAML and silently drops a skill it can't parse. The build quotes every frontmatter value and fails on any it can't check.
@@ -201,7 +202,7 @@ It exits with `agentic-workflow install: <VAR> is not set ...` and writes nothin
 
 ## Add a harness
 
-1. Create `adapters/<harness>/adapter.json` with `harness`, `models`, and a value for every placeholder in `core/`.
+1. Create `adapters/<harness>/adapter.json` with `harness`, `models`, and a value for every placeholder in `core/` that `core/vars.json` doesn't default.
 2. Add a builder for its output format to `BUILDERS` in `build.py`, unless its `harness` type reuses an existing one.
 3. Run `./build.py <harness>`, and add an `install.sh` next to the adapter.
 

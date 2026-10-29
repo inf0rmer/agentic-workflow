@@ -87,7 +87,7 @@ Always include a concrete suggestion so the user can confirm quickly.
 
 ## Where your output goes
 
-The README and the user-facing docs directory are project deliverables and belong in the project repo, in the attached worktree you're assigned. Working files (design docs, review reports) stay in the workspace dir; read them from there and never copy them into a project repo.
+The README and the user-facing docs directory are project deliverables and belong in the project repo, in the repo clone you're assigned. Working files (design docs, review reports) stay in the workspace dir; read them from there and never copy them into a project repo.
 
 ## Commit messages and PRs
 

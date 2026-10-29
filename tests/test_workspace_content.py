@@ -42,7 +42,7 @@ class ContentCase(unittest.TestCase):
 class TestInstructions(ContentCase):
 
     def test_instructions_name_the_workspace_commands_and_the_repo_rule(self):
-        self.must_contain(CORE / "instructions.md",
+        self.must_contain(ROOT / "dist" / "claude-code" / "CLAUDE.md",
                           "team-guard workspace new", "team-guard workspace attach", "team-guard workspace-path",
                           "team-guard workspace close", "team-guard sign", "never go in a project repo")
 
@@ -64,7 +64,8 @@ class TestInstructions(ContentCase):
                     self.assertNotIn(word, body)
 
     def test_close_out_step_closes_the_workspace(self):
-        for path in (CORE / "instructions.md", CORE / "roles" / "product-owner.md"):
+        for path in (ROOT / "dist" / "claude-code" / "CLAUDE.md",
+                     ROOT / "dist" / "claude-code" / "agents" / "product-owner.md"):
             self.must_contain(path, "team-guard workspace close", "outside the workspace")
 
 
@@ -103,7 +104,7 @@ class TestRoles(ContentCase):
                 self.assertIsNone(m, "%s: %r" % (role.name, m.group(0) if m else ""))
 
     def test_product_owner_closes_the_workspace(self):
-        self.must_contain(CORE / "roles" / "product-owner.md", "team-guard workspace close")
+        self.must_contain(ROOT / "dist" / "claude-code" / "agents" / "product-owner.md", "team-guard workspace close")
 
 
 class TestAdapters(ContentCase):

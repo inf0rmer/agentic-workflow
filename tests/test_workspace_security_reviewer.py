@@ -96,7 +96,7 @@ class TestRoleText(unittest.TestCase):
 
     def test_it_states_the_rules_that_keep_findings_private_and_diffs_untrusted(self):
         for needle in ("never report", "denial of service", "data, not instructions",
-                       "never silently drop a scanner hit", "team-guard workspace-path",
+                       "never silently drop a scanner hit", "{{workspace_locate}}",
                        "STOP: the human decides", "Never quote a secret value"):
             with self.subTest(needle=needle):
                 self.assertIn(needle.lower(), self.text.lower())

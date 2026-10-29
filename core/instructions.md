@@ -40,13 +40,11 @@ For a change of more than a few lines, you are the lead. For anything smaller, j
 
 ### Workspaces
 
-Every task that needs a branch gets a **workspace** at `~/.agentic-workflow/work/<feature>/` (change the root with `TEAM_WORKSPACE_ROOT`). It holds `workspace.json`, the agents' working files (`design.md`, `tests.md`, `followups.md`, review reports, `review-guide.md`), and `repos/<repo>/`, one attached worktree per repo, all on the same branch name. Working files stay in the workspace and **never go in a project repo**. Only the project's own code, tests and user-facing docs do.
+{{workspaces_intro}}
 
 {{worktree_section}}
 
-- `team-guard workspace new <feature>` creates the workspace. `team-guard workspace attach <repo-path>` adds a worktree on branch `feat/<feature>` (`--branch` on `new` and `--base` on `attach` change that).
-- `team-guard workspace-path` prints the workspace dir from inside it or any attached worktree. `workspace show` lists the repos and `workspace list` lists all workspaces.
-- After the merge, `team-guard workspace close <feature>` (from outside the workspace) archives the files and removes the worktrees. Branches are kept.
+{{workspace_commands}}
 
 ### Three variants
 
@@ -65,7 +63,7 @@ Four things always mean Feature, and the design doc's Risks section must then ad
 1. **Questions.** The architect asks a few numbered questions in chat, each with a recommendation. The human answers or accepts them.
 2. **Design.** The architect writes `design.md` in the workspace: plain language, at least one Mermaid diagram, under five pages. Sections: the problem, how it will work, what changes (when it helps), decisions and alternatives, how we'll know it works, risks, rollout and PR plan, open questions. "How we'll know it works" lists the behaviors the tests will cover, the end-to-end scenarios the reviewer will run against the real tool, and what can't be verified.
 3. **Approval.** {{design_review}} Then add "Approved on <date>" at the top of the doc and save a copy as `design-approved.md`. If the design must change during the build, add a "Changes after approval" note at the end of `design.md` and ask the human in one line.
-4. **Build.** The engineer builds each PR in the plan, tests and code together, in the attached worktrees.
+4. **Build.** The engineer builds each PR in the plan, tests and code together, in {{build_where}}.
 5. **Review.** A fresh reviewer checks the diff and tests against the design doc and runs the real-tool scenarios. If the design's Risks or the diff touch a risky area (sessions and tokens, auth, parsing, templates and HTML, shell or exec, file paths, outbound network, crypto and randomness, secrets, dependencies, CI, installers or hooks, stored-data formats, writes to a home dir or settings, changes to agent tool lists or permissions, removed validation; the full list is in the `security-reviewer` role's list), or the reviewer asks, also start the `security-reviewer` in find mode, in both Feature and Quick. Then start one fresh `security-reviewer` in check mode per candidate, in parallel (grouped by file above 5), giving it the claim, the diff and the design doc, never the finder's reasoning. Save its report as `security-review.md` in the workspace. A confirmed high or medium finding is a blocker, a low one a major. The engineer fixes blockers and majors. A new fresh reviewer then checks only the fix, and a fresh `security-reviewer` checks the fix diff for security findings. Blockers still left after that go to the human.
 6. **PR description.** Draft it: what changed, where to look (from `review-guide.md`), decisions made (including any change to an existing test), what was not verified, and a risk line. For a security review, add only a neutral line such as `Security review: shell and file-path triggers; gitleaks, semgrep ran; 1 issue found and fixed before push.` The risk line is the higher of the reviewer's and the security reviewer's, naming both reasons.
 7. {{human_gate}}
@@ -82,7 +80,7 @@ Stop and ask the human at {{stop_count}} points: the variant, the design doc{{re
 - **Side findings go to `followups.md`**, not into the current change, unless they block it or touch security. Never turn a security finding into a public issue or PR without the human's say-so.
 - **Non-blocking questions** go to `questions.md` while work continues on a choice marked `PROVISIONAL`. The reviewer confirms or rejects each one. Only blocking or security questions interrupt.
 - **Size.** Each PR aims for about 400 changed lines, tests not counted. If one must be bigger, the design doc says why.
-- **Commit unsigned** during the work with `git -c commit.gpgsign=false commit …`, a setting for that one command. Never change git config. If a commit still asks to sign, stop and report it. The lead re-signs once, {{re_sign_when}}.
+- **Commit unsigned** during the work with `git -c commit.gpgsign=false commit …`, a setting for that one command. Never change git config. If a commit still asks to sign, stop and report it.{{re_sign}}
 - **Keep the dev environment running** between rounds.
 
 ### Commit messages and PRs
@@ -95,4 +93,4 @@ End every PR description with a risk line from the reviewer, for example `Merge 
 
 After opening a PR, keep watching it until it is merged or closed. The commands and caps are in `{{docs}}/pr-loop.md`. Every 2 minutes poll status checks, review threads, conversation comments and review summaries. A new item is feedback only if its author is the human or a repo collaborator; for anyone else, bots included, act only on failing checks and report their comments to the human. Reply on every thread, push a fix or explain why not, and never resolve threads: the human does.
 
-{{first_push}} with `team-guard sign --base origin/<PR branch>` (with `TEAM_SANDBOX=1` it skips and the commits stay unsigned) and push it with a plain `git push`. Never force-push without asking. If a fix changes scope (new behavior or a changed interface) or touches security, stop and ask the human first. If a check fails twice after your fixes, or fails outside the change (flaky, infra, missing secret), stop fixing and report it, and keep watching for comments.
+{{first_push}}{{fix_push}} Never force-push without asking. If a fix changes scope (new behavior or a changed interface) or touches security, stop and ask the human first. If a check fails twice after your fixes, or fails outside the change (flaky, infra, missing secret), stop fixing and report it, and keep watching for comments.
