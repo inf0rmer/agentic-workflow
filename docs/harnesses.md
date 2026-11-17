@@ -182,7 +182,7 @@ Coder Agents differs from both:
 | Read-only role | The `explore` child type has no `write_file` or `edit_files` but keeps the shell (`execute`): the same tool list as Claude Code's read-only role, with no permission prompt on the shell. A guard, not a wall |
 | Skills | `~/.coder/skills/`, installed when the image is built |
 | Signing | None: commits stay unsigned and the lead says so in the PR description |
-| Human gates | In the chat: the human replies `approve design`. The code is reviewed and merged on the PR, which the lead opens ready for review. Crit isn't used |
+| Human gates | The design doc and the diff go to crit-web: the agent publishes them with `crit share --org homelab --visibility organization` and posts the link, you comment there and reply `done` here, and the agent runs `crit fetch` and revises. Approval stays `approve design` in the chat. If `crit share` fails, the agent posts the content in the chat instead |
 
 Claude Code and Codex share the workspace and archive directories under `~/.agentic-workflow/`, so one team can mix them.
 
