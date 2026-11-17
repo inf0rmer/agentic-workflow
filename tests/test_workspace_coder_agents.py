@@ -126,6 +126,17 @@ class TestRoleSkills(BuildCase):
                 self.assertGreater(step.index(UNTRUSTED_COMMENTS), fetch,
                                    "the guard has to reach the agent before it acts on the comments")
 
+    def test_the_diff_step_opens_the_pr_ready_for_review(self):
+        step = self.step("7. **Open the PR.**")
+        self.assertIn("gh pr edit --body-file", step)
+        self.assertIn("gh pr edit --add-reviewer", step)
+        self.assertIn("TEAM_REVIEWER", step)
+        self.assertIn("ready for review", step)
+        self.assertIn("say in one line in the chat that it is ready for review, linking it", step,
+                      "the announcement has to carry the PR's URL, not just the words")
+        before = step.index("gh pr edit --add-reviewer")
+        self.assertLess(before, step.index(", linking it"), "link the PR the review was requested on")
+
     def step(self, prefix):
         return next(l for l in self.agents_md.splitlines() if l.startswith(prefix))
 
