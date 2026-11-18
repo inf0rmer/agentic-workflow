@@ -392,6 +392,19 @@ class TestSizeGuard(unittest.TestCase):
             self.build_with(AGENTS_LIMIT=200)
         self.assertIn("AGENTS.md", str(cm.exception))
 
+    def test_the_rendered_coder_instructions_keep_the_budget_headroom(self):
+        # The build fails only at the limit; the test holds the shipped text 512 bytes below it, so the
+        # next addition to the Coder gate text has room without trimming something else first.
+        adapter = json.loads((ROOT / "adapters" / "coder-agents" / "adapter.json").read_text())
+        adapter["vars"] = {**json.loads((ROOT / "core" / "vars.json").read_text()), **adapter["vars"]}
+        size = len(build.instructions_text(adapter).encode())
+        headroom = build.INSTRUCTIONS_BUDGET - size
+        self.assertGreaterEqual(
+            headroom, 0,
+            "the rendered Coder instructions are %d bytes, over the %d-byte budget and %d bytes short of "
+            "the %d-byte limit; trim the Coder gate text or raise the budget to %d"
+            % (size, build.INSTRUCTIONS_BUDGET, -headroom, build.INSTRUCTIONS_LIMIT, size))
+
 
 class TestInstall(InstallCase):
 

@@ -24,6 +24,9 @@ import tomllib
 ROOT = os.path.dirname(os.path.abspath(__file__))
 # The rendered instructions stay under half of Codex's 32 KiB limit.
 INSTRUCTIONS_LIMIT = 16 * 1024
+# What the tests hold the Coder build to, so the next addition to its gate text has room: the build
+# itself fails only at INSTRUCTIONS_LIMIT, where truncation would start.
+INSTRUCTIONS_BUDGET = INSTRUCTIONS_LIMIT - 512
 # Coder ignores a SKILL.md or an AGENTS.md larger than 64 KiB.
 SKILL_LIMIT = 64 * 1024
 AGENTS_LIMIT = 64 * 1024
@@ -42,8 +45,12 @@ def render(text, vars_, where):
     return re.sub(r"\{\{([a-z_]+)\}\}", sub, text)
 
 
+def instructions_text(adapter):
+    return render(load("core/instructions.md"), adapter["vars"], "instructions") + adapter.get("instructions_footer", "")
+
+
 def instructions(adapter):
-    text = render(load("core/instructions.md"), adapter["vars"], "instructions") + adapter.get("instructions_footer", "")
+    text = instructions_text(adapter)
     size = len(text.encode())
     if size > INSTRUCTIONS_LIMIT:
         sys.exit(f"build: the rendered instructions are {size} bytes; the limit is {INSTRUCTIONS_LIMIT}")
