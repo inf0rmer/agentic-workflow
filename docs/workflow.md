@@ -29,7 +29,7 @@ flowchart TD
     M --> C[Follow-ups become issues,<br/>workspace close]
 ```
 
-The lead stops and asks you at four points: the variant, the design doc (Feature only), the code review before anything is pushed (in Coder Agents there is no push gate: the lead opens the PR ready for review and you review it there), and any problem it cannot settle alone (a blocker left after the re-check, a security question, or a design change during the build).
+The lead stops and asks you at four points: the variant, the design doc (Feature only), the code review before anything is pushed (in Coder Agents the branch is pushed early, so that gate is the diff on crit-web before the PR opens, and you also review the PR), and any problem it cannot settle alone (a blocker left after the re-check, a security question, or a design change during the build).
 
 ## Pick a variant
 
@@ -47,14 +47,23 @@ The lead picks by judgment and says why in one line. Security, stored data, a pu
 |---|---|---|
 | Start | The variant and a one-line reason (plus the short plan for Quick) | Confirm or change it in one line |
 | Feature, before the doc | A few numbered questions, each with a recommendation | Answer, or accept the recommendations |
-| Feature, design | `design.md` in Crit (diagrams render there), or in chat | Comment until you are happy, then approve in Crit, or reply `approve design` in chat |
+| Feature, design | `design.md` in Crit (diagrams render there): local Crit on Claude Code and Codex, crit-web in Coder Agents | Comment until you are happy, then approve in Crit, or reply `approve design` in chat |
 | During the build | Nothing, unless there is a blocker, a security question or a design change | Answer in one line |
-| Before any push (no such gate in Coder Agents) | The proposed PR description and the full diff, test changes included | Approve, or ask for changes |
+| Before any push (in Coder Agents, the diff gate on crit-web before the PR opens) | The proposed PR description and the full diff, test changes included | Approve, or ask for changes |
 | Open PR | Replies to your comments, and fixes | Resolve threads, merge |
 
 When you approve the doc, the lead adds "Approved on <date>" at its top and saves a copy as `design-approved.md`. If the design must change during the build, the lead adds a "Changes after approval" note at the end of the doc and asks you in one line.
 
-Coder Agents does not use `team-guard`: a Coder workspace is already self-contained, so the workflow workspace is a plain directory under `~/work/.workflow/<feature>/`, the repos are ordinary clones, and commits stay unsigned. The gates happen in the chat, not in Crit, and the push gate is gone, because a workspace is erased when it stops: the lead pushes the branch after the first commit and after every commit (a security fix on a public repo is never pushed; on a private repo it goes to the PR without describing the vulnerability), and opens a PR ready for review (`gh pr create`, a normal PR) when the work is done, its body linking the issue with `Closes #<number>` when the work fully resolves it and `Part of #<number>` when it is partial (multi-PR work), never a closing keyword (`Closes`, `Fixes`, `Resolves`) on a partial one, so merging a PR that finishes the work closes the issue. It says in one line that the PR is ready for review and then watches it: CI status and comments, until you merge it; the bot cannot merge. All work, including cloned repos and workflow workspaces, lives under `~/work`, the only directory that survives a stop. It requests your review on the PR with `gh pr edit --add-reviewer "$TEAM_REVIEWER"`, so the image sets `TEAM_REVIEWER` to your GitHub login.
+Coder Agents does not use `team-guard`: a Coder workspace is already self-contained, so the workflow workspace is a plain directory under `~/work/.workflow/<feature>/`, the repos are ordinary clones, and commits stay unsigned. The design and diff gates run on crit-web (below), and the push gate is gone, because a workspace is erased when it stops: the lead pushes the branch after the first commit and after every commit (a security fix on a public repo is never pushed; on a private repo it goes to the PR without describing the vulnerability), and opens a PR ready for review (`gh pr create`, a normal PR) when the work is done, its body linking the issue with `Closes #<number>` when the work fully resolves it and `Part of #<number>` when it is partial (multi-PR work), never a closing keyword (`Closes`, `Fixes`, `Resolves`) on a partial one, so merging a PR that finishes the work closes the issue. It says in one line that the PR is ready for review and then watches it: CI status and comments, until you merge it; the bot cannot merge. All work, including cloned repos and workflow workspaces, lives under `~/work`, the only directory that survives a stop. It requests your review on the PR with `gh pr edit --add-reviewer "$TEAM_REVIEWER"`, so the image sets `TEAM_REVIEWER` to your GitHub login.
+
+Coder Agents puts the design and diff gates on crit-web rather than in the chat, because a five-page doc or a full diff is awkward to read and comment on in a chat thread, especially on a phone. The agent publishes the file with `crit share --org homelab --visibility organization`, posts the printed link in the chat with "comment there, reply `done` here", and on your `done` runs `crit fetch` and addresses each comment, then re-shares for the next round, which keeps the review and its comments and adds a round. Design approval still works by replying `approve design` in the chat, so nothing else in the flow changes. If `crit share` fails, the agent says so and posts the content inline instead: a gate never deadlocks.
+
+| Coder Agents gate | What the agent shares | How you answer | What happens next |
+|---|---|---|---|
+| Design doc | `design.md`, with `crit share --org homelab --visibility organization` | Comment on the review, then reply `done` in the chat | The architect fetches the comments and revises; you approve with `approve design` |
+| Diff, before the PR opens | `git diff <base>...HEAD` written to a file and shared the same way | Comment on the review, then reply `done` in the chat | The lead fetches the comments and fixes what they ask for, then opens the PR ready for review |
+
+Review state lives under `~/work/.workflow/<feature>/.crit`, because `~/.crit` dies with the workspace. `CRIT_AUTH_TOKEN` reaches the workspace as env: it is never echoed, never put on a command line, and anonymous sharing, `--preview` and `--visibility public` are never used. Claude Code and Codex keep their local `crit` gate.
 
 ## Read a design doc
 
